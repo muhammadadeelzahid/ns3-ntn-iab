@@ -23,6 +23,7 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
  */
 
 #include <ns3/buildings-module.h>

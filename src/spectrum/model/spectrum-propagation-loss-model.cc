@@ -31,6 +31,7 @@ NS_OBJECT_ENSURE_REGISTERED (SpectrumPropagationLossModel);
 SpectrumPropagationLossModel::SpectrumPropagationLossModel ()
   : m_next (0)
 {
+  this->m_useSatelliteModel = false;
 }
 
 SpectrumPropagationLossModel::~SpectrumPropagationLossModel ()
@@ -53,6 +54,15 @@ SpectrumPropagationLossModel::GetTypeId (void)
   return tid;
 }
 
+void SpectrumPropagationLossModel::SetUseSatelliteModel(bool flag)
+{
+  m_useSatelliteModel = flag;
+}
+
+bool SpectrumPropagationLossModel::GetUseSatelliteModel() const
+{
+  return m_useSatelliteModel;
+}
 
 void SpectrumPropagationLossModel::SetNext (Ptr<SpectrumPropagationLossModel> next)
 {

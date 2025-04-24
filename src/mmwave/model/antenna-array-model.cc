@@ -108,6 +108,11 @@ AntennaArrayModel::GetTypeId ()
 			DoubleValue (0.5),
 			MakeDoubleAccessor (&AntennaArrayModel::m_disV),
 		    MakeDoubleChecker<double> ())
+	.AddAttribute ("AntennaGain",
+		"Fixed antenna gain in dB",
+		DoubleValue (15),  // Default is 0 dB
+		MakeDoubleAccessor (&AntennaArrayModel::m_antennaGain),
+		MakeDoubleChecker<double> ())	
 	;
 	return tid;
 }
@@ -115,38 +120,9 @@ AntennaArrayModel::GetTypeId ()
 double
 AntennaArrayModel::GetGainDb (Angles a)
 {
-	/*NS_ASSERT (m_minAngle<=m_maxAngle);
-	double gain;
-	if (m_maxAngle <= M_PI)
-	{
-		if(a.phi < m_minAngle || a.phi > m_maxAngle)
-		{
-			gain = -500;
-			//NS_LOG_UNCOND ("++++++++++++++++++++++blocked");
-		}
-		else
-		{
-			gain = 0;
-		}
-	}
-	else
-	{
-		double maxAngle = m_maxAngle - 2*M_PI;
-		if(a.phi < m_minAngle || a.phi > maxAngle)
-		{
-			gain = -500;
-			//NS_LOG_UNCOND ("++++++++++++++++++++++blocked");
-			}
-		else
-		{
-			gain = 0;
-		}
-
-	}
-
-	return gain;*/
-	return 0;
+	return m_antennaGain;
 }
+
 void
 AntennaArrayModel::SetBeamformingVectorWithDelay (complexVector_t antennaWeights, Ptr<NetDevice> device)
 {

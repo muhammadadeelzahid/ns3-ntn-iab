@@ -106,6 +106,10 @@ public:
    */
   int64_t AssignStreams (int64_t stream);
 
+  void SetUseSatelliteModel(bool flag);
+
+  bool GetUseSatelliteModel() const;
+  double GetElevationAngle() const;
 private:
   /**
    * \brief Copy constructor
@@ -141,6 +145,9 @@ private:
   virtual int64_t DoAssignStreams (int64_t stream) = 0;
 
   Ptr<PropagationLossModel> m_next; //!< Next propagation loss model in the list
+  bool m_useSatelliteModel;
+  double m_elevationAngle;    ///< elevation angle in case of satellite
+  
 };
 
 /**

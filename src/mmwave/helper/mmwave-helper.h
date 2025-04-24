@@ -27,6 +27,8 @@
  *
  * Modified by: Michele Polese <michele.polese@gmail.com> 
  *                 Dual Connectivity and Handover functionalities
+ *   			Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ * 					Satellite Enb init
  */
 
 
@@ -111,6 +113,7 @@ public:
 	NetDeviceContainer InstallLteEnbDevice (NodeContainer c);
 	void SetAntenna (uint16_t Nrx, uint16_t Ntx);
 	void SetPathlossModelType (std::string type);
+	void SetNTNPathlossModelType (std::string type);
 	void SetChannelModelType (std::string type);
 	void SetLtePathlossModelType (std::string type);
 	/**
@@ -121,6 +124,13 @@ public:
 	 * Consider a delay before attaching
 	 */
 	void AttachToClosestEnbWithDelay (NetDeviceContainer ueDevices, NetDeviceContainer enbDevices, Time delay);
+
+	void AttachToClosestSatelliteEnbWithDelay (NetDeviceContainer ueDevices, NetDeviceContainer enbDevices, Time delay);
+
+	void AttachToClosestSatelliteEnb (NetDeviceContainer ueDevices, NetDeviceContainer enbDevices);
+	
+	void AttachIabToClosestSatelliteEnb (NetDeviceContainer iabDevices, NetDeviceContainer enbDevices);
+	
 	/**
 	 * Attach MC ueDevices to the closest LTE enbDevice, register all MmWave eNBs to the MmWaveUePhy
 	 */
@@ -147,6 +157,10 @@ public:
 	 */
 	void AttachIabToClosestWiredEnb (NetDeviceContainer iabDevices, NetDeviceContainer enbDevices);
 	
+	NetDeviceContainer InstallSatelliteEnbDevice (NodeContainer c);
+
+	Ptr<NetDevice> InstallSingleSatelliteEnbDevice (Ptr<Node> n);
+
 	void EnableTraces ();
 
 	void SetSchedulerType (std::string type);
@@ -167,6 +181,7 @@ public:
 	void SetSnrTest (bool snrTest);
 	bool GetSnrTest ();
 	Ptr<PropagationLossModel> GetPathLossModel (void);
+	Ptr<PropagationLossModel> GetNTNPathLossModel (void);
 
 	/**
 	* Set the type of FFR algorithm to be used by LTE eNodeB devices.
@@ -234,17 +249,21 @@ private:
 	void EnableMcTraces (void);
 	Ptr<McStatsCalculator> GetMcStats (void);
 
-	Ptr<SpectrumChannel> m_channel; // mmWave TDD channel	
+	Ptr<SpectrumChannel> m_channel; // mmWave TDD channel
+	Ptr<SpectrumChannel> m_Satellitechannel; // satellite TDD channel	
 	Ptr<SpectrumChannel> m_downlinkChannel; /// The downlink LTE channel used in the simulation.
 	Ptr<SpectrumChannel> m_uplinkChannel; 	/// The uplink LTE channel used in the simulation.
 
 	Ptr<MmWaveBeamforming> m_beamforming;
 	Ptr<MmWaveLosTracker> m_losTracker;
+	Ptr<MmWaveLosTracker> m_satelliteLosTracker;
 	Ptr<MmWaveChannelMatrix> m_channelMatrix;
 	Ptr<MmWaveChannelRaytracing> m_raytracing;
 	Ptr<MmWave3gppChannel> m_3gppChannel;
+	Ptr<MmWave3gppChannel> m_satellite3gppChannel;
 
 	Ptr<Object> m_pathlossModel;
+	Ptr<Object> m_satellitepathlossModel;
 	std::string m_pathlossModelType;
 	Ptr<Object> m_downlinkPathlossModel; 	  /// The path loss model used in the LTE downlink channel.
 	Ptr<Object> m_uplinkPathlossModel;   /// The path loss model used in the LTE uplink channel.
@@ -281,6 +300,8 @@ private:
 	Ptr<MmWavePhyMacCommon> m_phyMacCommon;
 
  	ObjectFactory m_enbAntennaModelFactory;
+	ObjectFactory m_iabAntennaModelFactory;
+	ObjectFactory m_satelliteAntennaModelFactory;
 	ObjectFactory m_ueAntennaModelFactory;	// Factory of antenna object for mmWave UE
 	ObjectFactory m_lteUeAntennaModelFactory;	/// Factory of antenna object for Lte UE.
 	ObjectFactory m_lteEnbAntennaModelFactory; /// Factory of antenna objects for Lte eNB.

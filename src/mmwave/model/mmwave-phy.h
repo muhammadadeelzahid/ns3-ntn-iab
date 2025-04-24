@@ -124,6 +124,9 @@ public:
 	void AddSpectrumPropagationLossModel(Ptr<SpectrumPropagationLossModel> model);
 	void AddPropagationLossModel(Ptr<PropagationLossModel> model);
 	void AddLosTracker(Ptr<MmWaveLosTracker>);
+	void SetSatellitePathlossFlag(bool flag);
+	void SetSatelliteChannelModelFlag(bool flag);
+	bool GetSatelliteChannelModelFlag() const;
 
 protected:
 	Ptr<NetDevice> m_netDevice;
@@ -172,6 +175,7 @@ protected:
 
 	uint32_t m_schedulingDelay;
 
+	bool useSatelliteModel;
 private:
 };
 

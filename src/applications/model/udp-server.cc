@@ -178,6 +178,14 @@ UdpServer::HandleRead (Ptr<Socket> socket)
   NS_LOG_FUNCTION (this << socket);
   Ptr<Packet> packet;
   Address from;
+
+  // Get the Node ID of the current server
+  uint32_t nodeId = GetNode()->GetId();
+  Address localAddress;
+  m_socket->GetSockName(localAddress);
+
+  Ipv4Address localSocket = InetSocketAddress::ConvertFrom(localAddress).GetIpv4();
+
   while ((packet = socket->RecvFrom (from)))
     {
       if (packet->GetSize () > 0)
@@ -198,7 +206,11 @@ UdpServer::HandleRead (Ptr<Socket> socket)
                            " TXtime: " << seqTs.GetTs () <<
                            " RXtime: " << Simulator::Now () <<
                            " Delay: " << Simulator::Now () - seqTs.GetTs ());
-
+              if (firstWrite == 1)
+              {
+                firstWrite = 2;
+                m_outFile<<"Packet Size,\tfrom,\tSequence Number,\tUid,\tTxtime,\tRxtime,\tDelay,\tsocket,\tnode_id\n";
+              }
               m_outFile << packet->GetSize () <<
                            " " << InetSocketAddress::ConvertFrom (from).GetIpv4 () <<
                            " " << m_port <<
@@ -206,7 +218,9 @@ UdpServer::HandleRead (Ptr<Socket> socket)
                            " " << packet->GetUid () <<
                            " " << seqTs.GetTs () <<
                            " " << Simulator::Now () <<
-                           " " << Simulator::Now () - seqTs.GetTs () << "\n";
+                           " " << Simulator::Now () - seqTs.GetTs () <<
+                           " "<<localSocket<<
+                           " "<<nodeId<< "\n";
             }
           else if (Inet6SocketAddress::IsMatchingType (from))
             {

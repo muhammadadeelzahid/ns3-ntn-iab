@@ -98,7 +98,7 @@ MmWavePhyMacCommon::GetTypeId (void)
 						   MakeUintegerChecker<uint32_t> ())
 			.AddAttribute ("ChunkWidth",
 						   "Width of each chunk in Hz",
-						   DoubleValue (13.889e6),
+						   DoubleValue (1.3889e6),
 						   MakeDoubleAccessor (&MmWavePhyMacCommon::m_chunkWidth),
 						   MakeDoubleChecker<double> ())
 			.AddAttribute ("ResourceBlockNum",

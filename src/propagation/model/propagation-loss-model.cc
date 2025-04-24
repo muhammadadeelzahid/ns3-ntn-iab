@@ -44,13 +44,25 @@ PropagationLossModel::GetTypeId (void)
   static TypeId tid = TypeId ("ns3::PropagationLossModel")
     .SetParent<Object> ()
     .SetGroupName ("Propagation")
-  ;
+    .AddAttribute ("ElevationAngle",
+      "Elevation angle of satellite",
+      DoubleValue (10.0),
+      MakeDoubleAccessor (&PropagationLossModel::m_elevationAngle),
+      MakeDoubleChecker<double> (0, 90))
+    .AddAttribute ("UseSatelliteModel",
+      "Use satellite propogation loss model",
+      BooleanValue (false),
+      MakeBooleanAccessor (&PropagationLossModel::m_useSatelliteModel),
+      MakeBooleanChecker ())    
+    ;
+
   return tid;
 }
 
 PropagationLossModel::PropagationLossModel ()
   : m_next (0)
 {
+  this->m_useSatelliteModel = false;
 }
 
 PropagationLossModel::~PropagationLossModel ()
@@ -92,6 +104,21 @@ PropagationLossModel::AssignStreams (int64_t stream)
       currentStream += m_next->AssignStreams (currentStream);
     }
   return (currentStream - stream);
+}
+
+void PropagationLossModel::SetUseSatelliteModel(bool flag)
+{
+  m_useSatelliteModel = flag;
+}
+
+bool PropagationLossModel::GetUseSatelliteModel() const
+{
+  return m_useSatelliteModel;
+}
+
+double PropagationLossModel::GetElevationAngle() const
+{
+  return m_elevationAngle;
 }
 
 // ------------------------------------------------------------------------- //

@@ -35,6 +35,7 @@
 #include <ns3/node.h>
 #include <ns3/packet.h>
 #include <ns3/log.h>
+#include <ns3/boolean.h>
 #include "mmwave-phy.h"
 #include "mmwave-phy-sap.h"
 #include "mmwave-mac-pdu-tag.h"
@@ -113,6 +114,12 @@ MmWavePhy::GetTypeId ()
 	    tid =
 	    TypeId ("ns3::MmWavePhy")
 	    .SetParent<Object> ()
+		.AddAttribute ("useSatelliteModel",
+			"The physical layer is for a Satellite",
+			BooleanValue (false),
+			MakeBooleanAccessor (&MmWavePhy::useSatelliteModel),
+			MakeBooleanChecker ())
+
 	;
 
 	return tid;
@@ -358,6 +365,20 @@ MmWavePhy::SetUlSfAllocInfo (SfAllocInfo sfAllocInfo)
 	// add new SfAllocInfo with UL slot allocation
 	//m_sfAllocInfo[sfAllocInfo.m_sfnSf.m_sfNum] = sfAllocInfo;
 }
+
+void MmWavePhy::SetSatelliteChannelModelFlag(bool flag)
+{
+	NS_LOG_UNCOND("Satellite flag set to "<<flag<<" for spectrum and propagation loss model"<<this<< " : "<<m_spectrumPropagationLossModel);	
+	this->m_spectrumPropagationLossModel->SetUseSatelliteModel(flag);
+	this->m_propagationLoss->SetUseSatelliteModel(flag);
+	useSatelliteModel = flag;
+}
+
+bool MmWavePhy::GetSatelliteChannelModelFlag() const
+{
+	return useSatelliteModel;
+}
+
 
 void 
 MmWavePhy::AddPropagationLossModel(Ptr<PropagationLossModel> model)

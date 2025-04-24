@@ -106,6 +106,7 @@ private:
 
   std::string m_outFilename;
   std::ofstream m_outFile;
+  int firstWrite=1;
 };
 
 } // namespace ns3

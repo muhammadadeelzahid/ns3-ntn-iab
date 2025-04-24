@@ -123,10 +123,16 @@ struct ParamsTable: public Object
 	double m_sigK = 0;
 	double m_rTau = 0;
 	double m_shadowingStd = 0;
+	///[To do] Find the usage of these parameters
+	double m_uXpr = 0;                   //!< Mean of Cross-Polarization Ratio
+	double m_sigXpr = 0;                 //!< Standard deviation of Cross-Polarization Ratio
+	double m_perClusterShadowingStd = 0; //!< Per cluster shadowing standard deviation	
+
 
 	double m_sqrtC[7][7];
 
 	ParamsTable(){}
+	///[To do] modify this function to also include NTN specific parameters
 	void SetParams(uint8_t numOfCluster, uint8_t raysPerCluster, double uLgDS, double sigLgDS,
 			double uLgASD, double sigLgASD, double uLgASA, double sigLgASA,
 			double uLgZSA, double sigLgZSA, double uLgZSD, double sigLgZSD, double offsetZOD,
@@ -319,6 +325,7 @@ private:
 	/**
 	 * Returns the ParamsTable with the parameters of TR 38.900 Table 7.5-6
 	 * that apply to a certain scenario
+	 * @params Is the enb a satellite flag
 	 * @params the los condition
 	 * @params the o2i condition
 	 * @params the BS height (i.e., eNB)
@@ -326,7 +333,7 @@ private:
 	 * @params the 2D distance
 	 * @return the ParamsTable structure
 	 */
-	Ptr<ParamsTable> Get3gppTable (bool los, bool o2i,
+	Ptr<ParamsTable> Get3gppTable (bool isASatellite, bool los, bool o2i,
 										double hBS, double hUT, double distance2D) const;
 
 	/**
@@ -368,6 +375,7 @@ private:
 	std::string m_scenario;
 	double m_blockerSpeed;
 	bool m_forceInitialBfComputation;
+	std::string m_ntnScenario;
 
 };
 

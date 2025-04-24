@@ -193,15 +193,23 @@ SwitchToMmWaveCallback (Ptr<McMmWaveBoundCallbackArgument> arg, std::string path
 void
 DataRadioBearerCreatedConsumer (Ptr<OutputStreamWrapper> stream, uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
-  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << imsi << '\t' << rnti << '\t' << cellId << std::endl;
+  *stream->GetStream () << "Time: " << Simulator::Now ().GetSeconds() 
+                        << " IMSI: " << imsi 
+                        << " RNTI: " << rnti 
+                        << " CellId: " << cellId 
+                        << std::endl;
 }
 
 void
 StateTransitionConsumer (Ptr<OutputStreamWrapper> stream, uint64_t imsi, uint16_t cellId, uint16_t rnti, UeManager::State oldState, UeManager::State newState)
 {
-  *stream->GetStream () << 
-      Simulator::Now ().GetSeconds () << "\t" << imsi << '\t' << rnti <<
-      '\t' << cellId << '\t' << ToString(oldState)  << '\t' << ToString(newState) << std::endl;
+  *stream->GetStream () << "Time: " << Simulator::Now ().GetSeconds() 
+                        << " IMSI: " << imsi 
+                        << " RNTI: " << rnti 
+                        << " CellId: " << cellId 
+                        << " OldState: " << ToString(oldState) 
+                        << " NewState: " << ToString(newState) 
+                        << std::endl;
 }
 
 
@@ -480,9 +488,13 @@ MmWaveBearerStatsConnector::PrintMmWaveSinr (uint64_t imsi, uint16_t cellId, lon
   NS_LOG_FUNCTION(this << " PrintMmWaveSinr " << Simulator::Now().GetSeconds());
   if(!m_mmWaveSinrOutFile.is_open ())
   {
-    m_mmWaveSinrOutFile.open(GetMmWaveSinrOutputFilename() .c_str());
+    m_mmWaveSinrOutFile.open(GetMmWaveSinrOutputFilename().c_str());
   }
-  m_mmWaveSinrOutFile << Simulator::Now().GetNanoSeconds()/1.0e9 << " " << imsi << " " << cellId << " " << 10*std::log10(sinr) << std::endl;
+  m_mmWaveSinrOutFile << "Time: " << Simulator::Now().GetNanoSeconds()/1.0e9 
+                      << " IMSI: " << imsi 
+                      << " CellId: " << cellId 
+                      << " SINR(dB): " << 10*std::log10(sinr) 
+                      << std::endl;
 }
 
 void 
@@ -497,10 +509,15 @@ MmWaveBearerStatsConnector::PrintLteSinr (uint16_t rnti, uint16_t cellId, double
   NS_LOG_FUNCTION(this << " PrintLteSinr " << Simulator::Now().GetSeconds());
   if(!m_lteSinrOutFile.is_open ())
   {
-    m_lteSinrOutFile.open(GetLteSinrOutputFilename() .c_str());
+    m_lteSinrOutFile.open(GetLteSinrOutputFilename().c_str());
   }
-  m_lteSinrOutFile << Simulator::Now().GetNanoSeconds()/1.0e9 << " " << rnti << " " << cellId << " " << sinr << std::endl;
+  m_lteSinrOutFile << "Time: " << Simulator::Now().GetNanoSeconds()/1.0e9 
+                   << " RNTI: " << rnti 
+                   << " CellId: " << cellId 
+                   << " SINR: " << sinr 
+                   << std::endl;
 }
+
 
 std::string 
 MmWaveBearerStatsConnector::GetEnbHandoverStartOutputFilename (void)
@@ -592,7 +609,12 @@ MmWaveBearerStatsConnector::PrintEnbStartHandover(uint64_t imsi, uint16_t source
   {
     m_enbHandoverStartOutFile.open(GetEnbHandoverStartOutputFilename() .c_str());
   }
-  m_enbHandoverStartOutFile << Simulator::Now().GetNanoSeconds()/1.0e9 << " " << imsi << " " << rnti << " " << sourceCellid << " " << targetCellId << std::endl;
+  m_enbHandoverStartOutFile << "Time: " << Simulator::Now().GetNanoSeconds()/1.0e9 
+                            << " IMSI: " << imsi 
+                            << " RNTI: " << rnti 
+                            << " SourceCellId: " << sourceCellid 
+                            << " TargetCellId: " << targetCellId 
+                            << std::endl;
 }
 
 void 
@@ -603,7 +625,11 @@ MmWaveBearerStatsConnector::PrintEnbEndHandover(uint64_t imsi, uint16_t targetCe
   {
     m_enbHandoverEndOutFile.open(GetEnbHandoverEndOutputFilename() .c_str());
   }
-  m_enbHandoverEndOutFile << Simulator::Now().GetNanoSeconds()/1.0e9 << " " << imsi << " " << rnti << " " << targetCellId << std::endl;
+  m_enbHandoverEndOutFile << "Time: " << Simulator::Now().GetNanoSeconds()/1.0e9 
+                          << " IMSI: " << imsi 
+                          << " RNTI: " << rnti 
+                          << " TargetCellId: " << targetCellId 
+                          << std::endl;
 }
 
 void 
@@ -614,7 +640,12 @@ MmWaveBearerStatsConnector::PrintUeStartHandover(uint64_t imsi, uint16_t sourceC
   {
     m_ueHandoverStartOutFile.open(GetUeHandoverStartOutputFilename() .c_str());
   }
-  m_ueHandoverStartOutFile << Simulator::Now().GetNanoSeconds()/1.0e9 << " " << imsi << " " << rnti << " " << sourceCellid << " " << targetCellId << std::endl;
+  m_ueHandoverStartOutFile << "Time: " << Simulator::Now().GetNanoSeconds()/1.0e9 
+                           << " IMSI: " << imsi 
+                           << " RNTI: " << rnti 
+                           << " SourceCellId: " << sourceCellid 
+                           << " TargetCellId: " << targetCellId 
+                           << std::endl;
 }
 
 void 
@@ -625,14 +656,23 @@ MmWaveBearerStatsConnector::PrintUeEndHandover(uint64_t imsi, uint16_t targetCel
   {
     m_ueHandoverEndOutFile.open(GetUeHandoverEndOutputFilename() .c_str());
   }
-  m_ueHandoverEndOutFile << Simulator::Now().GetNanoSeconds()/1.0e9 << " " << imsi << " " << rnti << " " << targetCellId << std::endl;
+  m_ueHandoverEndOutFile << "Time: " << Simulator::Now().GetNanoSeconds()/1.0e9 
+                         << " IMSI: " << imsi 
+                         << " RNTI: " << rnti 
+                         << " TargetCellId: " << targetCellId 
+                         << std::endl;
 
   if(!m_cellIdInTimeHandoverOutFile.is_open ())
   {
     m_cellIdInTimeHandoverOutFile.open(GetCellIdStatsOutputFilename() .c_str());
   }
-  m_cellIdInTimeHandoverOutFile << Simulator::Now().GetNanoSeconds()/1.0e9 << " " << imsi << " " << rnti << " " << targetCellId << std::endl;
+  m_cellIdInTimeHandoverOutFile << "Time: " << Simulator::Now().GetNanoSeconds()/1.0e9 
+                                << " IMSI: " << imsi 
+                                << " RNTI: " << rnti 
+                                << " TargetCellId: " << targetCellId 
+                                << std::endl;
 }
+
 
 void 
 MmWaveBearerStatsConnector::StoreUeManagerPath (std::string context, uint16_t cellId, uint16_t rnti)

@@ -2959,7 +2959,7 @@ LteEnbRrc::ConfigureCell (uint8_t ulBandwidth, uint8_t dlBandwidth,
   m_ulBandwidth = ulBandwidth;
   m_cellId = cellId;
   m_cphySapProvider->SetCellId (cellId);
-
+  NS_LOG_UNCOND("configure cell, bandwidth uplink: "<<m_ulBandwidth<<" bandwidth downlink: "<<m_dlBandwidth);
   if (!m_ismmWave)
   {
     m_ffrRrcSapProvider->SetCellId (cellId);

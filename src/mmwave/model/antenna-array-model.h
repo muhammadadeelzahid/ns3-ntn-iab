@@ -62,7 +62,7 @@ private:
 
 	double m_disV; //antenna spacing in the vertical direction in terms of wave length.
 	double m_disH; //antenna spacing in the horizontal direction in terms of wave length.
-
+	double m_antennaGain;
 	Ptr<NetDevice> m_currentDev;
 
 };

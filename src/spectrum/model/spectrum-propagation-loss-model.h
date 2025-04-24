@@ -78,10 +78,12 @@ public:
                                                  Ptr<const MobilityModel> a,
                                                  Ptr<const MobilityModel> b) const;
 
+  void SetUseSatelliteModel(bool flag);
+  bool GetUseSatelliteModel() const;
+
 protected:
   virtual void DoDispose ();
-
-
+  
 private:
   /**
    *
@@ -98,6 +100,8 @@ private:
                                                            Ptr<const MobilityModel> b) const = 0;
 
   Ptr<SpectrumPropagationLossModel> m_next; //!< SpectrumPropagationLossModel chained to this one.
+
+  bool m_useSatelliteModel;    ///< is the channel model for satellite/NTN
 };
 
 

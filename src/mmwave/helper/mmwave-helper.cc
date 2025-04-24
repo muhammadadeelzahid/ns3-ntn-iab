@@ -27,6 +27,8 @@
  *
  * Modified by: Michele Polese <michele.polese@gmail.com> 
  *                 Dual Connectivity and Handover functionalities
+ * 				Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ * 					Satellite Enb init
  */
 
 
@@ -85,6 +87,12 @@ MmWaveHelper::MmWaveHelper(void)
 	m_mcUeNetDeviceFactory.SetTypeId (McUeNetDevice::GetTypeId ());
 	m_enbAntennaModelFactory.SetTypeId (AntennaArrayModel::GetTypeId ());
 	m_ueAntennaModelFactory.SetTypeId (AntennaArrayModel::GetTypeId ());
+	m_satelliteAntennaModelFactory.SetTypeId (AntennaArrayModel::GetTypeId ());
+	m_iabAntennaModelFactory.SetTypeId (AntennaArrayModel::GetTypeId ());
+
+	//m_ueAntennaModelFactory.Set("AntennaGain", DoubleValue(11.0));  // Set UE gain
+	//m_iabAntennaModelFactory.Set("AntennaGain", DoubleValue(0.0));  // Set UE gain
+	m_satelliteAntennaModelFactory.Set("AntennaGain", DoubleValue(25.0));  // Satellite Antenna Gain
 
 	m_lteUeAntennaModelFactory.SetTypeId (IsotropicAntennaModel::GetTypeId ());
 	m_lteEnbAntennaModelFactory.SetTypeId (IsotropicAntennaModel::GetTypeId ());
@@ -203,6 +211,7 @@ MmWaveHelper::DoDispose (void)
 {
 	NS_LOG_FUNCTION (this);
 	m_channel = 0;
+	m_Satellitechannel = 0;
 	Object::DoDispose ();
 }
 
@@ -213,16 +222,21 @@ MmWaveHelper::DoInitialize()
 
 	// setup of mmWave channel & related
 	m_channel = m_channelFactory.Create<SpectrumChannel> ();
+	m_Satellitechannel = m_channelFactory.Create<SpectrumChannel> ();
+
 	m_phyMacCommon = CreateObject <MmWavePhyMacCommon> () ;
 
 	if (!m_pathlossModelType.empty ())
 	{
 		m_pathlossModel = m_pathlossModelFactory.Create ();
+		m_satellitepathlossModel = m_pathlossModelFactory.Create ();
 		Ptr<PropagationLossModel> splm = m_pathlossModel->GetObject<PropagationLossModel> ();
+		Ptr<PropagationLossModel> sat_splm = m_satellitepathlossModel->GetObject<PropagationLossModel> ();
 		if( splm )
 		{
 			NS_LOG_LOGIC (this << " using a PropagationLossModel");
 			m_channel->AddPropagationLossModel (splm);
+			m_Satellitechannel ->AddPropagationLossModel(sat_splm); // [To do] seperate for satellite
 		}
 
 		if (m_pathlossModelType == "ns3::BuildingsObstaclePropagationLossModel")
@@ -236,14 +250,17 @@ MmWaveHelper::DoInitialize()
 		else if(m_pathlossModelType == "ns3::MmWavePropagationLossModel")
 		{
 			m_pathlossModel->GetObject<MmWavePropagationLossModel>()->SetConfigurationParameters(m_phyMacCommon);
+			m_satellitepathlossModel->GetObject<MmWavePropagationLossModel>()->SetConfigurationParameters(m_phyMacCommon);			
 		}
 		else if(m_pathlossModelType == "ns3::MmWave3gppPropagationLossModel")
 		{
 			m_pathlossModel->GetObject<MmWave3gppPropagationLossModel>()->SetConfigurationParameters(m_phyMacCommon);
+			m_satellitepathlossModel->GetObject<MmWave3gppPropagationLossModel>()->SetConfigurationParameters(m_phyMacCommon);
 		}
 		else if(m_pathlossModelType == "ns3::MmWave3gppBuildingsPropagationLossModel")
 		{
 			m_pathlossModel->GetObject<MmWave3gppBuildingsPropagationLossModel>()->SetConfigurationParameters(m_phyMacCommon);
+			m_satellitepathlossModel->GetObject<MmWave3gppBuildingsPropagationLossModel>()->SetConfigurationParameters(m_phyMacCommon);
 		}
 	}
 	else
@@ -255,29 +272,39 @@ MmWaveHelper::DoInitialize()
 	{
 		m_beamforming = CreateObject<MmWaveBeamforming> (m_noTxAntenna, m_noRxAntenna);
 		m_channel->AddSpectrumPropagationLossModel (m_beamforming);
+		m_Satellitechannel->AddSpectrumPropagationLossModel (m_beamforming);
 		m_beamforming->SetConfigurationParameters (m_phyMacCommon);
 	}
 	else if(m_channelModelType == "ns3::MmWaveChannelMatrix")
 	{
 		m_channelMatrix = CreateObject<MmWaveChannelMatrix> ();
 		m_channel->AddSpectrumPropagationLossModel (m_channelMatrix);
+		m_Satellitechannel->AddSpectrumPropagationLossModel (m_channelMatrix);
 		m_channelMatrix->SetConfigurationParameters (m_phyMacCommon);
 	}
 	else if(m_channelModelType == "ns3::MmWaveChannelRaytracing")
 	{
 		m_raytracing = CreateObject<MmWaveChannelRaytracing> ();
 		m_channel->AddSpectrumPropagationLossModel (m_raytracing);
+		m_Satellitechannel->AddSpectrumPropagationLossModel (m_raytracing);		
 		m_raytracing->SetConfigurationParameters (m_phyMacCommon);
 	}
 	else if(m_channelModelType == "ns3::MmWave3gppChannel")
 	{
 		m_3gppChannel = CreateObject<MmWave3gppChannel> ();
+		m_satellite3gppChannel = CreateObject<MmWave3gppChannel>();
+		
 		m_channel->AddSpectrumPropagationLossModel (m_3gppChannel);
+		m_Satellitechannel->AddSpectrumPropagationLossModel (m_satellite3gppChannel);
+
 		m_3gppChannel->SetConfigurationParameters (m_phyMacCommon);
+		m_satellite3gppChannel->SetConfigurationParameters (m_phyMacCommon);
 		if (m_pathlossModelType == "ns3::MmWave3gppBuildingsPropagationLossModel" || m_pathlossModelType == "ns3::MmWave3gppPropagationLossModel" )
 		{
 			Ptr<PropagationLossModel> pl = m_pathlossModel->GetObject<PropagationLossModel> ();
+			Ptr<PropagationLossModel> pl_sat = m_satellitepathlossModel->GetObject<PropagationLossModel> ();
 			m_3gppChannel->SetPathlossModel(pl);
+			m_satellite3gppChannel->SetPathlossModel(pl_sat);
 		}
 		else
 		{
@@ -361,6 +388,16 @@ Ptr<PropagationLossModel>
 MmWaveHelper::GetPathLossModel ()
 {
 	return m_pathlossModel->GetObject<PropagationLossModel> ();
+}
+
+void
+MmWaveHelper::SetNTNPathlossModelType (std::string type)
+{
+	NS_LOG_FUNCTION (this << type);
+	if (!type.empty ())
+	{
+		m_pathlossModelFactory.Set("NTNScenario", StringValue("UMa"));
+	}
 }
 
 void
@@ -516,6 +553,22 @@ MmWaveHelper::InstallEnbDevice (NodeContainer c)
 }
 
 NetDeviceContainer
+MmWaveHelper::InstallSatelliteEnbDevice (NodeContainer c)
+{
+	NS_LOG_FUNCTION (this);
+	Initialize ();  // Run DoInitialize (), if necessary
+	NetDeviceContainer devices;
+	for (NodeContainer::Iterator i = c.Begin (); i != c.End (); ++i)
+	  {
+	    Ptr<Node> node = *i;
+	    Ptr<NetDevice> device = InstallSingleSatelliteEnbDevice (node);
+	    device->SetAddress (Mac48Address::Allocate ());
+	    devices.Add (device);
+	  }
+	return devices;
+}
+
+NetDeviceContainer
 MmWaveHelper::InstallLteEnbDevice (NodeContainer c)
 {
 	NS_LOG_FUNCTION (this);
@@ -569,6 +622,7 @@ MmWaveHelper::InstallSingleIabDevice(Ptr<Node> n)
 	Ptr<MmWaveSpectrumPhy> dlPhy = CreateObject<MmWaveSpectrumPhy> ();
 
 	Ptr<MmWaveUePhy> phy = CreateObject<MmWaveUePhy> (dlPhy, ulPhy);
+	phy->SetTxPower(35);
 
 	Ptr<MmWaveHarqPhy> harq = Create<MmWaveHarqPhy> (m_phyMacCommon->GetNumHarqProcess ());
 	dlPhy->SetHarqPhyModule (harq);
@@ -701,7 +755,7 @@ MmWaveHelper::InstallSingleIabDevice(Ptr<Node> n)
 	Ptr<MmWaveHarqPhy> accessHarq = Create<MmWaveHarqPhy> (m_phyMacCommon->GetNumHarqProcess ());
 	accessDlPhy->SetHarqPhyModule (accessHarq);
 	accessPhy->SetHarqPhyModule (accessHarq);
-
+	accessPhy->SetTxPower(35);
 	Ptr<MmWaveChunkProcessor> accessProcData = Create<MmWaveChunkProcessor> ();
 	if(!m_snrTest)
 	{
@@ -752,9 +806,11 @@ MmWaveHelper::InstallSingleIabDevice(Ptr<Node> n)
 		NS_LOG_UNCOND (this << " No PropagationLossModel!");
 	}
 
+	accessPhy->SetSatelliteChannelModelFlag(false);
+
 	/* Antenna model */
 	// TODOIAB antenna factory for IAB access?
-	Ptr<AntennaModel> accessAntenna = (m_enbAntennaModelFactory.Create ())->GetObject<AntennaModel> ();
+	Ptr<AntennaModel> accessAntenna = (m_iabAntennaModelFactory.Create ())->GetObject<AntennaModel> ();
 	NS_ASSERT_MSG (accessAntenna, "error in creating the AntennaModel object");
 	accessDlPhy->SetAntenna (accessAntenna);
 	accessUlPhy->SetAntenna (accessAntenna);
@@ -839,17 +895,17 @@ MmWaveHelper::InstallSingleIabDevice(Ptr<Node> n)
 
   	accessRrc->SetForwardUpCallback (MakeCallback (&MmWaveIabNetDevice::ReceiveAccess, device));
 
-	// NS_LOG_LOGIC ("set the propagation model frequencies");
-	// double freq = m_phyMacCommon->GetCenterFrequency ();
-	// NS_LOG_LOGIC ("Channel Frequency: " << freq);
-	// if (!m_pathlossModelType.empty ())
-	// {
-	// 	bool freqOk = m_pathlossModel->SetAttributeFailSafe ("Frequency", DoubleValue (freq));
-	// 	if (!freqOk)
-	// 	{
-	// 		NS_LOG_WARN ("Propagation model does not have a Frequency attribute");
-	// 	}
-	// }
+	NS_LOG_LOGIC ("set the propagation model frequencies");
+	double freq = 6.0e9;//m_phyMacCommon->GetCenterFrequency ();
+	NS_LOG_LOGIC ("Channel Frequency: " << freq);
+	if (!m_pathlossModelType.empty ())
+	{
+		bool freqOk = m_pathlossModel->SetAttributeFailSafe ("Frequency", DoubleValue (freq));
+		if (!freqOk)
+		{
+			NS_LOG_WARN ("Propagation model does not have a Frequency attribute");
+		}
+	}
 
 	device->Initialize ();
 
@@ -1371,7 +1427,7 @@ MmWaveHelper::InstallSingleUeDevice (Ptr<Node> n)
 	dlPhy->SetHarqPhyModule (harq);
 //	ulPhy->SetHarqPhyModule (harq);
 	phy->SetHarqPhyModule (harq);
-
+	//phy->SetTxPower(23);
 	/* Do not do this here. Do it during registration with the BS
 	 * phy->SetConfigurationParameters(m_phyMacCommon);*/
 
@@ -1706,6 +1762,213 @@ MmWaveHelper::InstallSingleEnbDevice (Ptr<Node> n)
 	return device;
 }
 
+/**
+ * same as InstallSingleEnbDevice + set physical layer bool attribute
+ * for satellite
+ */
+Ptr<NetDevice>
+MmWaveHelper::InstallSingleSatelliteEnbDevice (Ptr<Node> n)
+{
+	NS_LOG_FUNCTION(this);
+	NS_ABORT_MSG_IF (m_cellIdCounter == 65535, "max num eNBs exceeded");
+	uint16_t cellId = ++m_cellIdCounter;
+
+	Ptr<MmWaveSpectrumPhy> ulPhy = CreateObject<MmWaveSpectrumPhy> ();
+	Ptr<MmWaveSpectrumPhy> dlPhy = CreateObject<MmWaveSpectrumPhy> ();
+
+	Ptr<MmWaveEnbPhy> phy = CreateObject<MmWaveEnbPhy> (dlPhy, ulPhy);
+	phy->SetTxPower(40);
+	NS_LOG_UNCOND("eNB " << cellId << " MmWaveSpectrumPhy " << dlPhy);
+	
+	Ptr<MmWaveHarqPhy> harq = Create<MmWaveHarqPhy> (m_phyMacCommon->GetNumHarqProcess ());
+
+	dlPhy->SetHarqPhyModule (harq);
+//	ulPhy->SetHarqPhyModule (harq);
+	phy->SetHarqPhyModule (harq);
+
+	Ptr<MmWaveChunkProcessor> pData = Create<MmWaveChunkProcessor> ();
+	if(!m_snrTest)
+	{
+		pData->AddCallback (MakeCallback (&MmWaveEnbPhy::GenerateDataCqiReport, phy));
+		pData->AddCallback (MakeCallback (&MmWaveSpectrumPhy::UpdateSinrPerceived, dlPhy));
+	}
+	dlPhy->AddDataSinrChunkProcessor (pData);
+
+	phy->SetConfigurationParameters(m_phyMacCommon);
+
+	// ulPhy->SetChannel (m_Satellitechannel);
+	// dlPhy->SetChannel (m_Satellitechannel);
+
+	ulPhy->SetChannel (m_channel);
+	dlPhy->SetChannel (m_channel);
+
+	Ptr<MobilityModel> mm = n->GetObject<MobilityModel> ();
+	NS_ASSERT_MSG (mm, "MobilityModel needs to be set on node before calling MmWaveHelper::InstallEnbDevice ()");
+	ulPhy->SetMobility (mm);
+	dlPhy->SetMobility (mm);
+
+	// hack to allow periodic computation of SINR at the eNB, without pilots
+	// phy->AddSpectrumPropagationLossModel(m_satellite3gppChannel);
+
+	phy->AddSpectrumPropagationLossModel(m_satellite3gppChannel);
+
+	if (!m_pathlossModelType.empty ())
+	{
+		Ptr<PropagationLossModel> splm = m_satellitepathlossModel->GetObject<PropagationLossModel> ();
+
+		//Ptr<PropagationLossModel> splm = m_pathlossModel->GetObject<PropagationLossModel> ();
+		if( splm )
+		{
+			phy->AddPropagationLossModel (splm);
+			if (m_losTracker != 0)
+			{
+				phy->AddLosTracker(m_losTracker); // use m_losTracker in phy (and in particular in enbPhy)
+			}
+		}
+	}
+	else
+	{
+		NS_LOG_UNCOND (this << " No PropagationLossModel!");
+	}
+
+	phy->SetSatelliteChannelModelFlag(true);
+
+	/* Antenna model */
+	Ptr<AntennaModel> antenna = (m_satelliteAntennaModelFactory.Create ())->GetObject<AntennaModel> ();
+	NS_ASSERT_MSG (antenna, "error in creating the AntennaModel object");
+	dlPhy->SetAntenna (antenna);
+	ulPhy->SetAntenna (antenna);
+
+	Ptr<MmWaveEnbMac> mac = CreateObject<MmWaveEnbMac> ();
+	mac->SetConfigurationParameters (m_phyMacCommon);
+	Ptr<MmWaveMacScheduler> sched = m_schedulerFactory.Create<MmWaveMacScheduler> ();
+
+	/*to use the dummy ffrAlgorithm, I changed the bandwidth to 25 in EnbNetDevice
+	m_ffrAlgorithmFactory = ObjectFactory ();
+	m_ffrAlgorithmFactory.SetTypeId ("ns3::LteFrNoOpAlgorithm");
+	Ptr<LteFfrAlgorithm> ffrAlgorithm = m_ffrAlgorithmFactory.Create<LteFfrAlgorithm> ();
+	*/
+	sched->ConfigureCommonParameters (m_phyMacCommon);
+	mac->SetMmWaveMacSchedSapProvider(sched->GetMacSchedSapProvider());
+	sched->SetMacSchedSapUser (mac->GetMmWaveMacSchedSapUser());
+	mac->SetMmWaveMacCschedSapProvider(sched->GetMacCschedSapProvider());
+	sched->SetMacCschedSapUser (mac->GetMmWaveMacCschedSapUser());
+
+	phy->SetPhySapUser (mac->GetPhySapUser());
+	mac->SetPhySapProvider (phy->GetPhySapProvider());
+	Ptr<LteEnbRrc> rrc = CreateObject<LteEnbRrc> ();
+
+	if (m_useIdealRrc)
+	{
+		Ptr<MmWaveEnbRrcProtocolIdeal> rrcProtocol = CreateObject<MmWaveEnbRrcProtocolIdeal> ();
+		rrcProtocol->SetLteEnbRrcSapProvider (rrc->GetLteEnbRrcSapProvider ());
+		rrc->SetLteEnbRrcSapUser (rrcProtocol->GetLteEnbRrcSapUser ());
+		rrc->AggregateObject (rrcProtocol);
+		rrcProtocol->SetCellId (cellId);
+	}
+	else
+	{
+		Ptr<MmWaveLteEnbRrcProtocolReal> rrcProtocol = CreateObject<MmWaveLteEnbRrcProtocolReal> ();
+		rrcProtocol->SetLteEnbRrcSapProvider (rrc->GetLteEnbRrcSapProvider ());
+		rrc->SetLteEnbRrcSapUser (rrcProtocol->GetLteEnbRrcSapUser ());
+		rrc->AggregateObject (rrcProtocol);
+		rrcProtocol->SetCellId (cellId);
+	}
+
+	if (m_epcHelper != 0)
+	{
+		EnumValue epsBearerToRlcMapping;
+		rrc->GetAttribute ("EpsBearerToRlcMapping", epsBearerToRlcMapping);
+		// it does not make sense to use RLC/SM when also using the EPC
+		if (epsBearerToRlcMapping.Get () == LteEnbRrc::RLC_SM_ALWAYS)
+		{
+			if (m_rlcAmEnabled)
+			{
+				rrc->SetAttribute ("EpsBearerToRlcMapping", EnumValue (LteEnbRrc::RLC_AM_ALWAYS));
+			}
+			else
+			{
+				rrc->SetAttribute ("EpsBearerToRlcMapping", EnumValue (LteEnbRrc::RLC_UM_LOWLAT_ALWAYS));
+			}
+		}
+	}
+
+	rrc->SetAttribute ("mmWaveDevice", BooleanValue(true));
+	rrc->SetLteEnbCmacSapProvider (mac->GetEnbCmacSapProvider ());
+	mac->SetEnbCmacSapUser (rrc->GetLteEnbCmacSapUser ());
+
+	rrc->SetLteMacSapProvider (mac->GetUeMacSapProvider ());
+	phy->SetMmWaveEnbCphySapUser (rrc->GetLteEnbCphySapUser ());
+	rrc->SetLteEnbCphySapProvider (phy->GetMmWaveEnbCphySapProvider ());
+
+	//FFR SAP
+	//rrc->SetLteFfrRrcSapProvider (ffrAlgorithm->GetLteFfrRrcSapProvider ());
+	//ffrAlgorithm->SetLteFfrRrcSapUser (rrc->GetLteFfrRrcSapUser ());
+
+	Ptr<MmWaveEnbNetDevice> device = m_enbNetDeviceFactory.Create<MmWaveEnbNetDevice> ();
+	device->SetNode (n);
+	device->SetAttribute ("CellId", UintegerValue (cellId));
+	device->SetAttribute ("MmWaveEnbPhy", PointerValue (phy));
+	device->SetAttribute ("MmWaveEnbMac", PointerValue (mac));
+	device->SetAttribute ("mmWaveScheduler", PointerValue(sched));
+	device->SetAttribute ("LteEnbRrc", PointerValue (rrc));
+
+
+	phy->SetDevice (device);
+	dlPhy->SetDevice (device);
+	dlPhy->SetCellId (cellId);
+	ulPhy->SetDevice (device);
+	n->AddDevice (device);
+
+	mac->SetCellId(cellId);
+	dlPhy->SetPhyRxDataEndOkCallback (MakeCallback (&MmWaveEnbPhy::PhyDataPacketReceived, phy));
+	dlPhy->SetPhyRxCtrlEndOkCallback (MakeCallback (&MmWaveEnbPhy::PhyCtrlMessagesReceived, phy));
+  	dlPhy->SetPhyUlHarqFeedbackCallback (MakeCallback (&MmWaveEnbPhy::ReceiveUlHarqFeedback, phy));
+
+	//mac->SetForwardUpCallback (MakeCallback (&MmWaveEnbNetDevice::Receive, device));
+	rrc->SetForwardUpCallback (MakeCallback (&MmWaveEnbNetDevice::Receive, device));
+	rrc->SetAttribute("mmWaveDevice", BooleanValue(true));
+
+	NS_LOG_LOGIC ("set the propagation model frequencies");
+	double freq = 28.0e9;//m_phyMacCommon->GetCenterFrequency ();
+	NS_LOG_UNCOND ("Channel Frequency: " << freq);
+	if (!m_pathlossModelType.empty ())
+	{
+		bool freqOk = m_satellitepathlossModel->SetAttributeFailSafe ("Frequency", DoubleValue (freq));
+		if (!freqOk)
+		{
+			NS_LOG_WARN ("Propagation model does not have a Frequency attribute");
+		}
+	}
+
+	device->Initialize ();
+
+	m_channel->AddRx (dlPhy);
+
+
+	if (m_epcHelper != 0)
+	{
+		NS_LOG_INFO ("adding this eNB to the EPC");
+		m_epcHelper->AddEnb (n, device, device->GetCellId ());
+		Ptr<EpcEnbApplication> enbApp = n->GetApplication (0)->GetObject<EpcEnbApplication> ();
+		NS_ASSERT_MSG (enbApp != 0, "cannot retrieve EpcEnbApplication");
+
+		// S1 SAPs
+		rrc->SetS1SapProvider (enbApp->GetS1SapProvider ());
+		enbApp->SetS1SapUser (rrc->GetS1SapUser ());
+
+		// X2 SAPs
+		Ptr<EpcX2> x2 = n->GetObject<EpcX2> ();
+		x2->SetEpcX2SapUser (rrc->GetEpcX2SapUser ());
+		rrc->SetEpcX2SapProvider (x2->GetEpcX2SapProvider ());
+	 	rrc->SetEpcX2RlcProvider (x2->GetEpcX2RlcProvider ());
+
+	}
+
+	NS_LOG_UNCOND("setup satellite complete");
+	return device;
+}
+
 
 Ptr<NetDevice>
 MmWaveHelper::InstallSingleLteEnbDevice (Ptr<Node> n)
@@ -1920,27 +2183,38 @@ MmWaveHelper::AttachToClosestEnb (NetDeviceContainer ueDevices, NetDeviceContain
 
 }
 
+// only for mmWave-only devices
+void
+MmWaveHelper::AttachToClosestSatelliteEnb (NetDeviceContainer ueDevices, NetDeviceContainer enbDevices)
+{
+	NS_LOG_FUNCTION(this);
+
+	for (NetDeviceContainer::Iterator i = ueDevices.Begin(); i != ueDevices.End(); i++)
+	{
+		AttachToSingleClosestEnb(*i, enbDevices);
+	}
+
+}
+
 void
 MmWaveHelper::AttachToClosestEnbWithDelay (NetDeviceContainer ueDevices, NetDeviceContainer enbDevices, Time delay)
 {
 	NS_LOG_FUNCTION(this);
 
-	if(m_channelModelType == "ns3::MmWaveBeamforming")
+	m_3gppChannel->Initial(ueDevices,enbDevices);
+
+	for (NetDeviceContainer::Iterator i = ueDevices.Begin(); i != ueDevices.End(); i++)
 	{
-		m_beamforming->Initial(ueDevices,enbDevices);
+		Simulator::Schedule(delay, &MmWaveHelper::AttachToSingleClosestEnb, this, *i, enbDevices);
 	}
-	else if(m_channelModelType == "ns3::MmWaveChannelMatrix")
-	{
-		m_channelMatrix->Initial(ueDevices,enbDevices);
-	}
-	else if(m_channelModelType == "ns3::MmWaveChannelRaytracing")
-	{
-		m_raytracing->Initial(ueDevices,enbDevices);
-	}
-	else if(m_channelModelType == "ns3::MmWave3gppChannel")
-	{
-		m_3gppChannel->Initial(ueDevices,enbDevices);
-	}
+}
+
+void
+MmWaveHelper::AttachToClosestSatelliteEnbWithDelay (NetDeviceContainer ueDevices, NetDeviceContainer enbDevices, Time delay)
+{
+	NS_LOG_FUNCTION(this);
+
+	m_satellite3gppChannel->Initial(ueDevices,enbDevices);
 
 	for (NetDeviceContainer::Iterator i = ueDevices.Begin(); i != ueDevices.End(); i++)
 	{
@@ -2079,6 +2353,22 @@ MmWaveHelper::AttachIabToClosestWiredEnb (NetDeviceContainer iabDevices, NetDevi
 		{
 			NS_FATAL_ERROR("No support for other channels");
 		}
+
+		AttachIabToClosestEnb(*i, tmpContainer);
+	}
+}
+
+void
+MmWaveHelper::AttachIabToClosestSatelliteEnb (NetDeviceContainer iabDevices, NetDeviceContainer enbDevices)
+{
+	NS_LOG_FUNCTION(this);
+
+	for (NetDeviceContainer::Iterator i = iabDevices.Begin(); i != iabDevices.End(); i++)
+	{
+		NetDeviceContainer tmpContainer;
+		tmpContainer.Add(enbDevices);
+
+		m_satellite3gppChannel->Initial(*i,tmpContainer);
 
 		AttachIabToClosestEnb(*i, tmpContainer);
 	}

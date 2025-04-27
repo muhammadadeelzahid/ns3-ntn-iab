@@ -3283,13 +3283,11 @@ MmWave3gppChannel::GetNewChannel(Ptr<ParamsTable>  table3gpp, Vector locUT, bool
 			while (tempAoa > 360)
 			{
 				tempAoa -= 360;
-				// NS_LOG_DEBUG("(tempAoa > 360)");
 			}
 
 			while (tempAoa < 0)
 			{
 				tempAoa += 360;
-				// NS_LOG_DEBUG("((tempAoa < 0)");
 
 			}
 			NS_ASSERT_MSG(tempAoa>=0 && tempAoa<=360, "the AOA should be the range of [0,360]");
@@ -3299,13 +3297,11 @@ MmWave3gppChannel::GetNewChannel(Ptr<ParamsTable>  table3gpp, Vector locUT, bool
 			while (tempAod > 360)
 			{
 				tempAod -= 360;
-				// NS_LOG_DEBUG("((tempAod > 360)");				
 			}
 
 			while (tempAod < 0)
 			{
 				tempAod += 360;
-				// NS_LOG_DEBUG("(((tempAod < 0))");		
 			}
 			NS_ASSERT_MSG(tempAod>=0 && tempAod<=360, "the AOD should be the range of [0,360]");
 			rayAod_radian[nInd][mInd] = tempAod*M_PI/180;
@@ -3315,13 +3311,11 @@ MmWave3gppChannel::GetNewChannel(Ptr<ParamsTable>  table3gpp, Vector locUT, bool
 			while(tempZoa > 360)
 			{
 				tempZoa -= 360;
-				// NS_LOG_DEBUG("(((tempZoa > 360))");					
 			}
 
 			while (tempZoa < 0)
 			{
 				tempZoa += 360;
-				// NS_LOG_DEBUG("((((tempZoa < 0)))");	
 			}
 
 			if (tempZoa > 180)
@@ -3337,18 +3331,15 @@ MmWave3gppChannel::GetNewChannel(Ptr<ParamsTable>  table3gpp, Vector locUT, bool
 			while(tempZod > 360)
 			{
 				tempZod -= 360;
-				// NS_LOG_DEBUG("(((((tempZod > 360))))");	
 			}
 
 			while (tempZod < 0)
 			{
 				tempZod += 360;
-				// NS_LOG_DEBUG("((((((tempZod < 0)))))");					
 			}
 			if (tempZod > 180)
 			{
 				tempZod = 360-tempZod;
-				// NS_LOG_DEBUG("(((((((tempZod > 180)))))");					
 			}
 			NS_ASSERT_MSG(tempZod>=0&&tempZod<=180, "the ZOD should be the range of [0,180]");
 			rayZod_radian[nInd][mInd] = tempZod*M_PI/180;

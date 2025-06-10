@@ -38,12 +38,18 @@
 #include "mmwave-phy-mac-common.h"
 #include <unordered_map>
 /*
- * This 3GPP channel model is implemented base on the 3GPP TR 38.900 v14.1.0 (2016-09).
+ * This 3GPP channel model is implemented base on the 3GPP TR 38.900 v14.1.0 (2016-09) for terrestrial base stations
+ * and 3GPP TR 38.811 for Non terrestrial base stations
  *
  * 3rd Generation Partnership Project;
  * Technical Specification Group Radio Access Network;
  * Study on channel model for frequency spectrum above 6 GHz
  * (Release 14)
+ * 
+ * 3rd Generation Partnership Project;
+ * Technical Specification Group Radio Access Network;
+ * Study on New Radio (NR) to support non-terrestrial networks
+ * (Release 15)
  *
  * */
 

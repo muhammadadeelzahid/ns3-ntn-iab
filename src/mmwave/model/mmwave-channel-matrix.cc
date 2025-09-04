@@ -170,7 +170,7 @@ MmWaveChannelMatrix::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPs
 		rxAntennaNum[1] = sqrt (rxUe->GetAntennaNum ());
 
 		txAntennaArray = DynamicCast<AntennaArrayModel> (
-					txEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+					txEnb->GetPhy ()->GetDlSpectrumPhyList ().at(0)->GetRxAntenna ());
 		rxAntennaArray = DynamicCast<AntennaArrayModel> (
 					rxUe->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 	}
@@ -186,7 +186,7 @@ MmWaveChannelMatrix::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPs
 			rxAntennaNum[1] = sqrt (mcRxUe->GetAntennaNum ());
 
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
-						txEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						txEnb->GetPhy ()->GetDlSpectrumPhyList ().at(0)->GetRxAntenna ());
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
 						mcRxUe->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 		}
@@ -208,7 +208,7 @@ MmWaveChannelMatrix::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPs
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
 						txUe->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
-						rxEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						rxEnb->GetPhy ()->GetDlSpectrumPhyList ().at(0)->GetRxAntenna ());
 		} 
 		else
 		{
@@ -225,7 +225,7 @@ MmWaveChannelMatrix::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPs
 				txAntennaArray = DynamicCast<AntennaArrayModel> (
 							mcTxUe->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 				rxAntennaArray = DynamicCast<AntennaArrayModel> (
-							rxEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+							rxEnb->GetPhy ()->GetDlSpectrumPhyList ().at(0)->GetRxAntenna ());
 			}
 		} 
 	}
@@ -306,7 +306,7 @@ MmWaveChannelMatrix::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPs
 		for (unsigned int j = 0; j< s; j++)
 		{
 			powerFraction.at (j) = powerFraction.at (j)/powerSum;
-			NS_LOG_UNCOND (j<<" "<<powerFraction. at (j));
+			NS_LOG_DEBUG (j<<" "<<powerFraction. at (j));
 		}
 
 		doubleVector_t clusterDelay;
@@ -346,7 +346,7 @@ MmWaveChannelMatrix::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPs
 		{
 			for (int j = 0; j < cluster.at (i); j++)
 			{
-				NS_LOG_UNCOND ("cluster"<<i<<"subpath"<<j<<":"<<subpathDelay.at(counter));
+				NS_LOG_DEBUG ("cluster"<<i<<"subpath"<<j<<":"<<subpathDelay.at(counter));
 				counter++;
 			}
 		}
@@ -425,11 +425,11 @@ MmWaveChannelMatrix::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPs
 		rxit++;
 		subChannel++;
 	}
-	NS_LOG_UNCOND("Gain("<<10*log10(value/72)<<"dB)");
+	NS_LOG_DEBUG("Gain("<<10*log10(value/72)<<"dB)");
 
-	//NS_LOG_UNCOND ("TxAngle("<<txAngles.phi*180/M_PI<<") RxAngle("<<rxAngles.phi*180/M_PI
+	//NS_LOG_DEBUG ("TxAngle("<<txAngles.phi*180/M_PI<<") RxAngle("<<rxAngles.phi*180/M_PI
 	//		<<") Speed["<<relativeSpeed<<"]");
-	NS_LOG_UNCOND ("Gain("<<10*Log10((*bfPsd)/(*txPsd))<<"dB)");
+	NS_LOG_DEBUG ("Gain("<<10*Log10((*bfPsd)/(*txPsd))<<"dB)");
 	return bfPsd;
 
 

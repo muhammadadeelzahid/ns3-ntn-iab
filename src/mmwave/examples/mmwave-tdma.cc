@@ -40,6 +40,8 @@
 
 using namespace ns3;
 
+NS_LOG_COMPONENT_DEFINE ("mmWaveTdma");
+
 double distUpdateInterval = 100.0;  // in ms
 double distInc = 0.5; // increment by 10 meters
 
@@ -166,7 +168,7 @@ main (int argc, char *argv[])
   mmwHelper->ActivateDataRadioBearer (ueNetDev, bearer);
 
   Simulator::Stop (Seconds (simTime));
-	NS_LOG_UNCOND ("Simulation running for " << simTime << " seconds");
+	NS_LOG_DEBUG ("Simulation running for " << simTime << " seconds");
   Simulator::Run ();
   Simulator::Destroy ();
   return 0;

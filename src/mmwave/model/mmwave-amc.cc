@@ -497,9 +497,9 @@ MmWaveAmc::CreateCqiFeedbackWbTdma (const SpectrumValue& sinr, uint8_t numSym, u
 		}
 //		MmWaveHarqProcessInfoList_t harqInfoList;
 //		MmWaveTbStats_t tbStatsFinal = MmWaveMiErrorModel::GetTbDecodificationStats (sinr, chunkMap, tbSize, mcs, harqInfoList);
-//		NS_LOG_UNCOND ("TBLER " << tbStatsFinal.tbler << " for chunks " << chunkMap.size () << " numSym "
+//		NS_LOG_DEBUG ("TBLER " << tbStatsFinal.tbler << " for chunks " << chunkMap.size () << " numSym "
 //		               << (unsigned)numSym << " tbSize " << tbSize << " mcs " << (unsigned)mcs << " sinr " << sinrAvg);
-//		NS_LOG_UNCOND (sinr);
+//		NS_LOG_DEBUG (sinr);
 		if ((tbStats.tbler > 0.1)&&(mcs==0))
 		{
 			cqi = 0;

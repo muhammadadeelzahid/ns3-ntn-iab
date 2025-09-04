@@ -507,7 +507,7 @@ LteX2HandoverTestCase::CheckConnected (Ptr<NetDevice> ueDevice, Ptr<NetDevice> e
   NS_TEST_ASSERT_MSG_NE (ueManager, 0, "RNTI " << rnti << " not found in eNB");
 
   UeManager::State ueManagerState = ueManager->GetState ();
-  NS_LOG_UNCOND("ueManagerState " << ueManagerState);
+  NS_LOG_DEBUG("ueManagerState " << ueManagerState);
   NS_TEST_ASSERT_MSG_EQ (ueManagerState, UeManager::CONNECTED_NORMALLY, "Wrong UeManager state!");
   NS_ASSERT_MSG (ueManagerState == UeManager::CONNECTED_NORMALLY, "Wrong UeManager state!");
 

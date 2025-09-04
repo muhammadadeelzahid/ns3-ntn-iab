@@ -103,6 +103,7 @@ public:
 	void StartSlot ();
 	void EndSlot ();
 
+	uint8_t GetAllocLayerInd ();
 
 	uint32_t GetSubframeNumber (void);
 
@@ -212,7 +213,7 @@ private:
 	uint8_t m_consecutiveSinrBelowThreshold;
 	long double m_outageThreshold;
 	uint8_t m_n310;
-
+	uint8_t m_allocLayerInd;
 };
 
 

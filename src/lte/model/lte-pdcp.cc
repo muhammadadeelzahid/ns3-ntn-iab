@@ -172,6 +172,12 @@ LtePdcp::DoTransmitPdcpSdu (Ptr<Packet> p)
 {
   NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << p->GetSize ());
 
+  // Add specific logging for LCID 3 (data traffic)
+  if (m_lcid == 3)
+  {
+    NS_LOG_DEBUG ("*** PDCP TRANSMIT LCID 3 SDU: RNTI=" << m_rnti << " LCID=" << (uint32_t)m_lcid << " packet size=" << p->GetSize() << " at time " << Simulator::Now().GetSeconds() << "s");
+  }
+
   LtePdcpHeader pdcpHeader;
   pdcpHeader.SetSequenceNumber (m_txSequenceNumber);
 
@@ -203,6 +209,12 @@ void
 LtePdcp::DoReceivePdu (Ptr<Packet> p)
 {
   NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << p->GetSize ());
+
+  // Add specific logging for LCID 3 (data traffic)
+  if (m_lcid == 3)
+  {
+    NS_LOG_DEBUG ("*** PDCP RECEIVE LCID 3 PDU: RNTI=" << m_rnti << " LCID=" << (uint32_t)m_lcid << " packet size=" << p->GetSize() << " at time " << Simulator::Now().GetSeconds() << "s");
+  }
 
   // Receiver timestamp
   PdcpTag pdcpTag;

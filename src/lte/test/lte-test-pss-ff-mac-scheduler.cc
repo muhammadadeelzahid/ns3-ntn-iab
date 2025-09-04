@@ -679,7 +679,7 @@ LenaPssFfMacSchedulerTestCase2::DoRun (void)
    * Check that the downlink assignation is done in a "token bank fair queue" manner
    */
 
-  NS_LOG_UNCOND ("DL - Test with " << m_nUser << " user(s)");
+  NS_LOG_DEBUG ("DL - Test with " << m_nUser << " user(s)");
   std::vector <uint64_t> dlDataRxed;
   for (int i = 0; i < m_nUser; i++)
     {
@@ -688,7 +688,7 @@ LenaPssFfMacSchedulerTestCase2::DoRun (void)
       // get the lcId
       uint8_t lcId = 4;
       dlDataRxed.push_back (rlcStats->GetDlRxData (imsi, lcId));
-      NS_LOG_UNCOND ("\tUser " << i << " dist " << m_dist.at (i) << " imsi " << imsi << " bytes rxed " << (double)dlDataRxed.at (i) << "  thr " << (double)dlDataRxed.at (i) / statsDuration << " ref " << m_estThrPssDl.at (i));
+      NS_LOG_DEBUG ("\tUser " << i << " dist " << m_dist.at (i) << " imsi " << imsi << " bytes rxed " << (double)dlDataRxed.at (i) << "  thr " << (double)dlDataRxed.at (i) / statsDuration << " ref " << m_estThrPssDl.at (i));
     }
 
   for (int i = 0; i < m_nUser; i++)

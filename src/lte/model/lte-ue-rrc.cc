@@ -711,7 +711,7 @@ LteUeRrc::DoNotifyRandomAccessSuccessful ()
         if(m_isSecondaryRRC) // an handover for secondary cells has happened. 
         // this trace is used to keep a consistent trace of the cell to which the UE is connected
         {
-          NS_LOG_UNCOND("DoNotifyRandomAccessSuccessful at time " << Simulator::Now().GetSeconds());
+          NS_LOG_DEBUG("DoNotifyRandomAccessSuccessful at time " << Simulator::Now().GetSeconds());
           m_switchToMmWaveTrace(m_imsi, m_cellId, m_rnti);
         }
       }
@@ -1508,7 +1508,7 @@ LteUeRrc::CopyRlcBuffers(Ptr<LteRlc> rlc, Ptr<LtePdcp> pdcp, uint16_t lcid)
         }
         else
         {
-          NS_LOG_UNCOND("UE RRC: Fragment too small in txonBuffer, pos " << pos);
+          NS_LOG_DEBUG("UE RRC: Fragment too small in txonBuffer, pos " << pos);
         }
           
       }
@@ -1642,7 +1642,7 @@ LteUeRrc::CopyRlcBuffers(Ptr<LteRlc> rlc, Ptr<LtePdcp> pdcp, uint16_t lcid)
     }
     else
     {
-      NS_LOG_UNCOND("UE RRC: Too small, not forwarded");
+      NS_LOG_DEBUG("UE RRC: Too small, not forwarded");
     }
     m_rlcBufferToBeForwardedSize -= (*(m_rlcBufferToBeForwarded.begin()))->GetSize();
     m_rlcBufferToBeForwarded.erase (m_rlcBufferToBeForwarded.begin());

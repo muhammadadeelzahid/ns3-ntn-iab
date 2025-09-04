@@ -86,12 +86,15 @@ mmWaveInterference::StartRx (Ptr<const SpectrumValue> rxPsd)
 		m_rxSignal = rxPsd->Copy ();
 		m_lastChangeTime = Now ();
 		m_receiving = true;
+		NS_LOG_DEBUG("First signal power: " << Sum (*m_rxSignal));
 		for (std::list<Ptr<MmWaveChunkProcessor> >::const_iterator it = m_PowerChunkProcessorList.begin (); it != m_PowerChunkProcessorList.end (); ++it)
 		{
+			NS_LOG_DEBUG("Starting power chunk processor");
 		  (*it)->Start ();
 		}
 		for (std::list<Ptr<MmWaveChunkProcessor> >::const_iterator it = m_sinrChunkProcessorList.begin (); it != m_sinrChunkProcessorList.end (); ++it)
 		{
+			NS_LOG_DEBUG("Starting sinr chunk processor");
 		  (*it)->Start ();
 		}
     }
@@ -103,6 +106,7 @@ mmWaveInterference::StartRx (Ptr<const SpectrumValue> rxPsd)
      	// make sure they use orthogonal resource blocks
      	NS_ASSERT (Sum ((*rxPsd) * (*m_rxSignal)) == 0.0);
     	(*m_rxSignal) += (*rxPsd);
+		NS_LOG_DEBUG("additional signal" << *rxPsd<<" power: " << Sum (*rxPsd)<<" sum: " << Sum (*m_rxSignal));
     }
 }
 
@@ -111,6 +115,7 @@ void
 mmWaveInterference::EndRx ()
 {
 	NS_LOG_FUNCTION (this);
+	NS_LOG_DEBUG("[INTERF-TRACE] EndRx called");
 	if (m_receiving != true)
     {
 		NS_LOG_INFO ("EndRx was already evaluated or RX was aborted");
@@ -134,19 +139,21 @@ mmWaveInterference::EndRx ()
 void
 mmWaveInterference::AddSignal (Ptr<const SpectrumValue> spd, const Time duration)
 {
-	NS_LOG_FUNCTION (this << *spd << duration);
-	DoAddSignal (spd);
-	uint32_t signalId = ++m_lastSignalId;
-	if (signalId == m_lastSignalIdBeforeReset)
+  NS_LOG_DEBUG("[INTERF-TRACE] AddSignal: power=" << Sum(*spd) << ", duration=" << duration.GetSeconds() << "s, time=" << Simulator::Now().GetSeconds() << "s");
+  NS_LOG_FUNCTION (this << *spd << duration);
+  DoAddSignal (spd);
+  uint32_t signalId = ++m_lastSignalId;
+  if (signalId == m_lastSignalIdBeforeReset)
     {
-		// This happens when m_lastSignalId eventually wraps around. Given that so
-		// many signals have elapsed since the last reset, we hope that by now there is
-		// no stale pending signal (i.e., a signal that was scheduled
-		// for subtraction before the reset). So we just move the
-		// boundary further.
-		m_lastSignalIdBeforeReset += 0x10000000;
+      // This happens when m_lastSignalId eventually wraps around. Given that so
+      // many signals have elapsed since the last reset, we hope that by now there is
+      // no stale pending signal (i.e., a signal that was scheduled
+      // for subtraction before the reset). So we just move the
+      // boundary further.
+      m_lastSignalIdBeforeReset += 0x10000000;
     }
-	Simulator::Schedule (duration, &mmWaveInterference::DoSubtractSignal, this, spd, signalId);
+  NS_LOG_DEBUG("[INTERF-TRACE] Scheduling DoSubtractSignal for signalId=" << signalId << " at time=" << (Simulator::Now() + duration).GetSeconds() << "s");
+  Simulator::Schedule (duration, &mmWaveInterference::DoSubtractSignal, this, spd, signalId);
 }
 
 
@@ -160,7 +167,8 @@ mmWaveInterference::DoAddSignal  (Ptr<const SpectrumValue> spd)
 
 void
 mmWaveInterference::DoSubtractSignal  (Ptr<const SpectrumValue> spd, uint32_t signalId)
-{ 
+{
+	NS_LOG_DEBUG("[INTERF-TRACE] DoSubtractSignal: power=" << Sum(*spd) << ", signalId=" << signalId << ", time=" << Simulator::Now().GetSeconds() << "s");
 	NS_LOG_FUNCTION (this << *spd);
 	ConditionallyEvaluateChunk ();
 	int32_t deltaSignalId = signalId - m_lastSignalIdBeforeReset;
@@ -186,9 +194,10 @@ mmWaveInterference::ConditionallyEvaluateChunk ()
 	NS_LOG_DEBUG (this << " now "  << Now () << " last " << m_lastChangeTime);
 	if (m_receiving && (Now () > m_lastChangeTime))
     {
-		NS_LOG_LOGIC (this << " signal = " << *m_rxSignal << " allSignals = " << *m_allSignals << " noise = " << *m_noise);
+		NS_LOG_DEBUG (this << " signal = " << *m_rxSignal << " allSignals = " << *m_allSignals << " noise = " << *m_noise);
 		SpectrumValue interf =  (*m_allSignals) - (*m_rxSignal) + (*m_noise);
 		SpectrumValue sinr = (*m_rxSignal) / interf;
+		NS_LOG_DEBUG("sinr: " << sinr);
 		Time duration = Now () - m_lastChangeTime;
 		for (std::list<Ptr<MmWaveChunkProcessor> >::const_iterator it = m_PowerChunkProcessorList.begin (); it != m_PowerChunkProcessorList.end (); ++it)
 		{

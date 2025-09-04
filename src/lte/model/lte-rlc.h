@@ -43,9 +43,10 @@ namespace ns3 {
 
 // class LteRlcSapProvider;
 // class LteRlcSapUser;
-// 
+//
 // class LteMacSapProvider;
 // class LteMacSapUser;
+
 
 class LteRlc;
 
@@ -56,10 +57,10 @@ public:
   LteRlcSpecificLteMacSapUser (LteRlc* rlc);
 
   // Interface implemented from LteMacSapUser
-  virtual void NotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId);
+  virtual void NotifyTxOpportunity (LteMacSapUser::TxOpportunityParameters params);
   virtual void NotifyHarqDeliveryFailure ();
   virtual void NotifyHarqDeliveryFailure (uint8_t harqId);
-  virtual void ReceivePdu (Ptr<Packet> p);
+  virtual void ReceivePdu (LteMacSapUser::ReceivePduParameters params);
 
 private:
   LteRlcSpecificLteMacSapUser ();
@@ -72,7 +73,7 @@ private:
  * (LTE_RLC) in LTE, see 3GPP TS 36.322
  *
  */
-class LteRlc : public Object 
+class LteRlc : public Object
 {
   friend class LteRlcSpecificLteMacSapUser;
   friend class EpcX2RlcSpecificUser<LteRlc>;
@@ -80,6 +81,10 @@ class LteRlc : public Object
 public:
   LteRlc ();
   virtual ~LteRlc ();
+  /**
+   * \brief Get the type ID.
+   * \return the object TypeId
+   */
   static TypeId GetTypeId (void);
   virtual void DoDispose ();
 
@@ -180,31 +185,47 @@ public:
   /// \todo MRE What is the sense to duplicate all the interfaces here???
   // NB to avoid the use of multiple inheritance
 
-
   virtual void SetMaxTxBufferSize(uint32_t maxTxBufSize) = 0;
   virtual uint32_t GetMaxTxBufferSize() = 0;
 
-  
-protected:
+  protected:
   // Interface forwarded by LteRlcSapProvider
+  /**
+   * Transmit PDCP PDU
+   *
+   * \param p packet
+   */
   virtual void DoTransmitPdcpPdu (Ptr<Packet> p) = 0;
 
-  LteRlcSapUser* m_rlcSapUser;
-  LteRlcSapProvider* m_rlcSapProvider;
+  LteRlcSapUser* m_rlcSapUser; ///< RLC SAP user
+  LteRlcSapProvider* m_rlcSapProvider; ///< RLC SAP provider
 
   // Interface forwarded by LteMacSapUser
-  virtual void DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId) = 0;
+  /**
+   * Notify transmit opportunity
+   *
+   * \param params LteMacSapUser::TxOpportunityParameters
+   */
+  virtual void DoNotifyTxOpportunity (LteMacSapUser::TxOpportunityParameters params) = 0;
+  /**
+   * Notify HARQ delivery failure
+   */
   virtual void DoNotifyHarqDeliveryFailure () = 0;
   virtual void DoNotifyHarqDeliveryFailure (uint8_t harqId);
-  virtual void DoReceivePdu (Ptr<Packet> p) = 0;
+  /**
+   * Receive PDU function
+   *
+   * \param params the LteMacSapUser::ReceivePduParameters
+   */
+  virtual void DoReceivePdu (LteMacSapUser::ReceivePduParameters params) = 0;
 
   virtual void DoSendMcPdcpSdu(EpcX2Sap::UeDataParams params) = 0;
 
-  LteMacSapUser* m_macSapUser;
-  LteMacSapProvider* m_macSapProvider;
+  LteMacSapUser* m_macSapUser; ///< MAC SAP user
+  LteMacSapProvider* m_macSapProvider; ///< MAC SAP provider
 
-  uint16_t m_rnti;
-  uint8_t m_lcid;
+  uint16_t m_rnti; ///< RNTI
+  uint8_t m_lcid; ///< LCID
 
   /**
    * Used to inform of a PDU delivery to the MAC SAP provider
@@ -241,20 +262,26 @@ class LteRlcSm : public LteRlc
 public:
   LteRlcSm ();
   virtual ~LteRlcSm ();
+  /**
+   * \brief Get the type ID.
+   * \return the object TypeId
+   */
   static TypeId GetTypeId (void);
   virtual void DoInitialize ();
   virtual void DoDispose ();
 
   virtual void DoTransmitPdcpPdu (Ptr<Packet> p);
-  virtual void DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId);
+  virtual void DoNotifyTxOpportunity (LteMacSapUser::TxOpportunityParameters txOpParams);
   virtual void DoNotifyHarqDeliveryFailure ();
-  virtual void DoReceivePdu (Ptr<Packet> p);
   virtual void DoSendMcPdcpSdu (EpcX2Sap::UeDataParams params);
-
+  virtual void DoReceivePdu (LteMacSapUser::ReceivePduParameters rxPduParams);
   virtual void SetMaxTxBufferSize(uint32_t maxTxBufSize);
   virtual uint32_t GetMaxTxBufferSize();
 
+
+
 private:
+  /// Report buffer status
   void ReportBufferStatus ();
 
 };

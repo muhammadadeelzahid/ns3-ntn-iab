@@ -73,7 +73,7 @@ void randomPos (Ptr<Node> n, int R_max, int z)
   Ptr<ConstantPositionMobilityModel> loc = CreateObject<ConstantPositionMobilityModel> ();
   n->AggregateObject (loc);
   Vector locVec2 (x, y, z);
-  NS_LOG_UNCOND("UE in Position " << locVec2);
+  NS_LOG_DEBUG("UE in Position " << locVec2);
   loc->SetPosition (locVec2);
 }
 
@@ -83,14 +83,14 @@ void changePos(Ptr<Node> node, int x, int y, int z)
   Vector locVec2 (x, y, z);
   model->SetPosition(locVec2);
   model->SetVelocity(Vector(0,0,0));
-  NS_LOG_UNCOND("************************--------------------Change Position-------------------------------*****************");
+  NS_LOG_DEBUG("************************--------------------Change Position-------------------------------*****************");
 }
 
 void
 ChangeSpeed(Ptr<Node> n, Vector speed)
 {
   n->GetObject<ConstantVelocityMobilityModel> ()->SetVelocity (speed);
-  NS_LOG_UNCOND("************************--------------------Change Speed-------------------------------*****************");
+  NS_LOG_DEBUG("************************--------------------Change Speed-------------------------------*****************");
 }
 
 void
@@ -102,7 +102,7 @@ PrintTcpFlags (std::string key, std::string value)
 void
 PrintPid (ApplicationContainer apps, DceApplicationHelper dce)
 {
-    NS_LOG_UNCOND("PID " << dce.GetPid(PeekPointer(apps.Get(0))));
+    NS_LOG_DEBUG("PID " << dce.GetPid(PeekPointer(apps.Get(0))));
 }
 
 
@@ -145,7 +145,7 @@ int main (int argc, char *argv[])
   GlobalValue::GetValueByName("runNumber", uintegerValue);
   uint32_t runSet = uintegerValue.Get();
   uint32_t seedSet = 1;
-  NS_LOG_UNCOND("runSet " << runSet);
+  NS_LOG_DEBUG("runSet " << runSet);
   RngSeedManager::SetSeed (seedSet);
   RngSeedManager::SetRun (runSet); 
   char seedSetStr[21];
@@ -155,7 +155,7 @@ int main (int argc, char *argv[])
 
   GlobalValue::GetValueByName("outPath", stringValue);
   std::string path = stringValue.Get();
-  NS_LOG_UNCOND(path);
+  NS_LOG_DEBUG(path);
   std::string dlRlcOutName = "DlRlcStats";
   std::string dlPdcpOutName = "DlPdcpStats";
   std::string ulRlcOutName = "UlRlcStats";
@@ -329,11 +329,11 @@ int main (int argc, char *argv[])
   {
     cmd_oss.str ("");
     cmd_oss << "rule add from " << if1.GetAddress (i, 0) << " table " << 1;
-    NS_LOG_UNCOND("rule add from " << if1.GetAddress (i, 0) << " table " << 1 << " node " << nodes.Get(i));
+    NS_LOG_DEBUG("rule add from " << if1.GetAddress (i, 0) << " table " << 1 << " node " << nodes.Get(i));
     LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
     cmd_oss.str ("");
     cmd_oss << "route add default via " << "7.0.0. "  << i << " dev sim" << 0 << " table " << 1;
-    NS_LOG_UNCOND("route add default via " << "7.0.0.1 "  << i << " dev sim" 
+    NS_LOG_DEBUG("route add default via " << "7.0.0.1 "  << i << " dev sim" 
             << ueMmWaveDevs.Get (i)->GetIfIndex () << " table " << 1 << " node " << nodes.Get(i));
     LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
   }
@@ -344,15 +344,15 @@ int main (int argc, char *argv[])
     if2 = address2.Assign (devices2);
     address2.NewNetwork ();
 
-    NS_LOG_UNCOND("if2.GetAddress (0, 0) " << if2.GetAddress (0, 0));
-    NS_LOG_UNCOND("if2.GetAddress (1, 0) " << if2.GetAddress (1, 0));
+    NS_LOG_DEBUG("if2.GetAddress (0, 0) " << if2.GetAddress (0, 0));
+    NS_LOG_DEBUG("if2.GetAddress (1, 0) " << if2.GetAddress (1, 0));
     cmd_oss.str ("");
     cmd_oss << "rule add from " << if2.GetAddress (0, 0) << " table " << (1);
-    NS_LOG_UNCOND("rule add from " << if2.GetAddress (0, 0) << " table " << (1)<< " node " << serverNodes.Get (i));
+    NS_LOG_DEBUG("rule add from " << if2.GetAddress (0, 0) << " table " << (1)<< " node " << serverNodes.Get (i));
     LinuxStackHelper::RunIp (serverNodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
     cmd_oss.str ("");
     cmd_oss << "route add 10.2." << i << ".0/24 dev sim" << 0 << " scope link table " << (1);
-    NS_LOG_UNCOND("route add 10.2." << i << ".0/24 dev sim" << 0 << " scope link table " << (1)<< " node " << serverNodes.Get (i));
+    NS_LOG_DEBUG("route add 10.2." << i << ".0/24 dev sim" << 0 << " scope link table " << (1)<< " node " << serverNodes.Get (i));
     LinuxStackHelper::RunIp (serverNodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
 
   }
@@ -379,12 +379,12 @@ int main (int argc, char *argv[])
   {
     cmd_oss.str ("");
     cmd_oss << "rule add from " << if1.GetAddress (i, 0) << " table " << 2;
-    NS_LOG_UNCOND("rule add from " << if1.GetAddress (i, 0) << " table " << 2 << " node " << nodes.Get(i));
+    NS_LOG_DEBUG("rule add from " << if1.GetAddress (i, 0) << " table " << 2 << " node " << nodes.Get(i));
     LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
     cmd_oss.str ("");
     cmd_oss << "route add default via " << "8.0.0.1 " << " dev sim" 
             << ueLteDevs.Get (i)->GetIfIndex () << " table " << 2;
-    NS_LOG_UNCOND("route add default via " << "8.0.0.1 " << " dev sim" 
+    NS_LOG_DEBUG("route add default via " << "8.0.0.1 " << " dev sim" 
             << ueLteDevs.Get (i)->GetIfIndex () << " table " << 2 << " node " << nodes.Get(i));
     LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
   }
@@ -395,19 +395,19 @@ int main (int argc, char *argv[])
     if3 = address2.Assign (devices3);
     address2.NewNetwork ();
 
-    NS_LOG_UNCOND("if3.GetAddress (0, 0) " << if3.GetAddress (0, 0));
-    NS_LOG_UNCOND("if3.GetAddress (1, 0) " << if3.GetAddress (1, 0));
+    NS_LOG_DEBUG("if3.GetAddress (0, 0) " << if3.GetAddress (0, 0));
+    NS_LOG_DEBUG("if3.GetAddress (1, 0) " << if3.GetAddress (1, 0));
     cmd_oss.str ("");
     cmd_oss << "rule add from " << if3.GetAddress (0, 0) << " table " << (2);
-    NS_LOG_UNCOND("rule add from " << if3.GetAddress (0, 0) << " table " << (2)<< " node " << serverNodes.Get (i));
+    NS_LOG_DEBUG("rule add from " << if3.GetAddress (0, 0) << " table " << (2)<< " node " << serverNodes.Get (i));
     LinuxStackHelper::RunIp (serverNodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
     cmd_oss.str ("");
     cmd_oss << "route add 10.2." << i << ".0/24 dev sim" << 0 << " scope link table " << (2);
-    NS_LOG_UNCOND("route add 10.2." << i << ".0/24 dev sim" << 0 << " scope link table " << (2)<< " node " << serverNodes.Get (i));
+    NS_LOG_DEBUG("route add 10.2." << i << ".0/24 dev sim" << 0 << " scope link table " << (2)<< " node " << serverNodes.Get (i));
     LinuxStackHelper::RunIp (serverNodes.Get (i), Seconds (0.01), cmd_oss.str ().c_str ());
     cmd_oss.str ("");
     cmd_oss << "route add 8.0.0.0/8 via " << if3.GetAddress (1, 0) << " dev sim" << 1 << " table " << (2);
-    NS_LOG_UNCOND("route add 8.0.0.0/8 via " << if3.GetAddress (1, 0) << " dev sim" << 1 << " table " << (2) << " node " << serverNodes.Get (i));
+    NS_LOG_DEBUG("route add 8.0.0.0/8 via " << if3.GetAddress (1, 0) << " dev sim" << 1 << " table " << (2) << " node " << serverNodes.Get (i));
     LinuxStackHelper::RunIp (serverNodes.Get (i), Seconds (0.1), cmd_oss.str ().c_str ());
   }
   setPos (pgw, 70, 0, 0);

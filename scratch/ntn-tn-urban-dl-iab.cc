@@ -160,7 +160,7 @@ PrintGnuplottableEnbListToFile (std::string filename)
 void
 ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
-    NS_LOG_UNCOND("Connecting IMSI: " << imsi << " to ConnectionEstablished trace");
+    NS_LOG_DEBUG("Connecting IMSI: " << imsi << " to ConnectionEstablished trace");
     // Open the file in append mode to log data
     std::ofstream outFile("connection_established.txt", std::ios_base::app);
     if (!outFile.is_open())
@@ -299,7 +299,7 @@ main (int argc, char *argv[])
   double yOffset = yMax*0.40;  // ~30% from center to top/bottom
   Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);
   double max_distance = 200;//xMax - (xMax/2.0 + xOffset) - 100;
-  NS_LOG_UNCOND("max distance of UE from base station: "<<max_distance);
+  NS_LOG_DEBUG("max distance of UE from base station: "<<max_distance);
   // Symmetric IAB positions
   Vector posIab1 = Vector(xMax / 2.0 + xOffset, yMax / 2.0 + yOffset, iabHeight);        // Top-right
   Vector posIab2 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 + yOffset, iabHeight);        // Top-left
@@ -308,7 +308,7 @@ main (int argc, char *argv[])
   Vector posIab5 = Vector(xMax / 2.0 + xOffset, yMax / 2.0, iabHeight);                  // Mid-right
   Vector posIab6 = Vector(xMax / 2.0 - xOffset, yMax / 2.0, iabHeight);                  // Mid-left
 
-  NS_LOG_UNCOND("wired " << posWired << 
+  NS_LOG_DEBUG("wired " << posWired << 
               " iab1 " << posIab1 <<
               " iab3 " << posIab2 << 
               " iab4 " << posIab3 << 
@@ -450,7 +450,7 @@ std::vector<Vector> clusterCenters = {
       ueStaticRouting->SetDefaultRoute (epcHelper->GetUeDefaultGatewayAddress (), 1);
     }
   NetDeviceContainer possibleBaseStations(enbmmWaveDevs, iabmmWaveDevs);
-  NS_LOG_UNCOND("number of IAB devs " << iabmmWaveDevs.GetN() << " num of possibleBaseStations " 
+  NS_LOG_DEBUG("number of IAB devs " << iabmmWaveDevs.GetN() << " num of possibleBaseStations " 
     << possibleBaseStations.GetN());
   if(numRelays > 0)
   {

@@ -42,6 +42,7 @@
 #include <ns3/boolean.h>
 #include <ns3/integer.h>
 #include "mmwave-spectrum-value-helper.h"
+#include "ns3/log-macros-enabled.h"
 
 namespace ns3{
 
@@ -1075,201 +1076,8 @@ MmWave3gppChannel::ConnectDevices (Ptr<NetDevice> dev1, Ptr<NetDevice> dev2)
 	m_connectedPair.insert(std::make_pair(key,1));
 }
 
-
-// note that an IAB device can be seen as both an UE and a gNB
-void
-MmWave3gppChannel::SetBeamformingVector (Ptr<NetDevice> ueDevice, Ptr<NetDevice> enbDevice)
-{
-	key_t key = std::make_pair(ueDevice,enbDevice);
-	Ptr<MmWaveEnbNetDevice> EnbDev =
-				DynamicCast<MmWaveEnbNetDevice> (enbDevice);
-	Ptr<MmWaveUeNetDevice> UeDev =
-				DynamicCast<MmWaveUeNetDevice> (ueDevice);
-
-	bool pairFound = false;
-	if(UeDev != 0 && EnbDev != 0) // classic link
-	{
-		NS_LOG_UNCOND("SetBeamformingVector between UE " << ueDevice << " and enbDevice " << enbDevice);
-		Ptr<AntennaArrayModel> ueAntennaArray = DynamicCast<AntennaArrayModel> (
-				UeDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-		Ptr<AntennaArrayModel> enbAntennaArray = DynamicCast<AntennaArrayModel> (
-				EnbDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-		complexVector_t dummy;
-		ueAntennaArray->SetBeamformingVector (dummy,enbDevice);
-		enbAntennaArray->SetBeamformingVector (dummy,ueDevice);
-
-		pairFound = true;
-	}
-	else if(UeDev !=0 && EnbDev == 0) // it may be an IAB device in the access
-	{
-		Ptr<MmWaveIabNetDevice> iabDev = DynamicCast<MmWaveIabNetDevice>(enbDevice);
-		if(iabDev != 0) // access link
-		{
-			NS_LOG_UNCOND("SetBeamformingVector between UE " << ueDevice << " and IAB device " << iabDev);
-			Ptr<AntennaArrayModel> ueAntennaArray = DynamicCast<AntennaArrayModel> (
-					UeDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			Ptr<AntennaArrayModel> iabAntennaArray = DynamicCast<AntennaArrayModel> (
-					iabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			complexVector_t dummy;
-			ueAntennaArray->SetBeamformingVector (dummy,iabDev);
-			iabAntennaArray->SetBeamformingVector (dummy,ueDevice);
-
-			pairFound = true;
-		}
-	}
-	else if(UeDev == 0 && EnbDev != 0) // it may be an IAB device in the backhaul or an McUeNetDevice
-	{
-		Ptr<MmWaveIabNetDevice> iabDev = DynamicCast<MmWaveIabNetDevice>(ueDevice);
-		if(iabDev != 0) // access link
-		{
-			NS_LOG_UNCOND("SetBeamformingVector between ENB " << enbDevice << " and IAB device " << iabDev);
-			Ptr<AntennaArrayModel> enbAntennaArray = DynamicCast<AntennaArrayModel> (
-					EnbDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			Ptr<AntennaArrayModel> iabAntennaArray = DynamicCast<AntennaArrayModel> (
-					iabDev->GetBackhaulPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			complexVector_t dummy;
-			enbAntennaArray->SetBeamformingVector (dummy,iabDev);
-			iabAntennaArray->SetBeamformingVector (dummy,EnbDev);
-
-			pairFound = true; 
-		}
-		else // gNB to UE 
-		{
-			Ptr<McUeNetDevice> McUeDev = DynamicCast<McUeNetDevice> (ueDevice);
-			if(McUeDev != 0)
-			{
-				NS_LOG_UNCOND("SetBeamformingVector between MC UE " << ueDevice << " and enbDevice " << enbDevice);
-				Ptr<AntennaArrayModel> ueAntennaArray = DynamicCast<AntennaArrayModel> (
-						McUeDev->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-				Ptr<AntennaArrayModel> enbAntennaArray = DynamicCast<AntennaArrayModel> (
-						EnbDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-				complexVector_t dummy;
-				ueAntennaArray->SetBeamformingVector (dummy,enbDevice);
-				enbAntennaArray->SetBeamformingVector (dummy,ueDevice);
-
-				pairFound = true;
-			}
-		}
-	}
-	else // they are both 0
-	{
-		Ptr<McUeNetDevice> McUeDev =
-				DynamicCast<McUeNetDevice> (ueDevice);
-		Ptr<MmWaveIabNetDevice> iabDev = DynamicCast<MmWaveIabNetDevice> (enbDevice);
-		Ptr<MmWaveIabNetDevice> iabDevBh = DynamicCast<MmWaveIabNetDevice> (ueDevice);
-
-		if(UeDev != 0 && iabDev != 0)
-		{
-			NS_LOG_UNCOND("SetBeamformingVector between MC UE " << ueDevice << " and IAB device " << enbDevice);
-			Ptr<AntennaArrayModel> ueAntennaArray = DynamicCast<AntennaArrayModel> (
-					McUeDev->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			Ptr<AntennaArrayModel> enbAntennaArray = DynamicCast<AntennaArrayModel> (
-					iabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			complexVector_t dummy;
-			ueAntennaArray->SetBeamformingVector (dummy,enbDevice);
-			enbAntennaArray->SetBeamformingVector (dummy,ueDevice);
-
-			pairFound = true;
-		}
-		else if(iabDev != 0 && iabDevBh != 0)
-		{
-			NS_LOG_UNCOND("SetBeamformingVector between IAB " << ueDevice << " and IAB device " << enbDevice);
-			Ptr<AntennaArrayModel> ueAntennaArray = DynamicCast<AntennaArrayModel> (
-					iabDevBh->GetBackhaulPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			Ptr<AntennaArrayModel> enbAntennaArray = DynamicCast<AntennaArrayModel> (
-					iabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
-			complexVector_t dummy;
-			ueAntennaArray->SetBeamformingVector (dummy,enbDevice);
-			enbAntennaArray->SetBeamformingVector (dummy,ueDevice);
-
-			pairFound = true;
-		}
-	}
-
-	if(!pairFound)
-	{
-		NS_FATAL_ERROR("Unrecognized pair of devices");
-	}
-}
-
-void
-MmWave3gppChannel::Initial(NetDeviceContainer ueDevices, NetDeviceContainer enbDevices)
-{
-
-	NS_LOG_INFO (&ueDevices<<&enbDevices);
-
-	m_forceInitialBfComputation = true;
-
-	for (NetDeviceContainer::Iterator i = ueDevices.Begin(); i != ueDevices.End(); i++)
-	{
-		for (NetDeviceContainer::Iterator j = enbDevices.Begin(); j != enbDevices.End(); j++)
-		{
-			SetBeamformingVector(*i,*j);
-
-			// get the mobility objects
-			Ptr<const MobilityModel> a = (*j)->GetNode()->GetObject<MobilityModel> ();
-			Ptr<const MobilityModel> b = (*i)->GetNode()->GetObject<MobilityModel> ();
-			NS_LOG_INFO("a " << a << " b " << b);
-
-			// initialize the pathloss and channel condition
-			if (DynamicCast<MmWave3gppPropagationLossModel> (m_3gppPathloss)!=0)
-			{
-				m_3gppPathloss->GetObject<MmWave3gppPropagationLossModel> ()
-						->GetLoss(a->GetObject<MobilityModel>(),b->GetObject<MobilityModel>());
-			}			// the GetObject trick is a trick against the const keyword
-			else if (DynamicCast<MmWave3gppBuildingsPropagationLossModel> (m_3gppPathloss)!=0)
-			{
-				m_3gppPathloss->GetObject<MmWave3gppBuildingsPropagationLossModel> ()
-						->GetLoss(a->GetObject<MobilityModel>(),b->GetObject<MobilityModel>());
-			}
-			else
-			{
-				NS_FATAL_ERROR("unknow pathloss model");
-			}
-
-
-			std::vector<int> listOfSubchannels;
-			for (unsigned subChannelIndex = 0; subChannelIndex < m_phyMacConfig->GetTotalNumChunk(); subChannelIndex++)
-			{
-				listOfSubchannels.push_back(subChannelIndex);
-			}
-
-			Ptr<const SpectrumValue> fakePsd = 
-				MmWaveSpectrumValueHelper::CreateTxPowerSpectralDensity (m_phyMacConfig, 0, listOfSubchannels);
-			DoCalcRxPowerSpectralDensity(fakePsd, a, b);
-
-
-			// Ptr<MmWaveUeNetDevice> UeDev =
-			// 			DynamicCast<MmWaveUeNetDevice> (*i);
-			// if (UeDev != 0)
-			// {
-
-			// }	
-			// else
-			// {
-			// 	Ptr<McUeNetDevice> UeDev = DynamicCast<MmWaveUeNetDevice> (*i);
-			// 	if (UeDev !=0)
-			// }		
-			// if (UeDev->GetTargetEnb ()) 
-			// {
-			// 	Ptr<NetDevice> targetBs = UeDev->GetTargetEnb ();
-			// 	ConnectDevices (*i, targetBs);
-			// 	ConnectDevices (targetBs, *i);
-
-				
-			// }	
-		}
-
-		
-	}
-
-	m_forceInitialBfComputation = false;
-
-}
-
-std::tuple<uint8_t, uint8_t, uint8_t, uint8_t, Ptr<AntennaArrayModel>, Ptr<AntennaArrayModel>, Vector,
-bool, bool, double>
-MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityModel> b) const
+std::tuple<uint8_t, uint8_t, uint8_t, uint8_t, Ptr<AntennaArrayModel>, Ptr<AntennaArrayModel>, Vector, double>
+MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityModel> b, int layer) const
 {
 	Ptr<NetDevice> txDevice = a->GetObject<Node> ()->GetDevice (0);
 	Ptr<NetDevice> rxDevice = b->GetObject<Node> ()->GetDevice (0);
@@ -1285,15 +1093,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 
 	Vector locUT;
 
-	bool skipBf = true;
-	bool connectedPair = false;
-
 	double hBS = 0;
 
 	// check if they are the same
 	if(txDevice == rxDevice)
 	{
-		return std::make_tuple(0,0,0,0,txAntennaArray,rxAntennaArray,locUT, false, true, 0);
+		return std::make_tuple(0,0,0,0,txAntennaArray,rxAntennaArray,locUT, 0.0);
 	}
 
 	if(txEnb != 0 && rxEnb == 0)
@@ -1306,7 +1111,6 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 		if(ueDev != 0)
 		{
 			// eNB to UE, downlink
-			NS_LOG_INFO ("this is downlink case, a tx " << a->GetPosition() << " b rx " << b->GetPosition());
 			// downlink = true;
 			txAntennaNum[0] = sqrt (txEnb->GetAntennaNum ());
 			txAntennaNum[1] = sqrt (txEnb->GetAntennaNum ());
@@ -1314,17 +1118,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 			rxAntennaNum[1] = sqrt (ueDev->GetAntennaNum ());
 
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
-						txEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						txEnb->GetPhy ()->GetDlSpectrumPhyList ().at (layer)->GetRxAntenna ());
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
 						ueDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 			locUT = b->GetPosition();
 
 			// check if the devices are connected
-			if(txEnb == ueDev->GetTargetEnb() && txAntennaArray->GetCurrentDevice() == ueDev)
- 			{
-				connectedPair = true;
-			}
-			skipBf = false;
 
 			hBS = a->GetPosition().z;
 		}
@@ -1339,17 +1138,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 			rxAntennaNum[1] = sqrt (iabDev->GetBackhaulAntennaNum ());
 
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
-						txEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						txEnb->GetPhy ()->GetDlSpectrumPhyList ().at (layer)->GetRxAntenna ());
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
 						iabDev->GetBackhaulPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 			locUT = b->GetPosition();
 
 			// check if the devices are connected
-			if(txEnb == iabDev->GetBackhaulTargetEnb() && txAntennaArray->GetCurrentDevice() == iabDev)
-			{
-				connectedPair = true;
-			}
-			skipBf = false;
 
 			hBS = a->GetPosition().z;
 		}
@@ -1364,17 +1158,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 			rxAntennaNum[1] = sqrt (mcDev->GetAntennaNum ());
 
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
-						txEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						txEnb->GetPhy ()->GetDlSpectrumPhyList ().at (layer)->GetRxAntenna ());
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
 						mcDev->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 			locUT = b->GetPosition();
 
 			// check if the devices are connected
-			if(txEnb == mcDev->GetMmWaveTargetEnb() && txAntennaArray->GetCurrentDevice() == mcDev)
-			{
-				connectedPair = true;
-			}
-			skipBf = false;
 
 			hBS = a->GetPosition().z;
 		}
@@ -1401,17 +1190,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 			txAntennaNum[1] = sqrt (ueDev->GetAntennaNum ());
 
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
-						rxEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						rxEnb->GetPhy ()->GetDlSpectrumPhyList ().at (layer)->GetRxAntenna ());
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
 						ueDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 			locUT = a->GetPosition();
 
 			// check if the devices are connected
-			if(rxEnb == ueDev->GetTargetEnb() && rxAntennaArray->GetCurrentDevice() == ueDev)
- 			{
-				connectedPair = true;
-			}
-			skipBf = false;
 
 			hBS = b->GetPosition().z;
 		}
@@ -1426,17 +1210,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 			txAntennaNum[1] = sqrt (iabDev->GetBackhaulAntennaNum ());
 
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
-						rxEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						rxEnb->GetPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
 						iabDev->GetBackhaulPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 			locUT = a->GetPosition();
 
 			// check if the devices are connected
-			if(rxEnb == iabDev->GetBackhaulTargetEnb() && rxAntennaArray->GetCurrentDevice() == iabDev)
-			{
-				connectedPair = true;
-			}
-			skipBf = false;
 		}
 		else if(mcDev != 0)
 		{
@@ -1449,17 +1228,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 			txAntennaNum[1] = sqrt (mcDev->GetAntennaNum ());
 
 			rxAntennaArray = DynamicCast<AntennaArrayModel> (
-						rxEnb->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+						rxEnb->GetPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 			txAntennaArray = DynamicCast<AntennaArrayModel> (
 						mcDev->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 			locUT = a->GetPosition();
 
 			// check if the devices are connected
-			if(rxEnb == mcDev->GetMmWaveTargetEnb() && rxAntennaArray->GetCurrentDevice() == mcDev)
-			{
-				connectedPair = true;
-			}
-			skipBf = false;
 			hBS = b->GetPosition().z;
 		}
 		else
@@ -1469,7 +1243,6 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 	}
 	else if(rxEnb != 0 && txEnb !=0)
 	{
-		skipBf = true; // eNB to eNB, not need to compute BF & stuff
 	}
 	else // both 0 -> it could be an IAB link
 	{
@@ -1495,17 +1268,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 				rxAntennaNum[1] = sqrt (ueDev->GetAntennaNum ());
 
 				txAntennaArray = DynamicCast<AntennaArrayModel> (
-							txIabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+							txIabDev->GetAccessPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 				rxAntennaArray = DynamicCast<AntennaArrayModel> (
 							ueDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 				locUT = b->GetPosition();
 
 				// check if the devices are connected
-				if(txIabDev == ueDev->GetTargetEnb() && txAntennaArray->GetCurrentDevice() == ueDev) 
-	 			{
-					connectedPair = true;
-				}
-				skipBf = false;
 				hBS = a->GetPosition().z;
 			}
 			else if(rxIabDev != 0)
@@ -1522,17 +1290,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 					rxAntennaNum[1] = sqrt (rxIabDev->GetBackhaulAntennaNum ());
 
 					txAntennaArray = DynamicCast<AntennaArrayModel> (
-								txIabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+								txIabDev->GetAccessPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 					rxAntennaArray = DynamicCast<AntennaArrayModel> (
 								rxIabDev->GetBackhaulPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 					locUT = b->GetPosition();
 
 					// check if the devices are connected
-					if(txIabDev == rxIabDev->GetBackhaulTargetEnb() && txAntennaArray->GetCurrentDevice() == rxIabDev)
-					{
-						connectedPair = true;
-					}
-					skipBf = false;
 					hBS = a->GetPosition().z;
 				}
 				else // uplink from backhaul to access or downlink interference or uplink interference
@@ -1546,15 +1309,10 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 					txAntennaArray = DynamicCast<AntennaArrayModel> (
 								txIabDev->GetBackhaulPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 					rxAntennaArray = DynamicCast<AntennaArrayModel> (
-								rxIabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+								rxIabDev->GetAccessPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 					locUT = b->GetPosition();
 
 					// check if the devices are connected
-					if(txIabDev == rxIabDev->GetBackhaulTargetEnb() && txAntennaArray->GetCurrentDevice() == rxIabDev)
-					{
-						connectedPair = true;
-					}
-					skipBf = false;
 					hBS = a->GetPosition().z;
 				}
 
@@ -1570,17 +1328,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 				rxAntennaNum[1] = sqrt (mcDev->GetAntennaNum ());
 
 				txAntennaArray = DynamicCast<AntennaArrayModel> (
-							txIabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+							txIabDev->GetAccessPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 				rxAntennaArray = DynamicCast<AntennaArrayModel> (
 							mcDev->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 				locUT = b->GetPosition();
 
 				// check if the devices are connected
-				if(txIabDev == mcDev->GetMmWaveTargetEnb() && txAntennaArray->GetCurrentDevice() == mcDev)
-				{
-					connectedPair = true;
-				}
-				skipBf = false;
 				hBS = a->GetPosition().z;				
 			}
 			else
@@ -1611,17 +1364,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 					txAntennaNum[1] = sqrt (ueDev->GetAntennaNum ());
 
 					rxAntennaArray = DynamicCast<AntennaArrayModel> (
-								rxIabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+								rxIabDev->GetAccessPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 					txAntennaArray = DynamicCast<AntennaArrayModel> (
 								ueDev->GetPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 					locUT = a->GetPosition();
 
 					// check if the devices are connected
-					if(rxIabDev == ueDev->GetTargetEnb() && rxAntennaArray->GetCurrentDevice() == ueDev)
-		 			{
-						connectedPair = true;
-					}
-					skipBf = false;
 					hBS = b->GetPosition().z;
 				}
 				else if(iabDev != 0)
@@ -1661,17 +1409,12 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 					txAntennaNum[1] = sqrt (mcDev->GetAntennaNum ());
 
 					rxAntennaArray = DynamicCast<AntennaArrayModel> (
-								rxIabDev->GetAccessPhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
+								rxIabDev->GetAccessPhy ()->GetDlSpectrumPhyList ().at(layer)->GetRxAntenna ());
 					txAntennaArray = DynamicCast<AntennaArrayModel> (
 								mcDev->GetMmWavePhy ()->GetDlSpectrumPhy ()->GetRxAntenna ());
 					locUT = a->GetPosition();
 
 					// check if the devices are connected
-					if(rxIabDev == mcDev->GetMmWaveTargetEnb() && rxAntennaArray->GetCurrentDevice() == mcDev)
-					{
-						connectedPair = true;
-					}
-					skipBf = false;
 					hBS = b->GetPosition().z;
 				}
 				else
@@ -1682,22 +1425,17 @@ MmWave3gppChannel::GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityMod
 		}
 	}
 
-	return std::make_tuple(txAntennaNum[0], txAntennaNum[1], rxAntennaNum[0], rxAntennaNum[1], txAntennaArray, rxAntennaArray, locUT, connectedPair, skipBf, hBS);
+	return std::make_tuple(txAntennaNum[0], txAntennaNum[1], rxAntennaNum[0], rxAntennaNum[1], txAntennaArray, rxAntennaArray, locUT, hBS);
 }
 
-
-Ptr<SpectrumValue>
-MmWave3gppChannel::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
-                                                   Ptr<const MobilityModel> a,
-                                                   Ptr<const MobilityModel> b) const
-{	
+std::tuple<Ptr<Params3gpp>,Ptr<AntennaArrayModel>,Ptr<AntennaArrayModel>,bool> MmWave3gppChannel::EvaluateChannelInformation(Ptr<const MobilityModel> a, Ptr<const MobilityModel> b, int layer) const
+{
 	NS_LOG_FUNCTION (this);
-	Ptr<SpectrumValue> rxPsd = Copy (txPsd);
 
 	Ptr<NetDevice> txDevice = a->GetObject<Node> ()->GetDevice (0);
 	Ptr<NetDevice> rxDevice = b->GetObject<Node> ()->GetDevice (0);
 
-	auto returnParams = GetTxRxInfo(a, b);
+	auto returnParams = GetTxRxInfo(a, b, layer);
 
 	/* txAntennaNum[0]-number of vertical antenna elements
 	 * txAntennaNum[1]-number of horizontal antenna elements*/
@@ -1713,22 +1451,8 @@ MmWave3gppChannel::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
 	Vector locUT;
 	locUT = std::get<6>(returnParams);
 	double hUT = locUT.z;
-	bool connectedPair, skipBf;
-	connectedPair = std::get<7>(returnParams);
-	skipBf = std::get<8>(returnParams);
-	double hBS = std::get<9>(returnParams);
 
-	if(skipBf)
-	{
-		NS_LOG_INFO ("enb to enb or ue to ue transmission, skip beamforming a tx " << a->GetPosition() << " b rx " << b->GetPosition());
-		return rxPsd;
-	}
-
-	if(txAntennaArray->IsOmniTx() || rxAntennaArray->IsOmniTx() )
-	{
-		//omi transmission, do nothing.
-		return rxPsd;
-	}
+	double hBS = std::get<7>(returnParams);
 
 	NS_ASSERT_MSG(a->GetDistanceFrom(b)!=0, "the position of tx and rx devices cannot be the same");
 
@@ -1744,13 +1468,18 @@ MmWave3gppChannel::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
 
 	Ptr<Params3gpp> channelParams;
 
-	bool reverseLink = false;
+	if(txAntennaArray->IsOmniTx() || rxAntennaArray->IsOmniTx() )
+	{
+		//omi transmission, do nothing.
+		return std::make_tuple(channelParams,txAntennaArray,rxAntennaArray,true);
+	}
 
 	//Step 2: Assign propagation condition (LOS/NLOS).
 
 	char condition;
 	if (DynamicCast<MmWave3gppPropagationLossModel> (m_3gppPathloss)!=0)
 	{
+		NS_LOG_DEBUG("MmWave3gppChannel: GetChannelCondition, a: " << a->GetPosition() << " b: " << b->GetPosition());
 		condition = m_3gppPathloss->GetObject<MmWave3gppPropagationLossModel> ()
 				->GetChannelCondition(a->GetObject<MobilityModel>(),b->GetObject<MobilityModel>());
 	}
@@ -1830,7 +1559,6 @@ MmWave3gppChannel::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
 
 		double distance3D = a->GetDistanceFrom(b);
 
-		bool channelUpdate = false;
 		if(it != m_channelMap.end () && it->second->m_channel.size() == 0)
 		{
 			//if the channel map is not empty, we only update the channel.
@@ -1845,7 +1573,6 @@ MmWave3gppChannel::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
 			it->second->m_speed = relativeSpeed;
 			it->second->m_generatedTime = Now();
 			it->second->m_preLocUT = locUT;
-			channelUpdate = true;
 		}
 		else
 		{
@@ -1854,317 +1581,391 @@ MmWave3gppChannel::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
 			channelParams = GetNewChannel(table3gpp, locUT, los, o2i, txAntennaArray, rxAntennaArray,
 					txAntennaNum, rxAntennaNum, rxAngle, txAngle, relativeSpeed, distance2D, distance3D);
 		}
-		
-		// the connected pair is set in the GetTxRxInfo method
-
-		// // the connected pair cannot be trusted anymore! Not initialized at the beginning
-		// // since the UE may connect at any mmWave eNB
-		// // we can look for if the eNB is the target eNB in the UE
-		// bool connectedPair = false;
-		// if(downlink)
-		// {
-		// 	Ptr<MmWaveEnbNetDevice> enbTx = DynamicCast<MmWaveEnbNetDevice>(txDevice);
-		// 	Ptr<MmWaveUeNetDevice> ueRx = DynamicCast<MmWaveUeNetDevice>(rxDevice);
-		// 	if(enbTx == ueRx->GetTargetEnb())
-		// 	{
-		// 		connectedPair = true;
-		// 	}	
-		// }
-		// else if(downlinkMc)
-		// {
-		// 	Ptr<MmWaveEnbNetDevice> enbTx = DynamicCast<MmWaveEnbNetDevice>(txDevice);
-		// 	Ptr<McUeNetDevice> ueRx = DynamicCast<McUeNetDevice>(rxDevice);
-		// 	if(enbTx == ueRx->GetMmWaveTargetEnb())
-		// 	{
-		// 		connectedPair = true;
-		// 	}	
-		// }
-		// else if(uplink)
-		// {
-		// 	Ptr<MmWaveUeNetDevice> ueTx = DynamicCast<MmWaveUeNetDevice>(txDevice);
-		// 	Ptr<MmWaveEnbNetDevice> enbRx = DynamicCast<MmWaveEnbNetDevice>(rxDevice);
-		// 	if(enbRx == ueTx->GetTargetEnb())
-		// 	{
-		// 		connectedPair = true;
-		// 	}	
-		// }
-		// else if(uplinkMc)
-		// {
-		// 	Ptr<McUeNetDevice> ueTx = DynamicCast<McUeNetDevice>(txDevice);
-		// 	Ptr<MmWaveEnbNetDevice> enbRx = DynamicCast<MmWaveEnbNetDevice>(rxDevice);
-		// 	if(enbRx == ueTx->GetMmWaveTargetEnb())
-		// 	{
-		// 		connectedPair = true;
-		// 	}	
-		// }
-
-		//std::map< key_t, int >::iterator it1 = m_connectedPair.find (key);
-		if(connectedPair || m_forceInitialBfComputation || channelUpdate)
-		// this is true for connected devices at each transmission,
-		// and for non-connected devices at each channel update or at the beginning of the simulation
-		{
-			NS_LOG_DEBUG("connectedPair " << connectedPair << " m_forceInitialBfComputation " << m_forceInitialBfComputation << 
-				" channelUpdate " << channelUpdate);
-			if(m_cellScan)
-			{
-				BeamSearchBeamforming (rxPsd, channelParams,txAntennaArray,rxAntennaArray, txAntennaNum, rxAntennaNum);
-			}
-			else
-			{
-				LongTermCovMatrixBeamforming (channelParams);
-			}
-			txAntennaArray->SetBeamformingVector (channelParams->m_txW, rxDevice);
-			rxAntennaArray->SetBeamformingVector (channelParams->m_rxW, txDevice);
-		}
-		else
-		{
-			NS_LOG_INFO("Not a connected pair");
-			channelParams->m_txW = txAntennaArray->GetBeamformingVector();
-			channelParams->m_rxW = rxAntennaArray->GetBeamformingVector();
-			if(channelParams->m_txW.size() == 0 || channelParams->m_rxW.size() == 0)
-			{
-				NS_LOG_INFO("channelParams->m_txW.size() == 0 " << (channelParams->m_txW.size() == 0));
-				NS_LOG_INFO("channelParams->m_rxW.size() == 0 " << (channelParams->m_rxW.size() == 0));
-				m_channelMap[key] = channelParams;
-				return rxPsd;
-			}
-		}
-
-		CalLongTerm (channelParams);
+		// NS_LOG_DEBUG("New channel saved between txDevice "<<txDevice<<" and rxDevice "<<rxDevice);
 		m_channelMap[key] = channelParams;
 	}
 	else if (itReverse == m_channelMap.end ()) //Find channel matrix in the forward link
 	{
 		channelParams = (*it).second;
+		channelParams->m_isReverse = false;
 	}
 	else //Find channel matrix in the Reverse link
 	{
-		reverseLink = true;
 		channelParams = (*itReverse).second;
+		channelParams->m_isReverse = true;
 	}
+	return std::make_tuple(channelParams,txAntennaArray,rxAntennaArray,false);
+} 
 
-	Ptr<SpectrumValue> bfPsd = CalBeamformingGain(rxPsd, channelParams, relativeSpeed);
+complexVector_t
+MmWave3gppChannel::CalLongTerm (Ptr<Params3gpp> params, complexVector_t aW, complexVector_t bW) const
+{
+  // NOTE We assume channel reciprocity between each tx-rx pair, hence the
+  // channel matrix H is generated once for each pair.
+  // If the channel matrix H has been generated considering device a as tx and
+  // device b as rx, but we need to compute the long term for the reverse link
+  // we need to transpose the matrix or we can just invert the BF vectors,
+  // i.e., rxW^T H^T txW = (rxW^T H^T txW)^T = txW^T H rxW
 
-	SpectrumValue bfGain = (*bfPsd)/(*rxPsd);
-	uint8_t nbands = bfGain.GetSpectrumModel ()->GetNumBands ();
-	if (reverseLink == false)
-	{
-		NS_LOG_DEBUG ("****** DL BF gain == " << Sum (bfGain)/nbands << " RX PSD " << Sum(*rxPsd)/nbands); // print avg bf gain
-	}
-	else
-	{
-		NS_LOG_DEBUG ("****** UL BF gain == " << Sum (bfGain)/nbands << " RX PSD " << Sum(*rxPsd)/nbands);
-	}
-	return bfPsd;
+  complexVector_t txW, rxW;
+  if (params->m_isReverse)
+  {
+    // TODO we should never enter in this branch because we should have already
+    // computed the long term for the direct link. Consider to remove it (NOTE: Fgomez this point can be reached in the HBF extension when more than one bf vector is evaluated for the same channel matrix)
+
+    // the channel matrix was generated considering device b as tx and device
+    // a as rx
+    txW = bW;
+    rxW = aW;
+  }
+  else
+  {
+    // the channel matrix was generated considering device a as tx and device
+    // b as rx
+    txW = aW;
+    rxW = bW;
+  }
+
+  uint16_t txAntenna = txW.size ();
+  uint16_t rxAntenna = rxW.size ();
+  uint16_t txChSize = params->m_channel.at (0).size ();
+  uint16_t rxChSize = params->m_channel.size ();
+
+  NS_LOG_DEBUG ("CalLongTerm with txAntenna " << (uint16_t)txAntenna << " rxAntenna " << (uint16_t)rxAntenna<<" txChSize " << (uint16_t)txChSize << " rxChSize " << (uint16_t)rxChSize);
+  //store the long term part to reduce computation load
+  //only the small scale fading needs to be updated if the large scale parameters and antenna weights remain unchanged.
+  complexVector_t longTerm;
+  uint8_t numCluster = params->m_channel.at (0).at (0).size ();
+  for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+    {
+      std::complex<double> txSum (0,0);
+      for (uint16_t txIndex = 0; txIndex < txAntenna; txIndex++)
+        {
+          std::complex<double> rxSum (0,0);
+          for (uint16_t rxIndex = 0; rxIndex < rxAntenna; rxIndex++)
+            {
+              rxSum = rxSum + rxW.at (rxIndex) * params->m_channel.at (rxIndex).at (txIndex).at (cIndex);
+            }
+          txSum = txSum + txW.at (txIndex) * rxSum;
+        }
+      longTerm.push_back (txSum);
+    }
+  return longTerm;
 }
 
-void
-MmWave3gppChannel::LongTermCovMatrixBeamforming(Ptr<Params3gpp> params) const
+complexVector_t
+MmWave3gppChannel::GetLongTerm (Ptr<const MobilityModel> aMob, Ptr<const MobilityModel> bMob, Ptr<Params3gpp> channelMatrix, AntennaArrayBasicModel::BeamformingVector aBF, AntennaArrayBasicModel::BeamformingVector bBF) const
 {
-	//generate transmitter side spatial correlation matrix
-	uint8_t txSize = params->m_channel.at(0).size();
-	uint8_t rxSize = params->m_channel.size();
-	complex2DVector_t txQ;
-	txQ.resize(txSize);
+  complexVector_t longTerm; // vector containing the long term component for each cluster
 
-	for (uint8_t txIndex = 0; txIndex < txSize; txIndex++)
-	{
-		txQ.at(txIndex).resize(txSize);
-	}
+  complexVector_t aW = AntennaArrayBasicModel::GetVector (aBF);
+  complexVector_t bW = AntennaArrayBasicModel::GetVector (bBF);
 
-	//compute the transmitter side spatial correlation matrix txQ = H*H, where H is the sum of H_n over n clusters.
-	for (uint8_t t1Index = 0; t1Index < txSize; t1Index++)
-	{
-		for (uint8_t t2Index = 0; t2Index < txSize; t2Index++)
-		{
-			for(uint8_t rxIndex = 0; rxIndex < rxSize; rxIndex++)
-			{
-				std::complex<double> cSum (0,0);
-				for (uint8_t cIndex = 0; cIndex < params->m_channel.at(rxIndex).at(t1Index).size(); cIndex++)
-				{
-					cSum = cSum + std::conj(params->m_channel.at(rxIndex).at(t1Index).at(cIndex))*
-							(params->m_channel.at(rxIndex).at(t2Index).at(cIndex));
-				}
-				txQ[t1Index][t2Index] += cSum;
-			}
+  //compute the long term key, the key is unique for each tx-rx pair
+  uint32_t minId = std::min (aMob->GetObject<Node> ()->GetId (), bMob->GetObject<Node> ()->GetId ());
+  uint32_t maxId = std::max (aMob->GetObject<Node> ()->GetId (), bMob->GetObject<Node> ()->GetId ());
+  uint32_t longTermId = GetKey (minId, maxId);
 
-		}
-	}
+  //TODO uncomment the following if we change our mind and decide to disable the interference caching implementation
+//  bool interference = true;
+//  if ( ( AntennaArrayBasicModel::GetBeamId(aBF) == longTermId ) && ( AntennaArrayBasicModel::GetBeamId(bBF) == longTermId ) )
+//    {
+//      interference = false;
+//    }
+  //TODO remove this variable and substitute it with longTermId hereafter if we change our mind and decide to disable the interference caching implementation
+  Key3DLongTerm longTerm3Key = {
+      AntennaArrayBasicModel::GetBeamId(aBF),
+      longTermId,
+      AntennaArrayBasicModel::GetBeamId(bBF)
+      };
+
+  bool update = false; // indicates whether the long term has to be updated
+  bool notFound = false; // indicates if the long term has not been computed yet
+
+  // look for the long term in the map and check if it is valid
+  if (m_longTermMap.find (longTerm3Key) != m_longTermMap.end ())
+  {
+    NS_LOG_DEBUG ("found the long term component in the map");
+    longTerm = m_longTermMap.at (longTerm3Key)->m_longTerm;
+
+    // check if the channel matrix has been updated
+    // or the tx beam has been changed
+    // or the rx beam has been changed
+    if (m_longTermMap.at (longTerm3Key)->m_channel->m_isReverse)
+    {
+      // the long term was computed considering device b as tx and device a as rx
+      update = (m_longTermMap.at (longTerm3Key)->m_channel->m_generatedTime != channelMatrix->m_generatedTime
+                || m_longTermMap.at (longTerm3Key)->m_txW != bW
+                || m_longTermMap.at (longTerm3Key)->m_rxW != aW);
+    }
+    else
+    {
+      // the long term was computed considering device a as tx and device b as rx
+      update = (m_longTermMap.at (longTerm3Key)->m_channel->m_generatedTime != channelMatrix->m_generatedTime
+                || m_longTermMap.at (longTerm3Key)->m_txW != aW
+                || m_longTermMap.at (longTerm3Key)->m_rxW != bW);
+    }
+  }
+  else
+  {
+    NS_LOG_DEBUG ("long term component NOT found");
+    notFound = true;
+  }
+
+  //TODO swap the following commented and uncommented lines if we change our mind and decide to disable the interference caching implementation
+  if (update || notFound)
+//  if (update || notFound || interference)
+  {
+    NS_LOG_DEBUG ("compute the long term for channel ID "<<longTermId<<" using tx bf Id "<<AntennaArrayBasicModel::GetBeamId(aBF)<<" and rx bf Id "<<AntennaArrayBasicModel::GetBeamId(bBF));
+    // compute the long term component
+    longTerm = CalLongTerm (channelMatrix, aW, bW);
+
+    //TODO uncomment the following if we change our mind and decide to disable the interference caching implementation
+//    if ( ! interference)
+//      {
+      // store the long term
+      Ptr<LongTerm> longTermItem = Create<LongTerm> ();
+      longTermItem->m_longTerm = longTerm;
+      longTermItem->m_channel = channelMatrix;
+      longTermItem->m_txW = aW;
+      longTermItem->m_rxW = bW;
+
+      m_longTermMap[longTerm3Key] = longTermItem;
+//      }
+  }
+
+  return longTerm;
+}
 
 
-	//calculate beamforming vector from spatial correlation matrix.
-	complexVector_t antennaWeights;
-	uint8_t txAntenna = txQ.size ();
-	for (uint8_t eIndex = 0; eIndex < txAntenna; eIndex++)
-	{
-		antennaWeights.push_back(txQ.at (0).at (eIndex));
-	}
+Ptr<SpectrumValue>
+MmWave3gppChannel::DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
+                                                   Ptr<const MobilityModel> a,
+                                                   Ptr<const MobilityModel> b) const
+{
+	Ptr<SpectrumValue> rxPsd = Copy(txPsd);
+	
+	return rxPsd;
+}
 
+complexVector_t
+MmWave3gppChannel::CalBeamformingComplexCoef (Ptr<SpectrumValue> refPsd, complexVector_t longTerm, Ptr<Params3gpp> params, Vector txSpeed, Vector rxSpeed) const
+{
+  NS_LOG_FUNCTION (this);
 
-	int iter = 10;
-	double diff = 1;
-	while(iter != 0 && diff>1e-10)
-	{
-		complexVector_t antennaWeights_New;
+  //channel[rx][tx][cluster]
+  uint8_t numCluster = params->m_channel.at (0).at (0).size ();
+  complexVector_t tempComplexSpectrum;
 
-		for(uint8_t row = 0; row<txAntenna; row++)
-		{
-			std::complex<double> sum(0,0);
-			for (uint8_t col = 0; col< txAntenna; col++)
-			{
-				sum += txQ.at (row).at (col)*antennaWeights.at (col);
-			}
+  double slotTime = Simulator::Now ().GetSeconds ();
+  complexVector_t doppler;
+  for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+    {
+      //cluster angle angle[direction][n],where, direction = 0(aoa), 1(zoa).
+      // TODO should I include the "alfa" term for the Doppler of delayed paths?
+      double temp_doppler = 2 * M_PI * ((sin (params->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * cos (params->m_angle.at (AOA_INDEX).at (cIndex) * M_PI / 180) * rxSpeed.x
+                                        + sin (params->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * sin (params->m_angle.at (AOA_INDEX).at (cIndex) * M_PI / 180) * rxSpeed.y
+                                        + cos (params->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * rxSpeed.z)
+                                        + (sin (params->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * cos (params->m_angle.at (AOD_INDEX).at (cIndex) * M_PI / 180) * txSpeed.x
+                                        + sin (params->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * sin (params->m_angle.at (AOD_INDEX).at (cIndex) * M_PI / 180) * txSpeed.y
+                                        + cos (params->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * txSpeed.z))
+                                        * slotTime * m_phyMacConfig->GetCenterFrequency () / 3e8;
+      doppler.push_back (exp (std::complex<double> (0, temp_doppler)));
+    }
 
-		    antennaWeights_New.push_back(sum);
-		}
-		//normalize antennaWeights;
-		double weightSum = 0;
-		for (uint8_t i = 0; i< txAntenna; i++)
-		{
-			weightSum += norm(antennaWeights_New. at(i));
-		}
-		for (uint8_t i = 0; i< txAntenna; i++)
-		{
-			antennaWeights_New. at(i) = antennaWeights_New. at(i)/sqrt(weightSum);
-		}
-		diff = 0;
-		for (uint8_t i = 0; i< txAntenna; i++)
-		{
-			diff += std::norm(antennaWeights_New. at(i)-antennaWeights. at(i));
-		}
-		iter--;
-		antennaWeights = antennaWeights_New;
-	}
+  for (Bands::const_iterator sbit = refPsd->ConstBandsBegin(); sbit != refPsd->ConstBandsEnd (); sbit++)
+    {
+      std::complex<double> subsbandGain (0.0,0.0);
 
-	params->m_txW = antennaWeights;
-
-	//compute the receiver side spatial correlation matrix rxQ = HH*, where H is the sum of H_n over n clusters.
-	complex2DVector_t rxQ;
-	rxQ.resize(rxSize);
-	for (uint8_t r1Index = 0; r1Index < rxSize; r1Index++)
-	{
-		rxQ.at(r1Index).resize(rxSize);
-	}
-
-	for (uint8_t r1Index = 0; r1Index < rxSize; r1Index++)
-	{
-		for (uint8_t r2Index = 0; r2Index < rxSize; r2Index++)
-		{
-			for(uint8_t txIndex = 0; txIndex < txSize; txIndex++)
-            {
-				std::complex<double> cSum (0,0);
-				for (uint8_t cIndex = 0; cIndex < params->m_channel.at(r1Index).at(txIndex).size(); cIndex++)
-				{
-					cSum = cSum + params->m_channel.at(r1Index).at(txIndex).at(cIndex)*
-							std::conj(params->m_channel.at(r2Index).at(txIndex).at(cIndex));
-				}
-				rxQ[r1Index][r2Index] += cSum;
-            }
-
-		}
-	}
-
-	//calculate beamforming vector from spatial correlation matrix.
-	antennaWeights.clear();
-	uint8_t rxAntenna = rxQ.size ();
-	for (uint8_t eIndex = 0; eIndex < rxAntenna; eIndex++)
-	{
-		antennaWeights.push_back(rxQ.at (0).at (eIndex));
-	}
-
-	iter = 10;
-	diff = 1;
-	while(iter != 0 && diff>1e-10)
-	{
-		complexVector_t antennaWeights_New;
-
-		for(uint8_t row = 0; row<rxAntenna; row++)
-		{
-			std::complex<double> sum(0,0);
-			for (uint8_t col = 0; col< rxAntenna; col++)
-			{
-				sum += rxQ.at (row).at (col)*antennaWeights.at (col);
-			}
-
-		    antennaWeights_New.push_back(sum);
-		}
-
-		//normalize antennaWeights;
-		double weightSum = 0;
-		for (uint8_t i = 0; i< rxAntenna; i++)
-		{
-			weightSum += norm(antennaWeights_New. at(i));
-		}
-		for (uint8_t i = 0; i< rxAntenna; i++)
-		{
-			antennaWeights_New. at(i) = antennaWeights_New. at(i)/sqrt(weightSum);
-		}
-		diff = 0;
-		for (uint8_t i = 0; i< rxAntenna; i++)
-		{
-			diff += std::norm(antennaWeights_New. at(i)-antennaWeights. at(i));
-		}
-		iter--;
-		antennaWeights = antennaWeights_New;
-	}
-
-	params->m_rxW = antennaWeights;
+      double fsb = (*sbit).fc;
+      for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+        {
+          double delay = -2 * M_PI * fsb * (params->m_delay.at (cIndex));
+          subsbandGain = subsbandGain + longTerm.at (cIndex) * doppler.at (cIndex) * exp (std::complex<double> (0, delay));
+        }
+      tempComplexSpectrum.push_back(subsbandGain);
+    }
+  return tempComplexSpectrum;
 }
 
 Ptr<SpectrumValue>
-MmWave3gppChannel::CalBeamformingGain (Ptr<const SpectrumValue> txPsd, Ptr<Params3gpp> params, Vector speed) const
+MmWave3gppChannel::CalBeamformingGain (Ptr<SpectrumValue> txPsd, complexVector_t longTerm, Ptr<Params3gpp> params, Vector txSpeed, Vector rxSpeed) const
 {
-	NS_LOG_FUNCTION (this);
+  NS_LOG_FUNCTION (this);
 
-	Ptr<SpectrumValue> tempPsd = Copy<SpectrumValue> (txPsd);
+  Ptr<SpectrumValue> tempPsd = Copy (txPsd);
 
-	//NS_ASSERT_MSG (params->m_delay.size()==params->m_channel.at(0).at(0).size(), "the cluster number of channel and delay spread should be the same");
-	//NS_ASSERT_MSG (params->m_txW.size()==params->m_channel.at(0).size(), "the tx antenna size of channel and antenna weights should be the same");
-	//NS_ASSERT_MSG (params->m_rxW.size()==params->m_channel.size(), "the rx antenna size of channel and antenna weights should be the same");
-	//NS_ASSERT_MSG (params->m_angle.at(0).size()==params->m_channel.at(0).at(0).size(), "the cluster number of channel and AOA should be the same");
-	//NS_ASSERT_MSG (params->m_angle.at(1).size()==params->m_channel.at(0).at(0).size(), "the cluster number of channel and ZOA should be the same");
+  complexVector_t tempComplexCoef = CalBeamformingComplexCoef ( tempPsd, longTerm, params, txSpeed, rxSpeed);
 
-	//channel[rx][tx][cluster]
-	uint8_t numCluster = params->m_delay.size();
-	//uint8_t txAntenna = params->m_txW.size();
-	//uint8_t rxAntenna = params->m_rxW.size();
-	//the update of Doppler is simplified by only taking the center angle of each cluster in to consideration.
-	Values::iterator vit = tempPsd->ValuesBegin ();
-	uint16_t iSubband = 0;
-	double slotTime = Simulator::Now ().GetSeconds ();
-	complexVector_t doppler;
-	for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
-	{
-		//cluster angle angle[direction][n],where, direction = 0(aoa), 1(zoa).
-		double temp_doppler = 2*M_PI*(sin(params->m_angle.at(ZOA_INDEX).at(cIndex)*M_PI/180)*cos(params->m_angle.at(AOA_INDEX).at(cIndex)*M_PI/180)*speed.x
-				+ sin(params->m_angle.at(ZOA_INDEX).at(cIndex)*M_PI/180)*sin(params->m_angle.at(AOA_INDEX).at(cIndex)*M_PI/180)*speed.y
-				+ cos(params->m_angle.at(ZOA_INDEX).at(cIndex)*M_PI/180)*speed.z)*slotTime*m_phyMacConfig->GetCenterFrequency ()/3e8;
-		doppler.push_back(exp(std::complex<double> (0, temp_doppler)));
 
-	}
-
-	while (vit != tempPsd->ValuesEnd ())
-	{
-		std::complex<double> subsbandGain (0.0,0.0);
-		if ((*vit) != 0.00)
-		{
-			double fsb = m_phyMacConfig->GetCenterFrequency () - GetSystemBandwidth ()/2 + m_phyMacConfig->GetChunkWidth ()*iSubband ;
-			for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
-			{
-				double delay = -2*M_PI*fsb*(params->m_delay.at (cIndex));
-				std::complex<double> txSum(0,0);
-				subsbandGain = subsbandGain + params->m_longTerm.at(cIndex)*doppler.at(cIndex)*exp(std::complex<double>(0, delay));
-			}
-			*vit = (*vit)*(norm (subsbandGain));
-		}
-		vit++;
-		iSubband++;
-	}
-	return tempPsd;
+//  //channel[rx][tx][cluster]
+//  uint8_t numCluster = params->m_channel.at (0).at (0).size ();
+//
+//  //the update of Doppler is simplified by only taking the center angle of each cluster in to consideration.
+  Values::iterator vit = tempPsd->ValuesBegin ();
+//  Bands::const_iterator sbit = tempPsd->ConstBandsBegin(); // sub band iterator
+//
+  uint16_t iSubband = 0;
+//  double slotTime = Simulator::Now ().GetSeconds ();
+//  complexVector_t doppler;
+//  for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+//    {
+//      //cluster angle angle[direction][n],where, direction = 0(aoa), 1(zoa).
+//      // TODO should I include the "alfa" term for the Doppler of delayed paths?
+//      double temp_doppler = 2 * M_PI * ((sin (params->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * cos (params->m_angle.at (AOA_INDEX).at (cIndex) * M_PI / 180) * rxSpeed.x
+//                                        + sin (params->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * sin (params->m_angle.at (AOA_INDEX).at (cIndex) * M_PI / 180) * rxSpeed.y
+//                                        + cos (params->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * rxSpeed.z)
+//                                        + (sin (params->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * cos (params->m_angle.at (AOD_INDEX).at (cIndex) * M_PI / 180) * txSpeed.x
+//                                        + sin (params->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * sin (params->m_angle.at (AOD_INDEX).at (cIndex) * M_PI / 180) * txSpeed.y
+//                                        + cos (params->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * txSpeed.z))
+//                                        * slotTime * GetFrequency () / 3e8;
+//      doppler.push_back (exp (std::complex<double> (0, temp_doppler)));
+//    }
+//
+  while (vit != tempPsd->ValuesEnd ())
+    {
+//      std::complex<double> subsbandGain (0.0,0.0);
+//      if ((*vit) != 0.00)
+//        {
+//          double fsb = GetFrequency (); //TODO this is a temporary fix to test MMSE beamforming in a frequency-flat channel. We must restore the behavior on next line and implement frequency-selective MMSE beamforming in the future
+////          double fsb = (*sbit).fc; //TODO it seems that the iterator (*sbit) is never changed, this may be a bug resulting in the fc of subcarrier 0 used for the doppler of all bands
+////          NS_LOG_DEBUG("fsb: "<<fsb);
+//          for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+//            {
+//              double delay = -2 * M_PI * fsb * (params->m_delay.at (cIndex));
+//              subsbandGain = subsbandGain + longTerm.at (cIndex) * doppler.at (cIndex) * exp (std::complex<double> (0, delay));
+//            }
+//          *vit = norm (subsbandGain);
+//        }
+      *vit = norm(tempComplexCoef.at(iSubband));
+      vit++;
+      iSubband++;//TODO it seems iSubband does nothing whereas the subband iterator *sbit has not been incremented in this loop
+//      sbit++;
+    }
+  return tempPsd;
 }
 
-double
-MmWave3gppChannel::GetSystemBandwidth () const
+/**
+ * Computes the received PSD
+ * \param tx PSD
+ * \param tx mobility model
+ * \param rx mobility model
+ * \param txlayerInd layer to be used by antenna array for transmitter
+ * \param rxlayerInd layer to be used by antenna array for receiver
+ * \return the received PSD
+ */
+Ptr<SpectrumValue> MmWave3gppChannel::DoCalcRxPowerSpectralDensityMultilayers (Ptr<const SpectrumValue> txPsd,
+																				Ptr<const MobilityModel> a,
+																				Ptr<const MobilityModel> b,
+																				uint8_t txLayerInd,
+																				uint8_t rxLayerInd) const
+{	
+	NS_LOG_FUNCTION(this);
+	// need channel map channelParams
+	Ptr<SpectrumValue> rxPsd = Copy (txPsd);
+
+	bool isOmni = false;
+	Ptr<AntennaArrayModel> txAntennaArray, rxAntennaArray;
+	Ptr<Params3gpp> channelParams;
+
+	auto returnParams = EvaluateChannelInformation(a,b,txLayerInd);
+	channelParams = std::get<0>(returnParams);
+	txAntennaArray = std::get<1>(returnParams);
+	rxAntennaArray = std::get<2>(returnParams);
+	isOmni = std::get<3>(returnParams);
+
+	if (isOmni == true)
+	{
+		return rxPsd;
+	}
+
+	// get the precoding and combining vectors
+	Ptr<AntennaArrayModel> castTxArray=DynamicCast<AntennaArrayModel>(txAntennaArray);
+	Ptr<AntennaArrayModel> castRxArray=DynamicCast<AntennaArrayModel>(rxAntennaArray);
+
+	AntennaArrayBasicModel::BeamformingVector txW = castTxArray->GetCurrentBeamformingVectorMultilayers (txLayerInd);
+	AntennaArrayBasicModel::BeamformingVector rxW = castRxArray->GetCurrentBeamformingVectorMultilayers (rxLayerInd);
+  
+	Ptr<SpectrumValue>  bfGainPsd = Create<SpectrumValue>( rxPsd->GetSpectrumModel () );
+  
+	if (castTxArray->isDigitalCombiningOn())
+	{
+		
+		NS_ASSERT_MSG ( ! castRxArray->isDigitalCombiningOn() , "Digital combining at both transmitter and receiver is impossible if one is a UE");
+		AntennaArrayModel::complex3DVector_t mmseWDCmatrix = castTxArray->GetDigitalCombining();
+		if ( mmseWDCmatrix.at(0).size()<=txLayerInd )
+			{//when we are called with a value of txLayerInd greater than the number of active layers
+			//for example if a mmwave-phy calls startTx for all its layers indiscriminately, including those that are not allocated
+			//by convention we assume unallocated layers transmit 0 power and thus do not send out unnecessary interference
+			(*bfGainPsd)=0;
+			}
+		else
+			{
+			complexVector_t bfComplexSpectrum ( mmseWDCmatrix.size() , 0.0) ;
+			for (uint8_t txLayerCtr = 0; txLayerCtr< mmseWDCmatrix.at(0).size(); txLayerCtr++ )
+				{
+				AntennaArrayBasicModel::BeamformingVector txWaux = castTxArray->GetCurrentBeamformingVectorMultilayers ( txLayerCtr );
+				complexVector_t longTerm = GetLongTerm (a, b, channelParams, txWaux, rxW);
+				complexVector_t bfComplexNewComponent = CalBeamformingComplexCoef (rxPsd, longTerm, channelParams, a->GetVelocity (), b->GetVelocity ());          ;
+				for ( size_t sBandCtr = 0; sBandCtr < mmseWDCmatrix.size(); sBandCtr++)
+					{//if there are no bugs dimensions always match
+					bfComplexSpectrum.at( sBandCtr ) += mmseWDCmatrix.at( sBandCtr ).at( txLayerInd ).at( txLayerCtr ) * bfComplexNewComponent.at( sBandCtr );
+					}
+				}
+			for ( size_t sBandCtr = 0; sBandCtr < mmseWDCmatrix.size(); sBandCtr++)
+				{
+				(*bfGainPsd)[sBandCtr] = std::norm( bfComplexSpectrum.at( sBandCtr ) );
+				}
+			}
+	}
+	else if(castRxArray->isDigitalCombiningOn())
+	{
+
+		AntennaArrayModel::complex3DVector_t mmseWDCmatrix = castRxArray->GetDigitalCombining();
+		if ( mmseWDCmatrix.at(0).size()<=rxLayerInd )
+			{//when we are called with a value of rxLayerInd greater than the number of active layers
+			//for example, for example if a mmwave-phy  is always trying to receive in all its layers, entering this segment of code for the layers it has not allocated
+			//by convention we assume unallocated layers receive 0 power and thus do not capture unnecessary noise and interference
+			(*bfGainPsd)=0;
+			}
+		else
+			{
+			complexVector_t bfComplexSpectrum ( mmseWDCmatrix.size() , 0.0 ) ;
+			for (uint8_t rxLayerCtr = 0; rxLayerCtr< mmseWDCmatrix.at(0).size(); rxLayerCtr++ )
+				{
+				AntennaArrayBasicModel::BeamformingVector rxWaux = castRxArray->GetCurrentBeamformingVectorMultilayers ( rxLayerCtr );
+				complexVector_t longTerm = GetLongTerm (a, b, channelParams, txW, rxWaux);
+				complexVector_t bfComplexNewComponent = CalBeamformingComplexCoef (rxPsd, longTerm, channelParams, a->GetVelocity (), b->GetVelocity ());
+				for ( size_t sBandCtr = 0; sBandCtr < mmseWDCmatrix.size(); sBandCtr++)
+					{//if there are no bugs dimensions always match
+					bfComplexSpectrum.at( sBandCtr ) += mmseWDCmatrix.at( sBandCtr ).at( rxLayerInd ).at( rxLayerCtr ) * bfComplexNewComponent.at( sBandCtr );
+					}
+				}
+			for ( size_t sBandCtr = 0; sBandCtr < mmseWDCmatrix.size(); sBandCtr++)
+				{
+				(*bfGainPsd)[sBandCtr] = std::norm( bfComplexSpectrum.at( sBandCtr ) );
+				}
+			}
+	}
+	else
+	{		
+		//  NS_LOG_DEBUG ("In this calcPSDmultilayer call layerInd: "<<(int ) txLayerInd<<"->"<< (int ) rxLayerInd<< " tx vect size " << txW.first.size() << " rx vect size " << rxW.first.size());
+		//  NS_LOG_DEBUG ("Tx MAC: "<< txDevice->GetAddress() <<" -> Rx MAC:"<< rxDevice->GetAddress() << " at distance " << a->GetDistanceFrom (b));
+		// retrieve the long term component
+		complexVector_t longTerm = GetLongTerm (a, b, channelParams, txW, rxW);
+		//  for (uint16_t cIndex = 0; cIndex < txW.first.size(); cIndex++)
+		//    {
+		//      NS_LOG_DEBUG ("    txbfcoef " << (int) cIndex << " = " << txW.first.at(cIndex));
+		//    }
+		// apply the beamforming gain
+		bfGainPsd = CalBeamformingGain (rxPsd, longTerm, channelParams, a->GetVelocity (), b->GetVelocity ());
+	}
+
+	(*rxPsd) *= (*bfGainPsd);
+	return rxPsd;
+}
+
+double MmWave3gppChannel::GetSystemBandwidth () const
 {
 	double bw = 0.00;
 	bw = m_phyMacConfig->GetChunkWidth () * m_phyMacConfig->GetNumChunkPerRb () * m_phyMacConfig->GetNumRb ();
@@ -2192,34 +1993,35 @@ MmWave3gppChannel::SetPathlossModel (Ptr<PropagationLossModel> pathloss)
 }
 
 
-void
-MmWave3gppChannel::CalLongTerm (Ptr<Params3gpp> params) const
-{
-	uint8_t txAntenna = params->m_txW.size();
-	uint8_t rxAntenna = params->m_rxW.size();
+// implementation to be updated
+// void
+// MmWave3gppChannel::CalLongTerm (Ptr<Params3gpp> params) const
+// {
+// 	uint8_t txAntenna = params->m_txW.size();
+// 	uint8_t rxAntenna = params->m_rxW.size();
 
-	//store the long term part to reduce computation load
-	//only the small scale fading is need to be updated if the large scale parameters and antenna weights remain unchanged.
-	complexVector_t longTerm;
-	uint8_t numCluster = params->m_delay.size();
+// 	//store the long term part to reduce computation load
+// 	//only the small scale fading is need to be updated if the large scale parameters and antenna weights remain unchanged.
+// 	complexVector_t longTerm;
+// 	uint8_t numCluster = params->m_delay.size();
 
-	for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
-	{
-		std::complex<double> txSum(0,0);
-		for(uint8_t txIndex = 0; txIndex < txAntenna; txIndex++)
-		{
-			std::complex<double> rxSum(0,0);
-			for (uint8_t rxIndex = 0; rxIndex < rxAntenna; rxIndex++)
-			{
-				rxSum = rxSum + std::conj(params->m_rxW.at(rxIndex))*params->m_channel.at(rxIndex).at(txIndex).at(cIndex);
-			}
-			txSum = txSum + params->m_txW.at(txIndex)*rxSum;
-		}
-		longTerm.push_back(txSum);
-	}
-	params->m_longTerm = longTerm;
+// 	for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+// 	{
+// 		std::complex<double> txSum(0,0);
+// 		for(uint8_t txIndex = 0; txIndex < txAntenna; txIndex++)
+// 		{
+// 			std::complex<double> rxSum(0,0);
+// 			for (uint8_t rxIndex = 0; rxIndex < rxAntenna; rxIndex++)
+// 			{
+// 				rxSum = rxSum + std::conj(params->m_rxW.at(rxIndex))*params->m_channel.at(rxIndex).at(txIndex).at(cIndex);
+// 			}
+// 			txSum = txSum + params->m_txW.at(txIndex)*rxSum;
+// 		}
+// 		longTerm.push_back(txSum);
+// 	}
+// 	params->m_longTerm = longTerm;
 
-}
+// }
 
 Ptr<ParamsTable>
 MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double hBS, double hUT, double distance2D) const
@@ -2244,7 +2046,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 		{
 			if (los)
 			{
-				NS_LOG_UNCOND("NTN DenseUrban LOS");
 				table3gpp->m_uLgDS =
 					NTNDenseUrbanLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
 				table3gpp->m_sigLgDS =
@@ -2309,7 +2110,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 			}
 			else
 			{
-				NS_LOG_UNCOND("NTN DenseUrban NLOS");
                 table3gpp->m_uLgDS =
                     NTNDenseUrbanNLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
                 table3gpp->m_sigLgDS =
@@ -2365,7 +2165,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 		{
 			if (los)
 			{
-				NS_LOG_UNCOND("NTN-Urban LOS");
                 table3gpp->m_uLgDS =
                     NTNUrbanLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
                 table3gpp->m_sigLgDS =
@@ -2422,7 +2221,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 			}
 			else
 			{
-				NS_LOG_UNCOND("NTN-Urban NLOS");
                 table3gpp->m_uLgDS =
                     NTNUrbanNLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
                 table3gpp->m_sigLgDS =
@@ -2482,7 +2280,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 		{
 			if (los)
 			{
-				NS_LOG_UNCOND("NTN Suburban LOS");
                 table3gpp->m_uLgDS =
                     NTNSuburbanLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
                 table3gpp->m_sigLgDS =
@@ -2538,7 +2335,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 			}
 			else
 			{
-				NS_LOG_UNCOND("NTN Suburban NLOS");
                 table3gpp->m_uLgDS =
                     NTNSuburbanNLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
                 table3gpp->m_sigLgDS =
@@ -2598,7 +2394,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 		{
 			if (los)
 			{
-				NS_LOG_UNCOND("NTN Rural LOS");
 				table3gpp->m_uLgDS =
 					NTNRuralLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
 				table3gpp->m_sigLgDS =
@@ -2654,7 +2449,6 @@ MmWave3gppChannel::Get3gppTable (bool isASatellite, bool los, bool o2i, double h
 			}
 			else if (!los)
 			{
-				NS_LOG_UNCOND("NTN Rural NLOS");
 				table3gpp->m_uLgDS =
 					NTNRuralNLOS.at(freqBand).at(elevAngleQuantized)[Table3gppParams::uLgDS];
 				table3gpp->m_sigLgDS =
@@ -3526,12 +3320,12 @@ MmWave3gppChannel::GetNewChannel(Ptr<ParamsTable>  table3gpp, Vector locUT, bool
 	// The following for loops computes the channel coefficients
 	for (uint16_t uIndex = 0; uIndex < uSize; uIndex++)
 	{
-		Vector uLoc = rxAntenna->GetAntennaLocation(uIndex,rxAntennaNum);
+		Vector uLoc = rxAntenna->GetAntennaLocation(uIndex);
 
 		for (uint16_t sIndex = 0; sIndex < sSize; sIndex++)
 		{
 
-			Vector sLoc = txAntenna->GetAntennaLocation(sIndex,txAntennaNum);
+			Vector sLoc = txAntenna->GetAntennaLocation(sIndex);
 
 			for (uint8_t nIndex = 0; nIndex < numReducedCluster; nIndex++)
 			{
@@ -3727,8 +3521,6 @@ MmWave3gppChannel::GetNewChannel(Ptr<ParamsTable>  table3gpp, Vector locUT, bool
 
 
 	}
-
-	NS_LOG_INFO ("size of coefficient matrix =["<<H_usn.size() << "][" << H_usn.at(0).size() << "][" << H_usn.at (0).at(0).size()<<"]");
 
 
 	/*std::cout << "Delay:";
@@ -4170,12 +3962,12 @@ MmWave3gppChannel::UpdateChannel(Ptr<Params3gpp> params3gpp, Ptr<ParamsTable>  t
 	// The following for loops computes the channel coefficients
 	for (uint16_t uIndex = 0; uIndex < uSize; uIndex++)
 	{
-		Vector uLoc = rxAntenna->GetAntennaLocation(uIndex,rxAntennaNum);
+		Vector uLoc = rxAntenna->GetAntennaLocation(uIndex);
 
 		for (uint16_t sIndex = 0; sIndex < sSize; sIndex++)
 		{
 
-			Vector sLoc = txAntenna->GetAntennaLocation(sIndex,txAntennaNum);
+			Vector sLoc = txAntenna->GetAntennaLocation(sIndex);
 
 			for (uint8_t nIndex = 0; nIndex < params->m_numCluster; nIndex++)
 			{
@@ -4370,61 +4162,9 @@ MmWave3gppChannel::UpdateChannel(Ptr<Params3gpp> params3gpp, Ptr<ParamsTable>  t
 	params->m_angle.push_back(clusterAod);
 	params->m_angle.push_back(clusterZod);
 	//update the previous location.
-
 	return params;
 
 }
-
-void
-MmWave3gppChannel::BeamSearchBeamforming (Ptr<const SpectrumValue> txPsd, Ptr<Params3gpp> params, Ptr<AntennaArrayModel> txAntenna,
-		Ptr<AntennaArrayModel> rxAntenna, uint8_t *txAntennaNum, uint8_t *rxAntennaNum) const
-{
-	double max = 0, maxTx = 0, maxRx =0, maxTxTheta=0, maxRxTheta=0;
-	NS_LOG_LOGIC("BeamSearchBeamforming method at time " << Simulator::Now().GetSeconds());
-	for (uint16_t txTheta = 60; txTheta < 121; txTheta=txTheta+10)
-	{
-		for(uint16_t tx=0; tx<=txAntennaNum[1]; tx++)
-		{
-			for (uint16_t rxTheta = 60; rxTheta < 121; rxTheta=rxTheta+10)
-			{
-				for(uint16_t rx=0; rx<=rxAntennaNum[1]; rx++)
-				{
-					NS_LOG_LOGIC("txTheta " << txTheta << " rxTheta " << rxTheta << " tx sector " << 
-						(M_PI*(double)tx/(double)txAntennaNum[1]-0.5*M_PI)/(M_PI)*180 << " rx sector " << 
-						(M_PI*(double)rx/(double)rxAntennaNum[1]-0.5*M_PI)/(M_PI)*180);
-
-					txAntenna->SetSector(tx, txAntennaNum, txTheta);
-					rxAntenna->SetSector(rx, rxAntennaNum, rxTheta);
-					params->m_txW = txAntenna->GetBeamformingVector();
-					params->m_rxW = rxAntenna->GetBeamformingVector();
-					CalLongTerm(params);
-					Ptr<SpectrumValue> bfPsd = CalBeamformingGain(txPsd, params, Vector(0,0,0));
-
-					SpectrumValue bfGain = (*bfPsd)/(*txPsd);
-					uint8_t nbands = bfGain.GetSpectrumModel ()->GetNumBands ();
-					double power = Sum (bfGain)/nbands;
-
-					NS_LOG_LOGIC("gain " << power);
-					if (max < power)
-					{
-						max = power;
-						maxTx = tx;
-						maxRx = rx;
-						maxTxTheta = txTheta;
-						maxRxTheta = rxTheta;
-					}
-				}
-			}
-		}
-	}
-	NS_LOG_LOGIC("maxTx " << maxTx << " txAntennaNum[1] " << (uint16_t)txAntennaNum[1]);
-	NS_LOG_LOGIC("max gain " << max << " maxTx " << (M_PI*(double)maxTx/(double)txAntennaNum[1]-0.5*M_PI)/(M_PI)*180 << " maxRx " << (M_PI*(double)maxRx/(double)rxAntennaNum[1]-0.5*M_PI)/(M_PI)*180 << " maxTxTheta " << maxTxTheta << " maxRxTheta " << maxRxTheta);
-	txAntenna->SetSector(maxTx, txAntennaNum, maxTxTheta);
-	rxAntenna->SetSector(maxRx, rxAntennaNum, maxRxTheta);
-	params->m_txW = txAntenna->GetBeamformingVector();
-	params->m_rxW = rxAntenna->GetBeamformingVector();
-}
-
 doubleVector_t
 MmWave3gppChannel::CalAttenuationOfBlockage (Ptr<Params3gpp> params,
 		doubleVector_t clusterAOA, doubleVector_t clusterZOA) const
@@ -4642,7 +4382,123 @@ MmWave3gppChannel::CalAttenuationOfBlockage (Ptr<Params3gpp> params,
 	return powerAttenuation;
 }
 
+complex2DVector_t
+MmWave3gppChannel::GetFrequencyFlatChannelMatrixAtDeltaFrequency ( Ptr<const MobilityModel> a,
+										      Ptr<const MobilityModel> b,
+										      double deltaFc,
+											uint8_t layerInd)
+{
+  //TODO this function shares a lot of code with calcLongTerm and calcBFGain, try to reuse more code
+  //TODO we should be able to cache this too
 
+  Ptr<AntennaArrayModel> txAntennaArray, rxAntennaArray;
+  Ptr<Params3gpp> channelParams;
 
+  auto returnParams = EvaluateChannelInformation(a,b,layerInd);
+  channelParams = std::get<0>(returnParams);
+  txAntennaArray = std::get<1>(returnParams);
+  rxAntennaArray = std::get<2>(returnParams);
+
+  uint8_t numCluster = channelParams->m_channel.at (0).at (0).size ();
+
+  uint16_t numTxAntenna = txAntennaArray->GetAntennaNumDim1 () * txAntennaArray->GetAntennaNumDim2 ();
+  uint16_t numRxAntenna = rxAntennaArray->GetAntennaNumDim1 () * rxAntennaArray->GetAntennaNumDim2 ();
+  
+  if ( channelParams->m_isReverse )
+    {
+      NS_ASSERT_MSG (channelParams->m_channel.size() == numTxAntenna,"matrix dimensions mismatch tx array size: "<<channelParams->m_channel.size()<<" expected: "<<numTxAntenna);
+      NS_ASSERT_MSG (channelParams->m_channel.at(0).size() == numRxAntenna,"matrix dimensions mismatch rx array size: "<<channelParams->m_channel.at(0).size()<<" expected: "<<numRxAntenna);
+    }
+  else
+    {
+      NS_ASSERT_MSG (channelParams->m_channel.size() == numRxAntenna,"matrix dimensions mismatch tx array size: "<<channelParams->m_channel.size()<<" expected: "<<numRxAntenna);
+      NS_ASSERT_MSG (channelParams->m_channel.at(0).size() == numTxAntenna,"matrix dimensions mismatch rx array size: "<<channelParams->m_channel.at(0).size()<<" expected: "<<numTxAntenna);
+    }
+
+  //precompute delay and doppler to accelerate next loop
+  complexVector_t doppler;
+  complexVector_t delay_doppler;
+  double slotTime = Simulator::Now ().GetSeconds ();
+  double fsb = deltaFc + m_phyMacConfig->GetCenterFrequency(); //we assume the reference signal is Deltafc distant from the center frequency of the channel model
+  for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+    {
+      //cluster angle angle[direction][n],where, direction = 0(aoa), 1(zoa).
+      // TODO should I include the "alfa" term for the Doppler of delayed paths?
+      double temp_doppler = 2 * M_PI * ((sin (channelParams->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * cos (channelParams->m_angle.at (AOA_INDEX).at (cIndex) * M_PI / 180) * b->GetVelocity ().x
+					+ sin (channelParams->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * sin (channelParams->m_angle.at (AOA_INDEX).at (cIndex) * M_PI / 180) * b->GetVelocity ().y
+					+ cos (channelParams->m_angle.at (ZOA_INDEX).at (cIndex) * M_PI / 180) * b->GetVelocity ().z)
+					+ (sin (channelParams->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * cos (channelParams->m_angle.at (AOD_INDEX).at (cIndex) * M_PI / 180) * a->GetVelocity ().x
+					+ sin (channelParams->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * sin (channelParams->m_angle.at (AOD_INDEX).at (cIndex) * M_PI / 180) * a->GetVelocity ().y
+					+ cos (channelParams->m_angle.at (ZOD_INDEX).at (cIndex) * M_PI / 180) * a->GetVelocity ().z))
+					* slotTime * m_phyMacConfig->GetCenterFrequency() / 3e8;
+
+      doppler.push_back ( exp ( std::complex<double> (0, temp_doppler ) ) );
+
+      double delay = -2 * M_PI * fsb * (channelParams->m_delay.at (cIndex));
+      delay_doppler.push_back ( exp (std::complex<double> (0, delay ) ) );
+    }
+
+  complex2DVector_t resultMatrix; //this starts with empty matrix
+  for (uint16_t rxIndex = 0; rxIndex < numRxAntenna; rxIndex++)
+    {
+      complexVector_t resultRow;//this starts adding an empty row to the matrix
+      for (uint16_t txIndex = 0; txIndex < numTxAntenna; txIndex++)
+	{
+	  std::complex<double> resultElement (0,0);//this adds a zero element to the new row of the matrix
+	  for (uint8_t cIndex = 0; cIndex < numCluster; cIndex++)
+	    {
+	      if ( channelParams->m_isReverse )
+		{//we read from the channelParams in reverse but store in the current order, effectively conjugating the result
+
+		  resultElement +=   channelParams->m_channel.at (txIndex).at (rxIndex).at (cIndex) * doppler.at (cIndex) * delay_doppler.at(cIndex);
+//		  NS_LOG_DEBUG ("REVERSE Computing step ["<< rxIndex <<","<< txIndex <<","<< (int )cIndex <<
+//				"] Array size = ["<<  channelParams->m_channel.at(0).size() <<","<< channelParams->m_channel.size() <<","<< channelParams->m_channel.at(0).at(0).size() <<
+//				"] loop limits ["<< numRxAntenna <<","<< numTxAntenna<<","<<(int )numCluster<<
+//				"] gain "<< channelParams->m_channel.at (txIndex).at (rxIndex).at (cIndex) <<
+//				" doppler "<< doppler.at (cIndex)<<
+//				" delay doppler "<< delay_doppler.at(cIndex));
+		}
+	      else
+		{
+		   resultElement +=  channelParams->m_channel.at (rxIndex).at (txIndex).at (cIndex) * doppler.at (cIndex) * delay_doppler.at(cIndex);
+//		   NS_LOG_DEBUG ("Computing reverse step ["<< rxIndex <<","<< txIndex <<","<< (int )cIndex <<
+//				 "] Array size = ["<<  channelParams->m_channel.size() <<","<< channelParams->m_channel.at(0).size() <<","<< channelParams->m_channel.at(0).at(0).size() <<
+//				 "] loop limits "<< numRxAntenna <<","<< numTxAntenna<<","<<(int )numCluster<<
+//				 "]  gain "<< channelParams->m_channel.at (rxIndex).at (txIndex).at (cIndex) <<
+//				" doppler "<< doppler.at (cIndex)<<
+//				" delay doppler "<< delay_doppler.at(cIndex));
+		}
+	    }
+	  resultRow.push_back(resultElement);
+	}
+      resultMatrix.push_back (resultRow);
+    }
+  return (resultMatrix);
+}
+
+complexVector_t
+MmWave3gppChannel::DoCalcRxComplexSpectrum (Ptr<SpectrumValue> refPsd,
+                                                                    Ptr<const MobilityModel> a,
+                                                                    Ptr<const MobilityModel> b,
+                                                                    AntennaArrayBasicModel::BeamformingVector txW,
+                                                                    AntennaArrayBasicModel::BeamformingVector rxW
+                                                                ) const
+{
+	NS_LOG_FUNCTION (this);
+
+	Ptr<AntennaArrayModel> txAntennaArray, rxAntennaArray;
+	Ptr<Params3gpp> channelParams;
+
+	auto returnParams = EvaluateChannelInformation(a,b,0); // to do adeel this layer index is only used to fetch the antenna 
+	channelParams = std::get<0>(returnParams);
+	txAntennaArray = std::get<1>(returnParams);
+	rxAntennaArray = std::get<2>(returnParams);
+
+    // retrieve the long term component
+    complexVector_t longTerm = GetLongTerm (a, b, channelParams, txW, rxW);
+
+    return CalBeamformingComplexCoef (refPsd, longTerm, channelParams, a->GetVelocity (), b->GetVelocity ());
+}
 
 }// namespace ns3
+

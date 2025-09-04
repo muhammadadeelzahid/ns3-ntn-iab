@@ -189,10 +189,10 @@ MmWavePhyRxTrace::RxPacketTraceUeCallback (Ptr<MmWavePhyRxTrace> phyStats, std::
 			NS_FATAL_ERROR ("Could not open tracefile");
 		}
 	}
-	m_rxPacketTraceFile << "DL\t" << params.m_frameNum << "\t" << (unsigned)params.m_sfNum << "\t" << (unsigned)params.m_symStart
-			<< "\t" << (unsigned)params.m_numSym << "\t" << params.m_cellId
-			<< "\t" << params.m_rnti << "\t" << params.m_tbSize << "\t" << (unsigned)params.m_mcs << "\t" << (unsigned)params.m_rv << "\t"
-			<< 10*std::log10(params.m_sinr) << "\t" << " \t" << params.m_corrupt << "\t" <<  params.m_tbler << std::endl;
+	m_rxPacketTraceFile << "DL\t" << "frameNum: " << params.m_frameNum << "\t" << "sfNum: " << (unsigned)params.m_sfNum << "\t" << "symStart: " << (unsigned)params.m_symStart
+			<< "\t" << "numSym: " << (unsigned)params.m_numSym << "\t" << "cellId: " << params.m_cellId
+			<< "\t" <<"Rnti: "<< params.m_rnti << "\t" <<"tbSize: " << params.m_tbSize << "\t" << "mcs: " << (unsigned)params.m_mcs << "\t" << "rv: " << (unsigned)params.m_rv << "\t"
+			<< "sinr: " << 10*std::log10(params.m_sinr) << "\t" << "corrupt: " << params.m_corrupt << "\t" << "tbler: " <<  params.m_tbler << std::endl;
 
 	if (params.m_corrupt)
 	{
@@ -215,10 +215,10 @@ MmWavePhyRxTrace::RxPacketTraceEnbCallback (Ptr<MmWavePhyRxTrace> phyStats, std:
 			NS_FATAL_ERROR ("Could not open tracefile");
 		}
 	}
-	m_rxPacketTraceFile << "UL\t" << params.m_frameNum << "\t" << (unsigned)params.m_sfNum << "\t" << (unsigned)params.m_symStart
-				<< "\t" << (unsigned)params.m_numSym << "\t" << params.m_cellId
-				<< "\t" << params.m_rnti << "\t" << params.m_tbSize << "\t" << (unsigned)params.m_mcs << "\t" << (unsigned)params.m_rv << "\t"
-				<< 10*std::log10(params.m_sinr) << " \t" << params.m_corrupt << "\t" << params.m_tbler << std::endl;
+	m_rxPacketTraceFile << "UL\t" << "frameNum: " << params.m_frameNum << "\t" << "sfNum: " << (unsigned)params.m_sfNum << "\t" << "symStart: " << (unsigned)params.m_symStart
+			<< "\t" << "numSym: " << (unsigned)params.m_numSym << "\t" << "cellId: " << params.m_cellId
+			<< "\t" <<"Rnti: "<< params.m_rnti << "\t" <<"tbSize: " << params.m_tbSize << "\t" << "mcs: " << (unsigned)params.m_mcs << "\t" << "rv: " << (unsigned)params.m_rv << "\t"
+			<< "sinr: " << 10*std::log10(params.m_sinr) << "\t" << "corrupt: " << params.m_corrupt << "\t" << "tbler: " <<  params.m_tbler << std::endl;
 
 		if (params.m_corrupt)
 		{

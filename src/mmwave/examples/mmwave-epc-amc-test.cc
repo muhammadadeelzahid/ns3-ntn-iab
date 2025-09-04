@@ -43,6 +43,8 @@
 
 using namespace ns3;
 
+NS_LOG_COMPONENT_DEFINE ("mmWaveEpcAmcTest");
+
 double updateInterval = 100.0;  // in ms
 double increment = 5.0; // increment by x dB
 double lossMin = 100.0;
@@ -270,7 +272,7 @@ main (int argc, char *argv[])
   mmwHelper->EnableTraces ();
 
   Simulator::Stop (Seconds (simTime));
-	NS_LOG_UNCOND ("Simulation running for " << simTime << " seconds");
+	NS_LOG_DEBUG ("Simulation running for " << simTime << " seconds");
   Simulator::Run ();
   Simulator::Destroy ();
   return 0;

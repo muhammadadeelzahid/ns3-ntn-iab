@@ -158,21 +158,21 @@ ChangePosition(Ptr<Node> node, Vector vector)
 {
   Ptr<MobilityModel> model = node->GetObject<MobilityModel> ();
   model->SetPosition(vector);
-  NS_LOG_UNCOND("************************--------------------Change Position-------------------------------*****************");
+  NS_LOG_DEBUG("************************--------------------Change Position-------------------------------*****************");
 }
 
 void
 ChangeSpeed(Ptr<Node> n, Vector speed)
 {
   n->GetObject<ConstantVelocityMobilityModel> ()->SetVelocity (speed);
-  NS_LOG_UNCOND("************************--------------------Change Speed-------------------------------*****************");
+  NS_LOG_DEBUG("************************--------------------Change Speed-------------------------------*****************");
 }
 
 void
 PrintPosition(Ptr<Node> node)
 {
   Ptr<MobilityModel> model = node->GetObject<MobilityModel> ();
-  NS_LOG_UNCOND("Position +****************************** " << model->GetPosition() << " at time " << Simulator::Now().GetSeconds());
+  NS_LOG_DEBUG("Position +****************************** " << model->GetPosition() << " at time " << Simulator::Now().GetSeconds());
 }
 
 void 
@@ -214,13 +214,13 @@ GenerateBuildingBounds(double xArea, double yArea, double maxBuildSize, std::lis
   xMinBuilding->SetAttribute("Min",DoubleValue(30));
   xMinBuilding->SetAttribute("Max",DoubleValue(xArea));
 
-  NS_LOG_UNCOND("min " << 0 << " max " << xArea);
+  NS_LOG_DEBUG("min " << 0 << " max " << xArea);
 
   Ptr<UniformRandomVariable> yMinBuilding = CreateObject<UniformRandomVariable>();
   yMinBuilding->SetAttribute("Min",DoubleValue(0));
   yMinBuilding->SetAttribute("Max",DoubleValue(yArea));
 
-  NS_LOG_UNCOND("min " << 0 << " max " << yArea);
+  NS_LOG_DEBUG("min " << 0 << " max " << yArea);
 
   Box box;
   uint32_t attempt = 0;
@@ -246,7 +246,7 @@ GenerateBuildingBounds(double xArea, double yArea, double maxBuildSize, std::lis
   while (OverlapWithAnyPrevious (box, m_previousBlocks));
 
 
-  NS_LOG_UNCOND("Building in coordinates (" << box.xMin << " , " << box.yMin << ") and ("  << box.xMax << " , " << box.yMax <<
+  NS_LOG_DEBUG("Building in coordinates (" << box.xMin << " , " << box.yMin << ") and ("  << box.xMax << " , " << box.yMax <<
     ") accepted after " << attempt << " attempts");
   m_previousBlocks.push_back(box);
   std::pair<Box, std::list<Box>> pairReturn = std::make_pair(box,m_previousBlocks);
@@ -379,7 +379,7 @@ main (int argc, char *argv[])
   double transientDuration = double(vectorTransient)/1000000; 
   double simTime = transientDuration + ((double)ueFinalPosition - (double)ueInitialPosition)/ueSpeed + 1;
 
-  NS_LOG_UNCOND("fastSwitching " << fastSwitching << " rlcAmEnabled " << rlcAmEnabled << " bufferSize " << bufferSize << " interPacketInterval " << 
+  NS_LOG_DEBUG("fastSwitching " << fastSwitching << " rlcAmEnabled " << rlcAmEnabled << " bufferSize " << bufferSize << " interPacketInterval " << 
       interPacketInterval << " x2Latency " << x2Latency << " mmeLatency " << mmeLatency << " mobileSpeed " << ueSpeed);
 
   // rng things
@@ -720,7 +720,7 @@ main (int argc, char *argv[])
   }
 
   // Start applications
-  NS_LOG_UNCOND("transientDuration " << transientDuration << " simTime " << simTime);
+  NS_LOG_DEBUG("transientDuration " << transientDuration << " simTime " << simTime);
   serverApps.Start (Seconds(transientDuration));
   clientApps.Start (Seconds(transientDuration));
   clientApps.Stop (Seconds(simTime - 1));

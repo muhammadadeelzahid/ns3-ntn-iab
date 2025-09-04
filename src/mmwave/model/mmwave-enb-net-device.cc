@@ -99,7 +99,8 @@ MmWaveEnbNetDevice::MmWaveEnbNetDevice()
 	 m_Bandwidth (72),
 	 m_Earfcn(1),
 	 m_isConstructed (false),
-	 m_isConfigured (false)
+	 m_isConfigured (false),
+	 m_numLayers(1)  // Default to single layer
 {
 	NS_LOG_FUNCTION (this);
 }
@@ -115,20 +116,108 @@ MmWaveEnbNetDevice::DoInitialize(void)
 	NS_LOG_FUNCTION(this);
 	m_isConstructed = true;
 	UpdateConfig ();
-	m_phy->Initialize ();
+	
+	// Initialize all PHY layers
+	if (m_phyLayers.empty() && m_phy != 0)
+	{
+		// If no layers are set up, use the legacy single PHY
+		m_phyLayers.push_back(m_phy);
+		m_numLayers = 1;
+	}
+	
+	for (auto& phy : m_phyLayers)
+	{
+		if (phy != 0)
+		{
+			phy->Initialize ();
+		}
+	}
 }
 
 void
 MmWaveEnbNetDevice::DoDispose()
 {
 	NS_LOG_FUNCTION (this);
+	
+	// Dispose all PHY layers
+	for (auto& phy : m_phyLayers)
+	{
+		if (phy != 0)
+		{
+			phy->Dispose();
+		}
+	}
+	m_phyLayers.clear();
+	
+	// Dispose all MAC layers
+	for (auto& mac : m_macLayers)
+	{
+		if (mac != 0)
+		{
+			mac->Dispose();
+		}
+	}
+	m_macLayers.clear();
 }
 
 Ptr<MmWaveEnbPhy>
 MmWaveEnbNetDevice::GetPhy (void) const
 {
 	NS_LOG_FUNCTION (this);
-	return m_phy;
+	// Return the first PHY layer for backward compatibility
+	if (!m_phyLayers.empty())
+	{
+		return m_phyLayers[0];
+	}
+	return m_phy;  // Fallback to legacy PHY
+}
+
+Ptr<MmWaveEnbPhy>
+MmWaveEnbNetDevice::GetPhy (uint8_t layerIndex)
+{
+	NS_LOG_FUNCTION (this << (uint32_t)layerIndex);
+	if (layerIndex < m_phyLayers.size())
+	{
+		return m_phyLayers[layerIndex];
+	}
+	NS_LOG_WARN("Layer index " << (uint32_t)layerIndex << " out of range, returning first layer");
+	return GetPhy();  // Return first layer as fallback
+}
+
+uint8_t
+MmWaveEnbNetDevice::GetNumLayers () const
+{
+	NS_LOG_FUNCTION (this);
+	return m_numLayers;
+}
+
+void
+MmWaveEnbNetDevice::SetNumLayers (uint8_t numLayers)
+{
+	NS_LOG_FUNCTION (this << (uint32_t)numLayers);
+	m_numLayers = numLayers;
+	
+	// Resize vectors if needed
+	if (m_phyLayers.size() < numLayers)
+	{
+		m_phyLayers.resize(numLayers);
+	}
+	if (m_macLayers.size() < numLayers)
+	{
+		m_macLayers.resize(numLayers);
+	}
+}
+
+Ptr<MmWaveEnbMac>
+MmWaveEnbNetDevice::GetMac (uint8_t layerIndex)
+{
+	NS_LOG_FUNCTION (this << (uint32_t)layerIndex);
+	if (layerIndex < m_macLayers.size())
+	{
+		return m_macLayers[layerIndex];
+	}
+	NS_LOG_WARN("Layer index " << (uint32_t)layerIndex << " out of range, returning first layer");
+	return GetMac();  // Return first layer as fallback
 }
 
 uint16_t
@@ -171,12 +260,26 @@ void
 MmWaveEnbNetDevice::SetMac (Ptr<MmWaveEnbMac> mac)
 {
 	m_mac = mac;
+	// Also set as first layer for multi-beam support
+	if (m_macLayers.empty())
+	{
+		m_macLayers.push_back(mac);
+	}
+	else
+	{
+		m_macLayers[0] = mac;
+	}
 }
 
 Ptr<MmWaveEnbMac>
 MmWaveEnbNetDevice::GetMac (void)
 {
-	return m_mac;
+	// Return the first MAC layer for backward compatibility
+	if (!m_macLayers.empty())
+	{
+		return m_macLayers[0];
+	}
+	return m_mac;  // Fallback to legacy MAC
 }
 
 void
@@ -195,6 +298,40 @@ void
 MmWaveEnbNetDevice::SetAntennaNum (uint8_t antennaNum)
 {
 	m_antennaNum = antennaNum;
+}
+
+void
+MmWaveEnbNetDevice::SetPhyLayer (uint8_t layerIndex, Ptr<MmWaveEnbPhy> phy)
+{
+	NS_LOG_FUNCTION (this << (uint32_t)layerIndex << phy);
+	if (layerIndex >= m_phyLayers.size())
+	{
+		m_phyLayers.resize(layerIndex + 1);
+	}
+	m_phyLayers[layerIndex] = phy;
+	
+	// Update legacy PHY reference for backward compatibility
+	if (layerIndex == 0)
+	{
+		m_phy = phy;
+	}
+}
+
+void
+MmWaveEnbNetDevice::SetMacLayer (uint8_t layerIndex, Ptr<MmWaveEnbMac> mac)
+{
+	NS_LOG_FUNCTION (this << (uint32_t)layerIndex << mac);
+	if (layerIndex >= m_macLayers.size())
+	{
+		m_macLayers.resize(layerIndex + 1);
+	}
+	m_macLayers[layerIndex] = mac;
+	
+	// Update legacy MAC reference for backward compatibility
+	if (layerIndex == 0)
+	{
+		m_mac = mac;
+	}
 }
 uint8_t
 MmWaveEnbNetDevice::GetAntennaNum () const
@@ -227,15 +364,15 @@ MmWaveEnbNetDevice::UpdateConfig (void)
 		}
 
 		//m_rrc->SetCsgId (m_csgId, m_csgIndication);
-		}
-		else
-		{
-			/*
-			* Lower layers are not ready yet, so do nothing now and expect
-			* ``DoInitialize`` to re-invoke this function.
-			*/
-		}
 	}
+	else
+	{
+		/*
+		* Lower layers are not ready yet, so do nothing now and expect
+		* ``DoInitialize`` to re-invoke this function.
+		*/
+	}
+}
 
 }
 

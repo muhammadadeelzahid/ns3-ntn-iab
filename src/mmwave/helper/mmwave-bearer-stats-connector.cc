@@ -691,7 +691,7 @@ MmWaveBearerStatsConnector::StoreUeManagerPath (std::string context, uint16_t ce
   ueManagerPathDrb << ueManagerPath.str() << "/DataRadioBearerCreated";
   std::string path = ueManagerPathDrb.str();
   Config::MatchContainer objects = Config::LookupMatches(path);
-  NS_LOG_UNCOND("num matches " << (uint32_t)objects.GetN() << " path " << path);
+  NS_LOG_DEBUG("num matches " << (uint32_t)objects.GetN() << " path " << path);
   AsciiTraceHelper asciiTraceHelper;
   std::string filePathDrb = "DataRadioBearerCreatedTrace.txt";
   Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (filePathDrb, std::ios::app);
@@ -703,7 +703,7 @@ MmWaveBearerStatsConnector::StoreUeManagerPath (std::string context, uint16_t ce
   ueManagerPathState << ueManagerPath.str() << "/StateTransition";
   std::string pathState = ueManagerPathState.str();
   objects = Config::LookupMatches(pathState);
-  NS_LOG_UNCOND("num matches " << (uint32_t)objects.GetN() << " path " << pathState);
+  NS_LOG_DEBUG("num matches " << (uint32_t)objects.GetN() << " path " << pathState);
   std::string filePathState = "StateTransitionTrace.txt";
   Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (filePathState, std::ios::app);
   // *stream2->GetStream () << "Time" << "\t" << "IMSI" << '\t' << "RNTI" << '\t' << "CellID" << '\t' << "old" << '\t' << "new" << std::endl;

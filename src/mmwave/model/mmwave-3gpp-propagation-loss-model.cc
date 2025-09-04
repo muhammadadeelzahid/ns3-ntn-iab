@@ -382,14 +382,14 @@ Ptr<MmWavePhy> GetMmWavePhy(Ptr<const MobilityModel> mobility)
     Ptr<const Node> node = mobility->GetObject<Node>();
     if (node == nullptr) 
 	{
-        NS_LOG_UNCOND("Error: No Node found for MobilityModel");
+        NS_LOG_DEBUG("Error: No Node found for MobilityModel");
         return nullptr;
     }
 
     Ptr<NetDevice> device = node->GetDevice(0);
     if (device == nullptr) 
 	{
-        NS_LOG_UNCOND("Error: No NetDevice found on Node");
+        NS_LOG_DEBUG("Error: No NetDevice found on Node");
         return nullptr;
     }
 
@@ -842,22 +842,46 @@ MmWave3gppPropagationLossModel::ComputeO2i(Ptr<const MobilityModel> a,
 double
 MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel> b) const
 {
+	NS_LOG_FUNCTION(this);
+	//NS_LOG_DEBUG("=== GetLoss Method Entry ===");
+	//NS_LOG_DEBUG("Model Configuration:");
+	//NS_LOG_DEBUG("  - NTN Scenario: " << m_ntnScenario);
+	//NS_LOG_DEBUG("  - Terrestrial Scenario: " << m_scenario);
+	//NS_LOG_DEBUG("  - Channel Conditions: " << m_channelConditions);
+	//NS_LOG_DEBUG("  - Shadowing Enabled: " << (m_shadowingEnabled ? "Yes" : "No"));
+	//NS_LOG_DEBUG("  - Building Penetration Loss Enabled: " << (m_buildingPenLossesEnabled ? "Yes" : "No"));
+	//NS_LOG_DEBUG("  - In Car: " << (m_inCar ? "Yes" : "No"));
+	//NS_LOG_DEBUG("  - Minimum Loss: " << m_minLoss << " dB");
+	//NS_LOG_DEBUG("  - Frequency: " << m_frequency << " Hz (" << m_frequency/1e9 << " GHz)");
+	//NS_LOG_DEBUG("  - Wavelength: " << m_lambda << " m");
+	
+	//NS_LOG_DEBUG("Node Positions:");
+	//NS_LOG_DEBUG("  - Transmitter (a) position: (" << a->GetPosition().x << ", " << a->GetPosition().y << ", " << a->GetPosition().z << ") m");
+	//NS_LOG_DEBUG("  - Receiver (b) position: (" << b->GetPosition().x << ", " << b->GetPosition().y << ", " << b->GetPosition().z << ") m");
+	
 	double distance3D = a->GetDistanceFrom (b);
+	//NS_LOG_DEBUG("Distance Calculations:");
+	//NS_LOG_DEBUG("  - 3D Distance: " << distance3D << " m");
+	//NS_LOG_DEBUG("  - 3*Wavelength: " << 3*m_lambda << " m");
+	//NS_LOG_DEBUG("  - Far Field Check: " << (distance3D >= 3*m_lambda ? "OK" : "WARNING - too close for far field approximation"));
 
 	if (distance3D <= 0)
 	{
+		//NS_LOG_DEBUG("Distance <= 0, returning minimum loss: " << m_minLoss << " dB");
 		return  m_minLoss;
 	}
 	if (distance3D < 3*m_lambda)
 	{
-		NS_LOG_UNCOND ("distance not within the far field region => inaccurate propagation loss value");
+		NS_LOG_DEBUG ("distance not within the far field region => inaccurate propagation loss value");
 	}
 
+	//NS_LOG_DEBUG("Determining Device Types:");
 	auto returnParams = GetEnbUePair(a, b);
 
 	if(std::get<2>(returnParams))
 	{
 		NS_LOG_INFO("Skip pathloss for device to device propagation");
+		//NS_LOG_DEBUG("Device-to-Device propagation detected, skipping path loss calculation");
 		return 0; // skip the computation for UE to UE channel
 	}
 
@@ -865,8 +889,10 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 	enbMob = std::get<0>(returnParams);
 	ueMob =  std::get<1>(returnParams);
-
 	
+	//NS_LOG_DEBUG("Device Type Determination:");
+	//NS_LOG_DEBUG("  - Base Station/ENB Mobility Model: " << (enbMob ? "Valid" : "NULL"));
+	//NS_LOG_DEBUG("  - User Equipment Mobility Model: " << (ueMob ? "Valid" : "NULL"));
 
 	Vector uePos = ueMob->GetPosition();
 	Vector enbPos = enbMob->GetPosition();
@@ -876,18 +902,45 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 	double hBs = enbPos.z;
 	double hUt = uePos.z;
 	double loss = 0;
+	
+	//NS_LOG_DEBUG("Position and Height Calculations:");
+	//NS_LOG_DEBUG("  - UE Position: (" << uePos.x << ", " << uePos.y << ", " << uePos.z << ") m");
+	//NS_LOG_DEBUG("  - ENB Position: (" << enbPos.x << ", " << enbPos.y << ", " << enbPos.z << ") m");
+	//NS_LOG_DEBUG("  - X Difference: " << x << " m");
+	//NS_LOG_DEBUG("  - Y Difference: " << y << " m");
+	//NS_LOG_DEBUG("  - 2D Distance: " << distance2D << " m");
+	//NS_LOG_DEBUG("  - Base Station Height (hBs): " << hBs << " m");
+	//NS_LOG_DEBUG("  - User Terminal Height (hUt): " << hUt << " m");
 
 	channelConditionMap_t::const_iterator it;
 	it = m_channelConditionMap.find(std::make_pair(a,b));
 
+	//NS_LOG_DEBUG("Checking Channel Condition Map:");
+	if (it != m_channelConditionMap.end())
+	{
+		//NS_LOG_DEBUG("  - Existing channel condition found in map");
+		//NS_LOG_DEBUG("  - Channel Condition: " << (*it).second.m_channelCondition);
+		//NS_LOG_DEBUG("  - Previous Shadowing: " << (*it).second.m_shadowing << " dB");
+		//NS_LOG_DEBUG("  - Previous Position: (" << (*it).second.m_position.x << ", " << (*it).second.m_position.y << ", " << (*it).second.m_position.z << ") m");
+	}
+	else
+	{
+		//NS_LOG_DEBUG("  - No existing channel condition found, will create new one");
+	}
+
+	//NS_LOG_DEBUG("NTN Medium Detection:");
 	bool ntnMediumFlag = isMediumNTN(a, b);
+	//NS_LOG_DEBUG("  - NTN Medium Flag: " << (ntnMediumFlag ? "True (NTN)" : "False (Terrestrial)"));
 
 	if (ntnMediumFlag == true)
 	{
+		//NS_LOG_DEBUG("=== NTN Path Loss Calculation ===");
+		//NS_LOG_DEBUG("NTN Scenario: " << m_ntnScenario);
 		// if (m_ntnScenario == "")
 		//NS_LOG_DEBUG("Path loss NTN Scenario: "<<m_ntnScenario);
 		if (hBs < 500000)
 		{
+			//NS_LOG_DEBUG("ERROR: Satellite height " << hBs << " m is less than 500 km minimum required by TR 38.811");
 			NS_FATAL_ERROR("Satellite height should be atleast 500 km TR 38.811");
 		}
 		channelCondition condition;
@@ -992,40 +1045,46 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			}
 		}
 
-		//NS_LOG_UNCOND ("NTN Rural scenario, 2D distance = " << distance2D <<"m, LOS = " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt
-		//<<"Loss: "<<loss);
+		NS_LOG_DEBUG ("NTN Rural scenario, 2D distance = " << distance2D <<"m, LOS = " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt <<"Loss: "<<loss);
 		return loss;
 	}
 	else
 	{
 		if (it == m_channelConditionMap.end ())
 		{
+			//NS_LOG_DEBUG("New Channel Condition: Computing channel condition");
 			channelCondition condition;
 
 			if (m_channelConditions.compare("l")==0 )
 			{
 				condition.m_channelCondition = 'l';
-				NS_LOG_UNCOND (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
+				NS_LOG_DEBUG (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
 			}
 			else if (m_channelConditions.compare("n")==0)
 			{
 				condition.m_channelCondition = 'n';
-				NS_LOG_UNCOND (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
+				NS_LOG_DEBUG (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
 			}
 			else if (m_channelConditions.compare("a")==0)
 			{
+				//NS_LOG_DEBUG("Automatic Channel Condition: Computing LOS probability");
 				double PRef = m_uniformVar->GetValue();
 				double probLos;
+				//NS_LOG_DEBUG("  - Random Reference Value: " << PRef);
+				
 				//Note: The LOS probability is derived with assuming antenna heights of 3m for indoor, 10m for UMi, and 25m for UMa.
 				if (m_scenario == "RMa")
 				{
+					//NS_LOG_DEBUG("  - RMa Scenario LOS Probability Calculation:");
 					if(distance2D <= 10)
 					{
 						probLos = 1;
+						//NS_LOG_DEBUG("    * Distance <= 10m: Prob_LOS = 1 (100%)");
 					}
 					else
 					{
 						probLos = exp(-(distance2D-10)/1000);
+						//NS_LOG_DEBUG("    * Distance > 10m: Prob_LOS = exp(-(d-10)/1000) = exp(-(" << distance2D << "-10)/1000) = " << probLos);
 					}
 				}
 				else if (m_scenario == "UMa")
@@ -1103,15 +1162,18 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 					NS_FATAL_ERROR ("Unknown scenario");
 				}
 
+				
 				if (PRef <= probLos)
 				{
 					condition.m_channelCondition = 'l';
+					//NS_LOG_DEBUG("  - Decision: PRef <= Prob_LOS → LOS condition selected");
 				}
 				else
 				{
 					condition.m_channelCondition = 'n';
+					//NS_LOG_DEBUG("  - Decision: PRef > Prob_LOS → NLOS condition selected");
 				}
-				NS_LOG_UNCOND (m_scenario << " scenario, 2D distance = " << distance2D <<"m, Prob_LOS = " << probLos
+				NS_LOG_DEBUG (m_scenario << " scenario, 2D distance = " << distance2D <<"m, Prob_LOS = " << probLos
 						<< ", Prob_REF = " << PRef << ", the channel condition is " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
 
 			}
@@ -1119,28 +1181,46 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			{
 				NS_FATAL_ERROR ("Wrong channel condition configuration");
 			}
+			
+			//NS_LOG_DEBUG("Channel Condition Initialization:");
 			// assign a large negative value to identify initial transmission.
 			condition.m_shadowing = -1e6;
 			condition.m_hE = 0;
 			//condition.m_carPenetrationLoss = 9+m_norVar->GetValue()*5;
 			condition.m_carPenetrationLoss = 10;
+			//NS_LOG_DEBUG("  - Initial Shadowing: " << condition.m_shadowing << " dB");
+			//NS_LOG_DEBUG("  - Effective Environment Height: " << condition.m_hE << " m");
+			//NS_LOG_DEBUG("  - Car Penetration Loss: " << condition.m_carPenetrationLoss << " dB");
+			
+			//NS_LOG_DEBUG("Storing Channel Condition in Map:");
 			std::pair<channelConditionMap_t::const_iterator, bool> ret;
 			ret = m_channelConditionMap.insert (std::make_pair(std::make_pair (a,b), condition));
 			m_channelConditionMap.insert (std::make_pair(std::make_pair (b,a), condition));
 			it = ret.first;
+			//NS_LOG_DEBUG("  - Channel condition stored for link (a,b) and (b,a)");
+		}
+		else
+		{
+			//NS_LOG_DEBUG("Existing Channel Condition Found:");
+			//NS_LOG_DEBUG("  - Channel Condition: " << (*it).second.m_channelCondition);
+			//NS_LOG_DEBUG("  - Previous Shadowing: " << (*it).second.m_shadowing << " dB");
+			//NS_LOG_DEBUG("  - Previous Position: (" << (*it).second.m_position.x << ", " << (*it).second.m_position.y << ", " << (*it).second.m_position.z << ")");
 		}
 
 		/* Reminder.
 		* The The LOS NLOS state transition will be implemented in the future as mentioned in secction 7.6.3.3
 		* */
 
+		//NS_LOG_DEBUG("=== Path Loss Calculation ===");
 		double lossDb = 0;
 		double freqGHz = m_frequency/1e9;
+		//NS_LOG_DEBUG("Frequency Conversion: " << m_frequency << " Hz = " << freqGHz << " GHz");
 
 		double shadowingStd = 0;
 		double shadowingCorDistance = 0;
 		if (m_scenario == "RMa")
 		{
+			
 			if(distance2D < 10)
 			{
 				NS_LOG_WARN ("The 2D distance is smaller than 10 meters, the 3GPP RMa model may not be accurate");
@@ -1155,6 +1235,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			{
 				NS_FATAL_ERROR ("According to table 7.4.1-1, the RMa scenario need to satisfy the following condition, 1 m <= hUT <= 10 m");
 			}
+			
 			//default base station antenna height is 35 m
 			//hBs = 35;
 			//default user antenna height is 1.5 m
@@ -1167,30 +1248,40 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 			if(distance2D <= dBP)
 			{
+				//NS_LOG_DEBUG("Distance <= Break Point (d <= dBP): Using PL1 only");
 				lossDb = PL1;
 				shadowingStd = 4;
-
+				//NS_LOG_DEBUG("  - Final Path Loss: " << lossDb << " dB");
+				//NS_LOG_DEBUG("  - Shadowing Standard Deviation: " << shadowingStd << " dB");
 			}
 			else
 			{
 				//PL2
 				lossDb = PL1 + 40*log10(distance3D/dBP);
 				shadowingStd= 6;
+				//NS_LOG_DEBUG("  - Final Path Loss: " << lossDb << " dB (PL1 + Additional Loss)");
+				//NS_LOG_DEBUG("  - Shadowing Standard Deviation: " << shadowingStd << " dB");
 			}
 
+			//NS_LOG_DEBUG("Channel Condition Processing:");
 			switch ((*it).second.m_channelCondition)
 			{
 				case 'l':
 				{
+					//NS_LOG_DEBUG("  - LOS Channel Condition Detected");
 					shadowingCorDistance = 37;
+					//NS_LOG_DEBUG("  - Shadowing Correlation Distance: " << shadowingCorDistance << " m (LOS)");
 					break;
 				}
 				case 'n':
 				{
+					//NS_LOG_DEBUG("  - NLOS Channel Condition Detected");
 					shadowingCorDistance = 120;
 					double PLNlos = 161.04-7.1*log10(W)+7.5*log10(h)-(24.37-3.7*pow((h/hBs),2))*log10(hBs)+(43.42-3.1*log10(hBs))*(log10(distance3D)-3)+20*log10(freqGHz)-(3.2*pow(log10(11.75*hUt),2)-4.97);
 					lossDb = std::max(PLNlos, lossDb);
 					shadowingStd = 8;
+					//NS_LOG_DEBUG("  - Final Path Loss (max of LOS and NLOS): " << lossDb << " dB");
+					//NS_LOG_DEBUG("  - Shadowing Standard Deviation (NLOS): " << shadowingStd << " dB");
 					break;
 				}
 				default:
@@ -1200,9 +1291,18 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 		}
 		else if (m_scenario == "UMa")
 		{
+			//NS_LOG_DEBUG("=== UMa Scenario Path Loss Calculations ===");
+			//NS_LOG_DEBUG("Input Parameters:");
+			//NS_LOG_DEBUG("  - 2D Distance: " << distance2D << " m");
+			//NS_LOG_DEBUG("  - 3D Distance: " << distance3D << " m");
+			//NS_LOG_DEBUG("  - Base Station Height (hBs): " << hBs << " m");
+			//NS_LOG_DEBUG("  - User Terminal Height (hUt): " << hUt << " m");
+			//NS_LOG_DEBUG("  - Frequency: " << freqGHz << " GHz");
+			//NS_LOG_DEBUG("  - Channel Condition: " << (*it).second.m_channelCondition);
+			
 			if(distance2D < 10)
 			{
-				NS_LOG_UNCOND ("The 2D distance is smaller than 10 meters, the 3GPP UMa model may not be accurate");
+				NS_LOG_DEBUG ("The 2D distance is smaller than 10 meters, the 3GPP UMa model may not be accurate");
 			}
 
 			//default base station value is 25 m
@@ -1212,71 +1312,107 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			{
 				NS_FATAL_ERROR ("According to table 7.4.1-1, the UMa scenario need to satisfy the following condition, 1.5 m <= hUT <= 22.5 m");
 			}
+			
 			//For UMa, the effective environment height should be computed follow Table7.4.1-1.
 			if((*it).second.m_hE == 0)
 			{
+				//NS_LOG_DEBUG("Computing Effective Environment Height (hE):");
 				channelCondition condition;
 				condition = (*it).second;
 				if (hUt <= 18)
 				{
 					condition.m_hE = 1;
+					//NS_LOG_DEBUG("  - hUt <= 18m: hE = 1 m");
 				}
 				else
 				{
+					//NS_LOG_DEBUG("  - hUt > 18m: Computing hE based on distance and height");
 					double g_d2D = 1.25*pow(distance2D/100,3)*exp(-1*distance2D/150);
 					double C_d2D_hUT = pow((hUt-13)/10,1.5)*g_d2D;
 					double prob = 1/(1+C_d2D_hUT);
+					
+					//NS_LOG_DEBUG("    * g_d2D = 1.25*(d/100)³*exp(-d/150) = 1.25*(" << distance2D << "/100)³*exp(-" << distance2D << "/150) = " << g_d2D);
+					//NS_LOG_DEBUG("    * C_d2D_hUT = ((hUt-13)/10)^1.5 * g_d2D = ((" << hUt << "-13)/10)^1.5 * " << g_d2D << " = " << C_d2D_hUT);
+					//NS_LOG_DEBUG("    * Probability of hE = 1: " << prob);
 
 					if(m_uniformVar->GetValue() < prob)
 					{
 						condition.m_hE = 1;
+						//NS_LOG_DEBUG("    * Random value < probability: hE = 1 m");
 					}
 					else
 					{
 						int random = m_uniformVar->GetInteger(12, (int)(hUt-1.5));
 						condition.m_hE = (double)floor(random/3)*3;
+						//NS_LOG_DEBUG("    * Random value >= probability: hE = " << condition.m_hE << " m");
 					}
 				}
+				//NS_LOG_DEBUG("  - Final Effective Environment Height: " << condition.m_hE << " m");
 				UpdateConditionMap(a,b,condition);
-			}
-			double dBP = 4*(hBs-(*it).second.m_hE)*(hUt-(*it).second.m_hE)*m_frequency/3e8;
-			if(distance2D <= dBP)
-			{
-				//PL1
-				lossDb = 32.4+20*log10(distance3D)+20*log10(freqGHz);
 			}
 			else
 			{
+				//NS_LOG_DEBUG("Using Existing Effective Environment Height: " << (*it).second.m_hE << " m");
+			}
+			
+			double dBP = 4*(hBs-(*it).second.m_hE)*(hUt-(*it).second.m_hE)*m_frequency/3e8;
+			//NS_LOG_DEBUG("Break Point Distance Calculation:");
+			//NS_LOG_DEBUG("  - dBP = 4*(hBs-hE)*(hUt-hE)*f/c = 4*(" << hBs << "-" << (*it).second.m_hE << ")*(" << hUt << "-" << (*it).second.m_hE << ")*" << m_frequency << "/3e8 = " << dBP << " m");
+			
+			if(distance2D <= dBP)
+			{
+				//NS_LOG_DEBUG("Distance <= Break Point (d <= dBP): Using PL1");
+				//PL1
+				lossDb = 32.4+20*log10(distance3D)+20*log10(freqGHz);
+				//NS_LOG_DEBUG("  - PL1 = 32.4 + 20*log10(d) + 20*log10(f) = 32.4 + 20*log10(" << distance3D << ") + 20*log10(" << freqGHz << ") = " << lossDb << " dB");
+			}
+			else
+			{
+				//NS_LOG_DEBUG("Distance > Break Point (d > dBP): Using PL2");
 				//PL2
-				lossDb = 32.4+40*log10(distance3D)+20*log10(freqGHz)-10*log10(pow(dBP,2)+pow(hBs-hUt,2));
+				double PL2_additional = 40*log10(distance3D)+20*log10(freqGHz)-10*log10(pow(dBP,2)+pow(hBs-hUt,2));
+				lossDb = 32.4 + PL2_additional;
+				//NS_LOG_DEBUG("  - PL2 = 32.4 + 40*log10(d) + 20*log10(f) - 10*log10(dBP² + (hBs-hUt)²) = 32.4 + " << PL2_additional << " = " << lossDb << " dB");
 			}
 
 
+			//NS_LOG_DEBUG("Channel Condition Processing:");
 			switch ((*it).second.m_channelCondition)
 			{
 				case 'l':
 				{
+					//NS_LOG_DEBUG("  - LOS Channel Condition Detected");
 					shadowingStd = 4;
 					shadowingCorDistance = 37;
+					//NS_LOG_DEBUG("  - Shadowing Standard Deviation: " << shadowingStd << " dB (LOS)");
+					//NS_LOG_DEBUG("  - Shadowing Correlation Distance: " << shadowingCorDistance << " m (LOS)");
 					break;
 				}
 				case 'n':
 				{
+					//NS_LOG_DEBUG("  - NLOS Channel Condition Detected");
 					shadowingCorDistance = 50;
+					//NS_LOG_DEBUG("  - Shadowing Correlation Distance: " << shadowingCorDistance << " m (NLOS)");
+					
 					if(m_optionNlosEnabled)
 					{
+						//NS_LOG_DEBUG("  - Optional NLOS Model Enabled");
 						//optional propagation loss
 						lossDb = 32.4+20*log10(freqGHz)+30*log10(distance3D);
 						shadowingStd = 7.8;
+						//NS_LOG_DEBUG("  - Optional NLOS Path Loss: 32.4 + 20*log10(f) + 30*log10(d) = 32.4 + 20*log10(" << freqGHz << ") + 30*log10(" << distance3D << ") = " << lossDb << " dB");
+						//NS_LOG_DEBUG("  - Shadowing Standard Deviation: " << shadowingStd << " dB (Optional NLOS)");
 					}
 					else
 					{
+						//NS_LOG_DEBUG("  - Standard NLOS Model");
 						double PLNlos = 13.54+39.08*log10(distance3D)+20*log10(freqGHz)-0.6*(hUt-1.5);
 						shadowingStd = 6;
+						//NS_LOG_DEBUG("  - Standard NLOS Path Loss: 13.54 + 39.08*log10(d) + 20*log10(f) - 0.6*(hUt-1.5) = 13.54 + 39.08*log10(" << distance3D << ") + 20*log10(" << freqGHz << ") - 0.6*(" << hUt << "-1.5) = " << PLNlos << " dB");
 						lossDb = std::max(PLNlos, lossDb);
+						//NS_LOG_DEBUG("  - Final Path Loss (max of LOS and NLOS): " << lossDb << " dB");
+						//NS_LOG_DEBUG("  - Shadowing Standard Deviation: " << shadowingStd << " dB (Standard NLOS)");
 					}
-
-
 					break;
 				}
 				default:
@@ -1288,7 +1424,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 			if(distance2D < 10)
 			{
-				NS_LOG_UNCOND ("The 2D distance is smaller than 10 meters, the 3GPP UMi-StreetCanyon model may not be accurate");
+				NS_LOG_DEBUG ("The 2D distance is smaller than 10 meters, the 3GPP UMi-StreetCanyon model may not be accurate");
 			}
 
 			//default base station value is 10 m
@@ -1345,7 +1481,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 		{
 			if(distance3D < 1 || distance3D > 100)
 			{
-				NS_LOG_UNCOND ("The pathloss might not be accurate since 3GPP InH-Office model LoS condition is accurate only within 3D distance between 1 m and 100 m");
+				NS_LOG_DEBUG ("The pathloss might not be accurate since 3GPP InH-Office model LoS condition is accurate only within 3D distance between 1 m and 100 m");
 			}
 
 			lossDb = 32.4+17.3*log10(distance3D)+20*log10(freqGHz);
@@ -1364,7 +1500,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 					shadowingCorDistance = 6;
 					if(distance3D > 86)
 					{
-						NS_LOG_UNCOND ("The pathloss might not be accurate since 3GPP InH-Office model NLoS condition only supports 3D distance between 1 m and 86 m");
+						NS_LOG_DEBUG ("The pathloss might not be accurate since 3GPP InH-Office model NLoS condition only supports 3D distance between 1 m and 86 m");
 					}
 
 					if(m_optionNlosEnabled)
@@ -1394,7 +1530,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 			if(distance3D < 1 || distance3D > 150)
 			{
-				NS_LOG_UNCOND ("The pathloss might not be accurate since 3GPP InH-Shopping mall model only supports 3D distance between 1 m and 150 m");\
+				NS_LOG_DEBUG ("The pathloss might not be accurate since 3GPP InH-Shopping mall model only supports 3D distance between 1 m and 150 m");\
 			}
 			lossDb = 32.4+17.3*log10(distance3D)+20*log10(freqGHz);
 			shadowingStd = 2;
@@ -1406,26 +1542,56 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 		if(m_shadowingEnabled)
 		{
+			//NS_LOG_DEBUG("=== Shadowing Calculation ===");
 			channelCondition cond;
 			cond = (*it).second;
+			
 			//The first transmission the shadowing is initialed as -1e6,
 			//we perform this if check the identify first  transmission.
 			if((*it).second.m_shadowing < -1e5)
 			{
-				cond.m_shadowing = m_norVar->GetValue()*shadowingStd;
+				//NS_LOG_DEBUG("First Transmission: Generating new shadowing value");
+				double shadowingRandomValue = -1*m_norVar->GetValue(); // [To do Adeel] remove -1*
+				cond.m_shadowing = shadowingRandomValue * shadowingStd;
+				//NS_LOG_DEBUG("  - Random Normal Value: " << shadowingRandomValue);
+				//NS_LOG_DEBUG("  - Shadowing Standard Deviation: " << shadowingStd << " dB");
+				//NS_LOG_DEBUG("  - New Shadowing Value: " << cond.m_shadowing << " dB");
 			}
 			else
 			{
+				//NS_LOG_DEBUG("Subsequent Transmission: Computing correlated shadowing");
 				double deltaX = uePos.x-(*it).second.m_position.x;
 				double deltaY = uePos.y-(*it).second.m_position.y;
 				double disDiff = sqrt (deltaX*deltaX +deltaY*deltaY);
-				//NS_LOG_UNCOND (shadowingStd <<"  "<<disDiff <<"  "<<shadowingCorDistance);
+				//NS_LOG_DEBUG("  - Previous UE Position: (" << (*it).second.m_position.x << ", " << (*it).second.m_position.y << ")");
+				//NS_LOG_DEBUG("  - Current UE Position: (" << uePos.x << ", " << uePos.y << ")");
+				//NS_LOG_DEBUG("  - Position Difference (deltaX, deltaY): (" << deltaX << ", " << deltaY << ") m");
+				//NS_LOG_DEBUG("  - 2D Distance Difference: " << disDiff << " m");
+				//NS_LOG_DEBUG("  - Shadowing Correlation Distance: " << shadowingCorDistance << " m");
+				
 				double R = exp(-1*disDiff/shadowingCorDistance); // from equation 7.4-5.
-				cond.m_shadowing = R*(*it).second.m_shadowing + sqrt(1-R*R)*m_norVar->GetValue()*shadowingStd;
+				//NS_LOG_DEBUG("  - Correlation Factor R = exp(-disDiff/corrDist) = exp(-" << disDiff << "/" << shadowingCorDistance << ") = " << R);
+				
+				double previousShadowing = (*it).second.m_shadowing;
+				double newRandomComponent = m_norVar->GetValue();
+				double uncorrelatedComponent = sqrt(1-R*R)*newRandomComponent*shadowingStd;
+				
+				//NS_LOG_DEBUG("  - Previous Shadowing Value: " << previousShadowing << " dB");
+				//NS_LOG_DEBUG("  - New Random Normal Value: " << newRandomComponent);
+				//NS_LOG_DEBUG("  - Uncorrelated Component: sqrt(1-R²)*random*std = sqrt(1-" << R*R << ")*" << newRandomComponent << "*" << shadowingStd << " = " << uncorrelatedComponent << " dB");
+				
+				cond.m_shadowing = R*previousShadowing + uncorrelatedComponent;
+				//NS_LOG_DEBUG("  - New Correlated Shadowing: R*prev + uncorr = " << R << "*" << previousShadowing << " + " << uncorrelatedComponent << " = " << cond.m_shadowing << " dB");
 			}
 
+			//NS_LOG_DEBUG("Final Shadowing Value: " << cond.m_shadowing << " dB");
+			//NS_LOG_DEBUG("Path Loss before Shadowing: " << lossDb << " dB");
+			
 			lossDb += cond.m_shadowing;
+			//NS_LOG_DEBUG("Path Loss after Shadowing: " << lossDb << " dB");
+			
 			cond.m_position = ueMob->GetPosition();
+			//NS_LOG_DEBUG("Updated UE Position in Channel Condition: (" << cond.m_position.x << ", " << cond.m_position.y << ", " << cond.m_position.z << ")");
 			UpdateConditionMap(a,b,cond);
 		}
 
@@ -1461,11 +1627,19 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 		if(m_inCar)
 		{
+			//NS_LOG_DEBUG("=== Car Penetration Loss ===");
+			//NS_LOG_DEBUG("Car Penetration Loss: " << (*it).second.m_carPenetrationLoss << " dB");
+			//NS_LOG_DEBUG("Path Loss before Car Penetration: " << lossDb << " dB");
 			lossDb += (*it).second.m_carPenetrationLoss;
+			//NS_LOG_DEBUG("Path Loss after Car Penetration: " << lossDb << " dB");
 		}
 
-		NS_LOG_FUNCTION(this<<"Terrestial loss: "<<(std::max (lossDb, m_minLoss)));
-		return std::max (lossDb, m_minLoss);
+		//NS_LOG_DEBUG("=== Final Loss Calculation ===");
+		//NS_LOG_DEBUG("Final Path Loss: " << lossDb << " dB");
+		//NS_LOG_DEBUG("Minimum Loss Threshold: " << m_minLoss << " dB");
+		double finalLoss = std::max (lossDb, m_minLoss);
+		
+		return finalLoss;
 	}
 
 
@@ -1577,7 +1751,13 @@ MmWave3gppPropagationLossModel::GetChannelCondition(Ptr<MobilityModel> a, Ptr<Mo
 	it = m_channelConditionMap.find(std::make_pair(a,b));
 	if (it == m_channelConditionMap.end ())
 	{
-		NS_FATAL_ERROR ("Cannot find the link in the map");
+		// this is a new link, so we need to compute the channel condition
+		GetLoss(a, b);
+		it = m_channelConditionMap.find(std::make_pair(a,b));
+		if (it == m_channelConditionMap.end ())
+		{
+			NS_FATAL_ERROR ("Cannot find the link in the map");
+		}
 	}
 	return (*it).second.m_channelCondition;
 

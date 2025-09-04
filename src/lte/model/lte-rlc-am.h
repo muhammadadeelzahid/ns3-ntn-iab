@@ -103,11 +103,11 @@ public:
   /**
    * MAC SAP
    */
-  virtual void DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId);
+  virtual void DoNotifyTxOpportunity (LteMacSapUser::TxOpportunityParameters params);
   virtual void DoNotifyHarqDeliveryFailure ();
   virtual void DoNotifyDlHarqDeliveryFailure (uint8_t harqId);
   virtual void DoNotifyUlHarqDeliveryFailure (uint8_t harqId);
-  virtual void DoReceivePdu (Ptr<Packet> p);
+  virtual void DoReceivePdu (LteMacSapUser::ReceivePduParameters rxPduParams);
 
 private:
   /**

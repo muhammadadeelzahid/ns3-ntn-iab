@@ -117,6 +117,8 @@ MmWaveLteUeRrcProtocolReal::DoSendRrcConnectionRequest (LteRrcSap::RrcConnection
   m_rnti = m_rrc->GetRnti ();
   SetEnbRrcSapProvider ();
 
+  // NS_LOG_DEBUG("[DEBUG-RRC] Sending RRC Connection Request: RNTI=" << m_rnti << ", IMSI=" << msg.ueIdentity);
+
   Simulator::Schedule (RRC_REAL_MSG_DELAY, 
                        &LteEnbRrcSapProvider::RecvRrcConnectionRequest,
                        m_enbRrcSapProvider,
@@ -396,6 +398,7 @@ MmWaveLteUeRrcProtocolReal::DoReceivePdcpPdu (Ptr<Packet> p)
       // RrcConnectionSetup
       p->RemoveHeader (rrcConnectionSetupHeader);
       rrcConnectionSetupMsg = rrcConnectionSetupHeader.GetMessage ();
+      // NS_LOG_DEBUG("[DEBUG-UE-PROTOCOL] Received RRC Connection Setup: RNTI=" << m_rnti << ", IMSI=" << m_rrc->GetImsi());
       m_ueRrcSapProvider->RecvRrcConnectionSetup (rrcConnectionSetupMsg);
       break;
     case 4:
@@ -698,6 +701,8 @@ MmWaveLteEnbRrcProtocolReal::DoSendSystemInformation (LteRrcSap::SystemInformati
 void 
 MmWaveLteEnbRrcProtocolReal::DoSendRrcConnectionSetup (uint16_t rnti, LteRrcSap::RrcConnectionSetup msg)
 {
+  NS_LOG_DEBUG("[DEBUG-ENB-PROTOCOL] DoSendRrcConnectionSetup: RNTI=" << rnti << ", cellId=" << m_cellId);
+  
   Ptr<Packet> packet = Create<Packet> ();
 
   RrcConnectionSetupHeader rrcConnectionSetupHeader;

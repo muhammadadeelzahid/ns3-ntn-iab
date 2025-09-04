@@ -135,14 +135,30 @@ struct DciInfoElementTdma
 
 	DciInfoElementTdma () :
 			m_rnti (0), m_format (0), m_symStart (0), m_numSym (0), m_mcs (0),
-			m_tbSize (0), m_ndi (0), m_rv (0), m_harqProcess (0)
+			m_tbSize (0), m_ndi (0), m_rv (0), m_harqProcess (0), m_layerInd (0)
+	{
+	}
+
+	// to do adeel, test after commenting this piece of code to ensure code has dependence on layer index
+	DciInfoElementTdma (uint16_t    rnti, uint8_t format, uint8_t symStart, uint8_t numSym, uint8_t mcs,
+		uint32_t tbs, uint8_t ndi, uint8_t rv, uint8_t harqProc)
+	: 	m_rnti (rnti),
+		m_format (format),
+		m_symStart (symStart),
+		m_numSym (numSym),
+		m_mcs (mcs),
+		m_tbSize (tbs),
+		m_ndi (ndi),
+		m_rv (rv),
+		m_harqProcess (harqProc),
+		m_layerInd (0)
 	{
 	}
 
 	DciInfoElementTdma (uint16_t 	rnti, uint8_t format, uint8_t symStart, uint8_t numSym, uint8_t mcs,
-	                    uint32_t tbs, uint8_t ndi, uint8_t rv, uint8_t harqProc) :
+	                    uint32_t tbs, uint8_t ndi, uint8_t rv, uint8_t harqProc, uint8_t layerInd) :
 	                    	m_rnti (rnti), m_format (format), m_symStart (symStart), m_numSym (numSym), m_mcs (mcs),
-	                    	m_tbSize (tbs), m_ndi (ndi), m_rv (rv), m_harqProcess (harqProc)
+	                    	m_tbSize (tbs), m_ndi (ndi), m_rv (rv), m_harqProcess (harqProc), m_layerInd (layerInd)
 	{
 	}
 
@@ -155,6 +171,7 @@ struct DciInfoElementTdma
 	uint8_t		m_ndi;
 	uint8_t		m_rv;					// not used for UL DCI
 	uint8_t   m_harqProcess;
+	uint8_t     m_layerInd;
 };
 
 struct TbAllocInfo
@@ -222,13 +239,20 @@ struct SlotAllocInfo
 	};
 
 	SlotAllocInfo () : m_tddMode(NA), m_isOmni (0), m_slotType (CTRL_DATA),
-			m_numCtrlSym(0), m_slotIdx (0), m_ctrlTxMode (DIGITAL), m_rnti (0)
+			m_numCtrlSym(0), m_slotIdx (0), m_ctrlTxMode (DIGITAL), m_rnti (0), m_layerInd(0)
 	{
 	}
-
+	
+	// to do adeel remove this
 	SlotAllocInfo (uint8_t slotIdx, TddMode tddMode, TddSlotType slotType, CtrlTxMode ctrlTxMode, uint16_t rnti) :
 		m_tddMode(tddMode), m_isOmni (0), m_slotType (slotType),
 		m_numCtrlSym(0), m_slotIdx (slotIdx), m_ctrlTxMode (ctrlTxMode), m_rnti (rnti)
+	{
+	}
+
+	SlotAllocInfo (uint8_t slotIdx, TddMode tddMode, TddSlotType slotType, CtrlTxMode ctrlTxMode, uint16_t rnti, uint8_t layerId) :
+		m_tddMode(tddMode), m_isOmni (0), m_slotType (slotType),
+		m_numCtrlSym(0), m_slotIdx (slotIdx), m_ctrlTxMode (ctrlTxMode), m_rnti (rnti), m_layerInd(layerId)
 	{
 	}
 
@@ -263,6 +287,7 @@ struct SlotAllocInfo
 	uint16_t m_rnti;
 	struct DciInfoElementTdma m_dci;
 	std::vector<RlcPduInfo> m_rlcPduInfo;
+	uint8_t m_layerInd; // to do adeel populate this where?
 	//std::list<MmWaveControlMessage> m_controlMessages;  // ctrl messages for this user
 };
 
@@ -279,12 +304,12 @@ struct BySymIndex {
 
 struct SfAllocInfo
 {
-	SfAllocInfo () : m_sfnSf (SfnSf()),  m_numSymAlloc (0), m_ulSymStart (0), m_valid(true)
+	SfAllocInfo () : m_sfnSf (SfnSf()),  m_numSymAlloc (0), m_ulSymStart (0), m_numAllocLayers (0), m_valid(true)
 	{
 		//m_tddPattern.resize (8);
 	}
 
-	SfAllocInfo (SfnSf sfn) : m_sfnSf (sfn), m_numSymAlloc (0), m_ulSymStart (0), m_valid(true)
+	SfAllocInfo (SfnSf sfn) : m_sfnSf (sfn), m_numSymAlloc (0), m_ulSymStart (0), m_numAllocLayers (0), m_valid(true)
 	{
 	}
 
@@ -301,6 +326,7 @@ struct SfAllocInfo
 	SfnSf m_sfnSf;
 	uint32_t m_numSymAlloc;  // number of allocated slots
 	uint32_t m_ulSymStart;		 // start of UL region
+	uint8_t m_numAllocLayers;
 	// the commented parameters are not used
 	// std::vector <SlotAllocInfo::TddMode> m_tddPattern;
 	// std::deque <SlotAllocInfo> m_dlSlotAllocInfo;
@@ -442,6 +468,8 @@ struct RxPacketTraceParams
 	uint8_t  m_slotNum;
 	uint8_t  m_symStart;
 	uint8_t  m_numSym;
+	uint8_t  m_txLayerInd;
+	uint8_t  m_rxLayerInd;
 	uint32_t m_tbSize;
 	uint8_t  m_mcs;
 	uint8_t  m_rv;
@@ -856,6 +884,18 @@ public:
 		m_maxTbSizeBytes = bytes;
 	}
 
+	void
+	SetNumEnbLayers (uint32_t numEnbLayers)
+	{
+	  m_numEnbLayers = numEnbLayers;
+	}
+  
+	uint32_t
+	GetNumEnbLayers (void)
+	{
+	  return m_numEnbLayers;
+	}
+	
 private:
 	uint32_t m_symbolsPerSlot;
 	double   m_symbolPeriod; // in micro seconds
@@ -890,6 +930,7 @@ private:
 	uint32_t m_maxTbSizeBytes;
 
 	std::string m_staticTddPattern;
+	uint32_t m_numEnbLayers;
 };
 
 }

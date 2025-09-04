@@ -38,7 +38,7 @@ using namespace ns3;
 
 void ReceivePacket (Ptr<Socket> socket)
 {
-  NS_LOG_UNCOND ("Received one packet!");
+  NS_LOG_DEBUG ("Received one packet!");
 }
 
 int main (int argc, char *argv[])

@@ -334,6 +334,8 @@ MmWaveFlexTtiMacScheduler::DoIabBackhaulSchedNotify(const struct MmWaveUeMacCsch
 
 	NS_ASSERT_MSG(m_iabScheduler, "Received DCI info for backhaul on a non IAB scheduler");
 
+	NS_LOG_INFO("MmWaveFlexTtiMacScheduler received backhaul notification with message ID: " << info.m_messageId << " for RNTI: " << info.m_dciInfoElementTdma.m_rnti);
+
 	NS_LOG_DEBUG("MmWaveFlexTtiMacScheduler received DCIs for the backhaul link");
 
 	// signal that the resources are busy

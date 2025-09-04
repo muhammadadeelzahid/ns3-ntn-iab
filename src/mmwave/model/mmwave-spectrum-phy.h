@@ -54,6 +54,8 @@
 #include "mmwave-interference.h"
 #include "mmwave-control-messages.h"
 #include "mmwave-harq-phy.h"
+#include "mmwave-beamforming-model.h"
+#include <string>
 
 namespace ns3{
 
@@ -70,8 +72,11 @@ struct ExpectedTbInfo_t
   bool corrupt;
   bool harqFeedbackSent;
   double tbler;
-  uint8_t		symStart;
-  uint8_t		numSym;
+  uint8_t	symStart;
+  uint8_t	numSym;
+  uint8_t  	txLayerInd;
+  uint8_t  	rxLayerInd;
+
 };
 
 typedef std::map<uint16_t, ExpectedTbInfo_t> ExpectedTbMap_t;
@@ -104,6 +109,7 @@ class MmWaveSpectrumPhy : public SpectrumPhy
 {
 public:
 	MmWaveSpectrumPhy();
+	MmWaveSpectrumPhy (uint8_t layerInd);
 	virtual ~MmWaveSpectrumPhy();
 
 	enum State
@@ -156,7 +162,7 @@ public:
 	void UpdateSinrPerceived (const SpectrumValue& sinr);
 
 	void AddExpectedTb (uint16_t rnti, uint8_t ndi, uint16_t size, uint8_t mcs, std::vector<int> map, uint8_t harqId,
-	                    uint8_t rv, bool downlink, uint8_t symStart, uint8_t numSym);
+	                    uint8_t rv, bool downlink, uint8_t symStart, uint8_t numSym, uint8_t txLayerInd = 0, uint8_t rxLayerInd = 0);
 //	void AddExpectedTb (uint16_t rnti, uint16_t size, uint8_t m_mcs, std::vector<int> chunkMap, bool downlink);
 
 	void SetHarqPhyModule (Ptr<MmWaveHarqPhy> harq);
@@ -164,6 +170,35 @@ public:
 	void SetAccessSpectrumPhy ();
 	bool GetAccessSpectrumPhy ();
 
+	void DoEnbPhyDataCqiReportWithLayer (const SpectrumValue& sinr);
+	uint8_t GetLayerInd ();
+
+	// Packet logging function
+	void LogPacketActivity(const std::string& packetType, 
+						  const std::string& fromInfo, 
+						  const std::string& toInfo, 
+						  double sumTxPsd, 
+						  const Ptr<const SpectrumValue>& txPsd,
+						  double sumRxPsd = 0.0,
+						  const Ptr<const SpectrumValue>& rxPsd = nullptr);
+
+	/**
+	 * Set the beamforming module
+	 * \param bfModule the beamforming module
+	 */
+	void SetBeamformingModel (Ptr<MmWaveBeamformingModel> bfModule);
+
+	/**
+	 * Get the beamforming module object
+	 */
+	Ptr<MmWaveBeamformingModel> GetBeamformingModel ();
+
+	/**
+	 * Compute the beamforming vector and update the antenna configuration
+	 * to point the beam towards the target device.
+	 * \param device target device
+	 */
+	void ConfigureBeamforming (Ptr<NetDevice> device);
 
 private:
 	void ChangeState (State newState);
@@ -186,11 +221,12 @@ private:
 	Time m_firstRxDuration;
 
 	Ptr<AntennaModel> m_antenna;
+	Ptr<MmWaveBeamformingModel> m_beamforming; //!< used to compute the beamforming vector
 
 	uint16_t m_cellId;
 
 	State m_state;
-
+	int m_layerInd;
 	MmWavePhyRxCtrlEndOkCallback    m_phyRxCtrlEndOkCallback;
 	MmWavePhyRxDataEndOkCallback 		m_phyRxDataEndOkCallback;
 

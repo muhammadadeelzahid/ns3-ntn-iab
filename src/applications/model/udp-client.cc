@@ -32,6 +32,7 @@
 #include "seq-ts-header.h"
 #include <cstdlib>
 #include <cstdio>
+#include "ns3/mmwave-ue-net-device.h"
 
 namespace ns3 {
 

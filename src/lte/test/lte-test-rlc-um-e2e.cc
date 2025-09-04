@@ -86,7 +86,7 @@ static LteRlcUmE2eTestSuite lteRlcUmE2eTestSuite;
 LteRlcUmE2eTestCase::LteRlcUmE2eTestCase (std::string name, uint32_t seed, double losses)
   : TestCase (name)
 {
-  // NS_LOG_UNCOND ("Creating LteRlcUmTestingTestCase: " + name);
+  // NS_LOG_DEBUG ("Creating LteRlcUmTestingTestCase: " + name);
 
   m_seed = seed;
   m_losses = losses;

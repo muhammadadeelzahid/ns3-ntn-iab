@@ -221,6 +221,9 @@ public:
 	void AddX2Interface (NodeContainer lteEnbNodes, NodeContainer mmWaveEnbNodes);
 	void AddX2Interface (Ptr<Node> enbNode1, Ptr<Node> enbNode2);
 
+	void SetBeamformerType (std::string type);
+	std::string GetBeamformerType () const;
+	
 protected:
 	virtual void DoInitialize();
 
@@ -250,6 +253,7 @@ private:
 	Ptr<McStatsCalculator> GetMcStats (void);
 
 	Ptr<SpectrumChannel> m_channel; // mmWave TDD channel
+	std::map< uint8_t, Ptr<SpectrumChannel> > m_channel_layer_map; // mmWave TDD channel for each layer
 	Ptr<SpectrumChannel> m_Satellitechannel; // satellite TDD channel	
 	Ptr<SpectrumChannel> m_downlinkChannel; /// The downlink LTE channel used in the simulation.
 	Ptr<SpectrumChannel> m_uplinkChannel; 	/// The uplink LTE channel used in the simulation.
@@ -282,6 +286,7 @@ private:
 	ObjectFactory m_ffrAlgorithmFactory;	
 	ObjectFactory m_lteFfrAlgorithmFactory;
 	ObjectFactory m_lteHandoverAlgorithmFactory;
+	ObjectFactory m_beamformerFactory;
 
 	ObjectFactory m_phyMacCommonFactory;
 	ObjectFactory m_lteChannelFactory; 	/// Factory of both the downlink and uplink LTE channels.

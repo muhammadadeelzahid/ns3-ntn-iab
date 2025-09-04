@@ -96,7 +96,7 @@ MmWaveSpectrumValueHelper::CreateTxPowerSpectralDensity (Ptr<MmWavePhyMacCommon>
         (*txPsd)[rbId] = txPowerDensity;
     }
 
-    NS_LOG_LOGIC (*txPsd);
+    NS_LOG_DEBUG ("CreateTxPowerSpectralDensity txPsd: " << *txPsd);
 
     return txPsd;
 

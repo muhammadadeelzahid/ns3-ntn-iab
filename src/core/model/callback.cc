@@ -99,19 +99,19 @@ CallbackImplBase::Demangle (const std::string& mangled)
       ret = demangled;
     }
   else if (status == -1) {
-      NS_LOG_UNCOND ("Callback demangling failed: Memory allocation failure occurred.");
+      NS_LOG_DEBUG ("Callback demangling failed: Memory allocation failure occurred.");
       ret = mangled;
     }
   else if (status == -2) {
-      NS_LOG_UNCOND ("Callback demangling failed: Mangled name is not a valid under the C++ ABI mangling rules.");
+      NS_LOG_DEBUG ("Callback demangling failed: Mangled name is not a valid under the C++ ABI mangling rules.");
       ret = mangled;
     }
   else if (status == -3) {
-      NS_LOG_UNCOND ("Callback demangling failed: One of the arguments is invalid.");
+      NS_LOG_DEBUG ("Callback demangling failed: One of the arguments is invalid.");
       ret = mangled;
     }
   else {
-      NS_LOG_UNCOND ("Callback demangling failed: status " << status);
+      NS_LOG_DEBUG ("Callback demangling failed: status " << status);
       ret = mangled;
     }
 

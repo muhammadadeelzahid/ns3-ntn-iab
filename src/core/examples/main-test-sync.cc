@@ -55,7 +55,7 @@ void
 inserted_function (void)
 {
   NS_ASSERT (gFirstRun);
-  NS_LOG_UNCOND ("inserted_function() called at " << 
+  NS_LOG_DEBUG ("inserted_function() called at " << 
                  Simulator::Now ().GetSeconds () << " s");
 }
 
@@ -64,7 +64,7 @@ void
 background_function (void)
 {
   NS_ASSERT (gFirstRun);
-  NS_LOG_UNCOND ("background_function() called at " << 
+  NS_LOG_DEBUG ("background_function() called at " << 
                  Simulator::Now ().GetSeconds () << " s");
 }
 
@@ -72,7 +72,7 @@ background_function (void)
 void 
 first_function (void)
 {
-  NS_LOG_UNCOND ("first_function() called at " << 
+  NS_LOG_DEBUG ("first_function() called at " << 
                  Simulator::Now ().GetSeconds () << " s");
   gFirstRun = true;
 }

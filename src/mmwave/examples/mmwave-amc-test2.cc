@@ -41,6 +41,8 @@
 
 using namespace ns3;
 
+NS_LOG_COMPONENT_DEFINE ("mmWaveAmcTest2");
+
 double updateInterval = 2000.0;  // in ms
 double increment = 0.5; // increment by x dB
 double lossMin = 100.0;
@@ -192,7 +194,7 @@ main (int argc, char *argv[])
   mmwHelper->ActivateDataRadioBearer (ueNetDev, bearer);
 
   Simulator::Stop (Seconds (simTime));
-	NS_LOG_UNCOND ("Simulation running for " << simTime << " seconds");
+	NS_LOG_DEBUG ("Simulation running for " << simTime << " seconds");
   Simulator::Run ();
   Simulator::Destroy ();
   return 0;

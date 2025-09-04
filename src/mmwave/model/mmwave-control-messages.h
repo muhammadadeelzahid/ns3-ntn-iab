@@ -59,11 +59,16 @@ public:
 	virtual ~MmWaveControlMessage (void);
 
 	void SetMessageType (messageType type);
-
 	messageType GetMessageType (void);
+
+	// Message tracking methods
+	void SetMessageId (uint64_t id);
+	uint64_t GetMessageId (void) const;
 
 private:
 	messageType m_messageType;
+	uint64_t m_messageId; // Unique identifier for message tracking
+	static uint64_t s_nextMessageId; // Static counter for generating unique IDs
 };
 
 /************************************************************

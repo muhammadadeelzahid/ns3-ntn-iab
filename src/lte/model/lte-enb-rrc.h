@@ -350,6 +350,7 @@ public:
    * \param [in] rnti
    * \param [in] oldState
    * \param [in] newState
+   * \param [in] ueNodeId
    */
   typedef void (* StateTracedCallback)
     (uint64_t imsi, uint16_t cellId, uint16_t rnti,
@@ -1057,7 +1058,20 @@ public:
 
   uint64_t GetImsiFromRnti(uint16_t rnti);
 
+  /**
+   * This method maps IMSI to UE node ID, so that the UE's node ID can be retrieved
+   * from the IMSI for trace purposes
+   */
+  void RegisterImsiToNodeId(uint64_t imsi, uint32_t nodeId);
+
+  /**
+   * Get the UE node ID from IMSI
+   */
+  uint32_t GetNodeIdFromImsi(uint64_t imsi);
+
   void SetInterRatHoMode ();
+  
+  void LogAllUeMappings();
   
 private:
 
@@ -1539,6 +1553,7 @@ private:
   std::map<uint64_t, CellSinrMap> m_imsiCellSinrMap;
   std::map<uint64_t, uint16_t> m_imsiRntiMap;
   std::map<uint16_t, uint64_t> m_rntiImsiMap;
+  std::map<uint64_t, uint32_t> m_imsiNodeIdMap; // Map IMSI to UE node ID
 
   HandoverMode m_handoverMode;
 

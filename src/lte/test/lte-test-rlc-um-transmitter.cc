@@ -56,7 +56,7 @@ static LteRlcUmTransmitterTestSuite lteRlcUmTransmitterTestSuite;
 LteRlcUmTransmitterTestCase::LteRlcUmTransmitterTestCase (std::string name)
   : TestCase (name)
 {
-  // NS_LOG_UNCOND ("Creating LteRlcUmTransmitterTestCase: " + name);
+  // NS_LOG_DEBUG ("Creating LteRlcUmTransmitterTestCase: " + name);
 }
 
 LteRlcUmTransmitterTestCase::~LteRlcUmTransmitterTestCase ()

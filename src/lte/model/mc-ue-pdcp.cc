@@ -263,7 +263,7 @@ McUePdcp::DoReceivePdu (Ptr<Packet> p)
 
     // SeqTsHeader seqTs;
     // p->PeekHeader (seqTs);
-    // NS_LOG_UNCOND("Carrying UDP packet " << (uint32_t)seqTs.GetSeq());
+    // NS_LOG_DEBUG("Carrying UDP packet " << (uint32_t)seqTs.GetSeq());
 
 
     m_rxSequenceNumber = pdcpHeader.GetSequenceNumber () + 1;

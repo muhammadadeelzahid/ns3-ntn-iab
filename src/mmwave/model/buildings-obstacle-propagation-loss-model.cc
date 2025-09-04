@@ -898,7 +898,7 @@ BuildingsObstaclePropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<Mobili
 		/* OLD VERSION OF THE CODE
 		if(los)
 		{
-			NS_LOG_UNCOND ("LOS");
+			NS_LOG_DEBUG ("LOS");
 			//m_beamforming->UpdateMatrices(false);
 			loss = mmWaveLosLoss (a,b);
 		}
@@ -906,7 +906,7 @@ BuildingsObstaclePropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<Mobili
 		{
 			//m_beamforming->UpdateMatrices(true);
 			loss = mmWaveNlosLoss (a,b);
-			NS_LOG_UNCOND ("NLOS" << loss );
+			NS_LOG_DEBUG ("NLOS" << loss );
 		}
 		*/
 	}
@@ -927,7 +927,7 @@ BuildingsObstaclePropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<Mobili
 		m_beamforming->UpdateMatrices(false);
 		loss = loss + 50;
 	}*/
-	//NS_LOG_UNCOND (a << " " << b << " pathloss " << loss);
+	//NS_LOG_DEBUG (a << " " << b << " pathloss " << loss);
 
 	return loss;
 }
@@ -1008,7 +1008,7 @@ BuildingsObstaclePropagationLossModel::SetConfigurationParameters (Ptr<MmWavePhy
     static const double C = 299792458.0; // speed of light in vacuum
     m_lambda = C / m_frequency;
 
-	NS_LOG_UNCOND("Frequency " << m_frequency);
+	NS_LOG_DEBUG("Frequency " << m_frequency);
 }
 
 } // namespace ns3

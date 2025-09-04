@@ -400,6 +400,12 @@ UeManager::SetupDataRadioBearer (EpsBearer bearer, uint8_t bearerId, uint32_t gt
   drbInfo->m_gtpTeid = gtpTeid;
   drbInfo->m_transportLayerAddress = transportLayerAddress;
 
+  // Add specific logging for LCID 3 (data traffic)
+  if (lcid == 3)
+  {
+    NS_LOG_DEBUG ("*** RRC SETUP DATA RADIO BEARER: RNTI=" << m_rnti << " LCID=" << (uint32_t)lcid << " BID=" << (uint32_t)bid << " DRBID=" << (uint32_t)drbid << " IAB=" << iab << " at time " << Simulator::Now().GetSeconds() << "s");
+  }
+
   if (m_state == HANDOVER_JOINING)
     {
       // setup TEIDs for receiving data eventually forwarded over X2-U 
@@ -894,7 +900,7 @@ UeManager::ForwardRlcBuffers(Ptr<LteRlc> rlc, Ptr<LtePdcp> pdcp, uint32_t gtpTei
         }
         else
         {
-          NS_LOG_UNCOND("Fragment too small in txonBuffer, pos " << pos);
+          NS_LOG_DEBUG("Fragment too small in txonBuffer, pos " << pos);
         }
           
       }
@@ -1074,7 +1080,7 @@ UeManager::ForwardRlcBuffers(Ptr<LteRlc> rlc, Ptr<LtePdcp> pdcp, uint32_t gtpTei
     }
     else
     {
-      NS_LOG_UNCOND("Too small, not forwarded");
+      NS_LOG_DEBUG("Too small, not forwarded");
     }
     m_x2forwardingBufferSize -= (*(m_x2forwardingBuffer.begin()))->GetSize();
     m_x2forwardingBuffer.erase (m_x2forwardingBuffer.begin());
@@ -1433,7 +1439,14 @@ UeManager::RecvRrcConnectionRequest (LteRrcSap::RrcConnectionRequest msg)
           {
             m_imsi = msg.ueIdentity;
             m_rrc->RegisterImsiToRnti(m_imsi, m_rnti);
+            
+            // Register the UE's node ID using the correct mapping: Node ID = IMSI + 3
+            // Based on the simulation setup: Node ID 4 → IMSI 1, Node ID 5 → IMSI 2, etc.
+            uint32_t ueNodeId = static_cast<uint32_t>(m_imsi) + 3;
+            m_rrc->RegisterImsiToNodeId(m_imsi, ueNodeId);
+            
             m_rrc->m_mmWaveCellSetupCompleted[m_imsi] = false;
+            NS_LOG_DEBUG("*** UE CONNECTION ESTABLISHED: NodeID=" << ueNodeId << " IMSI=" << m_imsi << " RNTI=" << m_rnti << " at time " << Simulator::Now().GetSeconds() << "s");
             NS_LOG_DEBUG("For imsi " << m_imsi << " m_rrc->m_mmWaveCellSetupCompleted[m_imsi] " << m_rrc->m_mmWaveCellSetupCompleted[m_imsi]);
             if (!m_isMc && m_rrc->m_s1SapProvider != 0)
               {
@@ -2959,7 +2972,7 @@ LteEnbRrc::ConfigureCell (uint8_t ulBandwidth, uint8_t dlBandwidth,
   m_ulBandwidth = ulBandwidth;
   m_cellId = cellId;
   m_cphySapProvider->SetCellId (cellId);
-  NS_LOG_UNCOND("configure cell, bandwidth uplink: "<<m_ulBandwidth<<" bandwidth downlink: "<<m_dlBandwidth);
+  NS_LOG_DEBUG("configure cell, bandwidth uplink: "<<m_ulBandwidth<<" bandwidth downlink: "<<m_dlBandwidth);
   if (!m_ismmWave)
   {
     m_ffrRrcSapProvider->SetCellId (cellId);
@@ -3413,12 +3426,12 @@ LteEnbRrc::PerformHandover(uint64_t imsi)
     else
     {
       //TODO Do nothing or what?
-      NS_LOG_UNCOND("## Warn: handover not triggered because the UE is already performing HO!");
+      NS_LOG_DEBUG("## Warn: handover not triggered because the UE is already performing HO!");
     }  
   }
   else
   {
-    NS_LOG_UNCOND("## Warn: handover not triggered because the UE is not associated yet!");    
+    NS_LOG_DEBUG("## Warn: handover not triggered because the UE is not associated yet!");    
   }
 
   // remove the HandoverEvent from the map
@@ -4725,6 +4738,33 @@ LteEnbRrc::SendSystemInformation ()
 
   m_rrcSapUser->SendSystemInformation (si);
   Simulator::Schedule (m_systemInformationPeriodicity, &LteEnbRrc::SendSystemInformation, this);
+}
+
+void
+LteEnbRrc::RegisterImsiToNodeId(uint64_t imsi, uint32_t nodeId)
+{
+  NS_LOG_FUNCTION (this << imsi << nodeId);
+  m_imsiNodeIdMap[imsi] = nodeId;
+  NS_LOG_DEBUG("*** IMSI-NODEID MAPPING: IMSI=" << imsi << " NodeID=" << nodeId << " at time " << Simulator::Now().GetSeconds() << "s");
+}
+
+uint32_t
+LteEnbRrc::GetNodeIdFromImsi(uint64_t imsi)
+{
+  NS_LOG_FUNCTION (this << imsi);
+  std::map<uint64_t, uint32_t>::iterator it = m_imsiNodeIdMap.find(imsi);
+  if (it != m_imsiNodeIdMap.end())
+  {
+    return it->second;
+  }
+  else
+  {
+    // If not found, use the formula: Node ID = IMSI + 3
+    // This is based on the simulation setup where Node IDs start from 4 for UEs
+    uint32_t calculatedNodeId = static_cast<uint32_t>(imsi) + 3;
+    NS_LOG_WARN("IMSI " << imsi << " not found in mapping, using calculated Node ID: " << calculatedNodeId);
+    return calculatedNodeId;
+  }
 }
 
 

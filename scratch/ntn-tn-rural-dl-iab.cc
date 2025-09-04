@@ -250,7 +250,7 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("UMa"));
-  
+  Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
 
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
@@ -324,7 +324,7 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(28);
+  ueNodes.Create(20);
   // Install Mobility Model
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
   enbPositionAlloc->Add (posWired);
@@ -414,6 +414,7 @@ for (const Vector& center : clusterCenters)
   
   // Install mmWave Devices to the nodes
   NetDeviceContainer enbmmWaveDevs = mmwaveHelper->InstallSatelliteEnbDevice (enbNodes);
+  mmwaveHelper->SetBeamformerType("ns3::MmWaveMMSESpectrumBeamforming");
   NetDeviceContainer iabmmWaveDevs;
   if(numRelays > 0)
   {
@@ -442,7 +443,7 @@ for (const Vector& center : clusterCenters)
   {
     mmwaveHelper->AttachIabToClosestSatelliteEnb (iabmmWaveDevs, enbmmWaveDevs);
   }
-  mmwaveHelper->AttachToClosestSatelliteEnbWithDelay (uemmWaveDevs, possibleBaseStations, Seconds(0.3));
+  mmwaveHelper->AttachToClosestSatelliteEnbWithDelay (uemmWaveDevs, possibleBaseStations, Seconds(0.1));
   // Install and start applications on UEs and remote host
   uint16_t dlPort = 1234;
   // uint16_t ulPort = 2000;

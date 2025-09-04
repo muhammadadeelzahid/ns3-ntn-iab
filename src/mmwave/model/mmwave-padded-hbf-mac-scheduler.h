@@ -368,6 +368,7 @@ public:
   int GetNumFreeSymbols(uint8_t symIdx, int numSymNeeded);
   uint8_t GetFirstFreeSymbol(uint8_t symIdx, int numFreeSymbols);
   std::string PrintSubframeAllocationMask(std::vector<bool> mask);
+  void WriteLogToFile(const std::string& message);
 
 private:
 };

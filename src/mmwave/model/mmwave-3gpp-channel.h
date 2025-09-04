@@ -77,7 +77,7 @@ struct Params3gpp : public SimpleRefCount<Params3gpp>
 	doubleVector_t  		m_delay; // cluster delay.
 	double2DVector_t		m_angle; //cluster angle angle[direction][n], where direction = 0(aoa), 1(zoa), 2(aod), 3(zod) in degree.
 	complexVector_t 		m_longTerm; // long term conponet.
-
+	bool					m_isReverse;//!< true if the channel matrix was generated for the reverse link
 	double2DVector_t		m_nonSelfBlocking; // store the blockages
 
 	/*The following parameters are stored for spatial consistent updating*/
@@ -95,6 +95,17 @@ struct Params3gpp : public SimpleRefCount<Params3gpp>
 	Vector m_speed;
 	double m_dis2D;
 	double m_dis3D;
+};
+
+/**
+ * Data structure that stores the long term component for a tx-rx pair
+ */
+struct LongTerm : public SimpleRefCount<LongTerm>
+{
+  complexVector_t m_longTerm; //!< vector containing the long term component for each cluster
+  Ptr<Params3gpp> m_channel; //!< pointer to the channel matrix used to compute the long term
+  complexVector_t m_txW; //!< the tx beamforming vector used to compute the long term
+  complexVector_t m_rxW; //!< the rx beamforming vector used to compute the long term	
 };
 
 /**
@@ -165,6 +176,25 @@ struct ParamsTable: public Object
 };
 
 /**
+ * Data structure that stores three uint32_t keys for a 3D map key lookup of the longerm cache.
+ * The keys correspond to transmit-beamforming ID, channel ID, and receive-beamforming ID
+ */
+struct Key3DLongTerm {
+	uint32_t a;
+	uint32_t b;
+	uint32_t c;
+  }; //TODO we can make this into a template for better reuse, perhaps even find an existing stl/ns3 template that does this (stl tuple in C++ new versions)
+  
+//TODO is this the best place to define this operator? it can be made "inline" in the .h file
+inline bool operator<(Key3DLongTerm const & lhs, Key3DLongTerm const & rhs) {
+    if (lhs.a < rhs.a) return true;
+    if (rhs.a < lhs.a) return false;
+    if (lhs.b < rhs.b) return true;
+    if (rhs.b < lhs.b) return false;
+    if (lhs.c < rhs.c) return true;
+	return lhs.c < rhs.c;
+}
+/**
  * \brief This class implements the fading computation of the 3GPP TR 38.900 channel model and performs the 
  * beamforming gain computation. It implements the SpectrumPropagationLossModel interface
  */
@@ -179,7 +209,7 @@ public:
 	/** 
    	* Destructor
    	*/
-	virtual ~MmWave3gppChannel ();
+	virtual ~MmWave3gppChannel () noexcept override;
 
 	// inherited from Object
 	static TypeId GetTypeId (void);
@@ -191,21 +221,6 @@ public:
 	 * @param a pointer to a NetDevice
 	 */
 	void ConnectDevices (Ptr<NetDevice> dev1, Ptr<NetDevice> dev2);
-
-	/**
-	 * Register the connection between all the devices in the NetDeviceContainer given
-	 * as input
-	 * @param a NetDeviceContainer for the UEs
-	 * @param a NetDeviceContainer for the eNBs
-	 */
-	void Initial(NetDeviceContainer ueDevices, NetDeviceContainer enbDevices);
-
-	/**
-	 * Set the initial BF vector between two devices
-	 * @param a pointer to a NetDevice for the UE
-	 * @param a pointer to a NetDevice for the eNB
-	 */
-	void SetBeamformingVector (Ptr<NetDevice> ueDevice, Ptr<NetDevice> enbDevice);
 
 	/**
 	 * Set the MmWavePhyMacCommon object with the parameters of the scenario
@@ -224,8 +239,42 @@ public:
 	 * @param a pointer to the pathloss model, which has to implement the PropagationLossModel interface
 	 */
 	void SetPathlossModel (Ptr<PropagationLossModel> pathloss);
+	
+	/**
+	 * Calculate the channel key using the Cantor function
+	 * \param x1 first value
+	 * \param x2 second value
+	 * \return \f$ (((x1 + x2) * (x1 + x2 + 1))/2) + x2; \f$
+	 */
+	static constexpr uint32_t GetKey (uint32_t x1, uint32_t x2)
+	{
+		return (((x1 + x2) * (x1 + x2 + 1)) / 2) + x2;
+	}
 
-private:
+	/**
+     * Returns the channel matrix in one specific subcarrier of the OFDM channel.
+     * The primary use-case of this function is evaluating  primary and secondary
+     * reference signals, which are narrowband, using a codebook of different
+     * beamforming vectors, in order to select the strongest beam from a table.
+     * \param tx mobility model
+     * \param rx mobility model
+     * \param deltaFc frequency difference between the channel center frequency and the frequency of the narrowband reference tone
+     */
+	complex2DVector_t GetFrequencyFlatChannelMatrixAtDeltaFrequency ( Ptr<const MobilityModel> a,
+		Ptr<const MobilityModel> b,
+		double deltaFc = 0,
+		uint8_t layerInd = 0);
+
+	complexVector_t DoCalcRxComplexSpectrum (Ptr<SpectrumValue> refPsd,
+			Ptr<const MobilityModel> a,
+			Ptr<const MobilityModel> b,
+			AntennaArrayBasicModel::BeamformingVector txW,
+			AntennaArrayBasicModel::BeamformingVector rxW
+		) const;
+
+	private:
+
+	std::tuple<Ptr<Params3gpp>,Ptr<AntennaArrayModel>,Ptr<AntennaArrayModel>,bool> EvaluateChannelInformation(Ptr<const MobilityModel> a, Ptr<const MobilityModel> b, int layer) const;
 
 	/**
 	 * Inherited from SpectrumPropagationLossModel, it returns the PSD at the receiver
@@ -237,12 +286,39 @@ private:
 	Ptr<SpectrumValue> DoCalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
 														Ptr<const MobilityModel> a,
 														Ptr<const MobilityModel> b) const;
+	/**
+	 * Computes the received PSD
+	 * \param tx PSD
+	 * \param tx mobility model
+	 * \param rx mobility model
+	 * \param txlayerInd layer to be used by antenna array for transmitter
+	 * \param rxlayerInd layer to be used by antenna array for receiver
+	 * \return the received PSD
+	 */
+	Ptr<SpectrumValue> DoCalcRxPowerSpectralDensityMultilayers (Ptr<const SpectrumValue> txPsd,
+																	Ptr<const MobilityModel> a,
+																	Ptr<const MobilityModel> b,
+																	uint8_t txLayerInd,
+																	uint8_t rxLayerInd) const override;
+
+	/**
+	 * Looks for the long term component in m_longTermMap. If found, checks
+	 * whether it has to be updated. If not found or if it has to be updated,
+	 * calls the method CalLongTerm to compute it.
+	 * \param aMob the mobility model of the first device
+	 * \param bMob the mobility model of the second device
+	 * \param channelMatrix the channel matrix
+	 * \param aW the beamforming vector of the first device
+	 * \param bW the beamforming vector of the second device
+	 * \return vector containing the long term compoenent for each cluster
+	 */
+	complexVector_t GetLongTerm (Ptr<const MobilityModel> aMob, Ptr<const MobilityModel> bMob, Ptr<Params3gpp> channelMatrix, AntennaArrayBasicModel::BeamformingVector aBF, AntennaArrayBasicModel::BeamformingVector bBF) const;
 
 	/**
 	 * Get the Tx and Rx info for the link
 	 */
-	std::tuple<uint8_t, uint8_t, uint8_t, uint8_t, Ptr<AntennaArrayModel>, Ptr<AntennaArrayModel>, Vector,
-	bool, bool, double> GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityModel> b) const;
+	std::tuple<uint8_t, uint8_t, uint8_t, uint8_t, Ptr<AntennaArrayModel>, Ptr<AntennaArrayModel>, Vector, double>
+	GetTxRxInfo(Ptr<const MobilityModel> a, Ptr<const MobilityModel> b, int layer) const;
 
 	/**
 	 * Get a new realization of the channel
@@ -298,12 +374,30 @@ private:
 	void BeamSearchBeamforming (Ptr<const SpectrumValue> txPsd, Ptr<Params3gpp> params, Ptr<AntennaArrayModel> txAntenna,
 			Ptr<AntennaArrayModel> rxAntenna, uint8_t *txAntennaNum, uint8_t *rxAntennaNum) const;
 
+	/**
+	 * Computes the long term component
+	 * \param the channel matrix H
+	 * \param the tx beamforming vector
+	 * \param the rx beamforming vector
+	 * \return the long term component
+	 */
+	complexVector_t CalLongTerm (Ptr<Params3gpp> channelMatrix, complexVector_t txW, complexVector_t rxW) const;
 
 	/**
-	 * Compute and store the long term fading params in order to decrease the computational load
-	 * @params the channel realizationin as a Params3gpp object
+	 * Computes the beamforming gain. The gain can be multiplied by the tx PSD to compute the rx PSD
+	 * \param the tx PSD to copy its SpectrumModel
+	 * \param the long term component
+	 * \return the bf gain PSD
 	 */
-	void CalLongTerm (Ptr<Params3gpp> params) const;
+	Ptr<SpectrumValue> CalBeamformingGain (Ptr<SpectrumValue> txPsd,  complexVector_t longTerm, Ptr<Params3gpp> params, Vector txSpeed, Vector rxSpeed) const;
+
+	/**
+	 * Computes the beamforming complex coefficients. The norm of this vector can be used to compute the Gain
+	 * \param the tx PSD to copy its SpectrumModel
+	 * \param the long term component
+	 * \return the bf gain PSD
+	 */
+	complexVector_t CalBeamformingComplexCoef (Ptr<SpectrumValue> refPsd, complexVector_t longTerm, Ptr<Params3gpp> params, Vector txSpeed, Vector rxSpeed) const;
 
 	/**
 	 * Compute the BF gain, apply frequency selectivity by phase-shifting with the cluster delays
@@ -377,6 +471,9 @@ private:
 	bool m_forceInitialBfComputation;
 	std::string m_ntnScenario;
 
+	//TODO remove this commented line if the change below is adopted, or uncommment and remove the next line if we change our mind and decide to disable the interference caching implementation
+	//  mutable std::map < uint32_t, Ptr<LongTerm> > m_longTermMap; //!< map containing the long term components
+	mutable std::map < Key3DLongTerm, Ptr<LongTerm> > m_longTermMap; //!< map containing the long term components for txBeamID chanID rxBeamID triplets.
 };
 
 

@@ -29,6 +29,7 @@
 
 #include <ns3/log.h>
 #include <ns3/abort.h>
+#include <ns3/simulator.h>
 #include "mmwave-padded-hbf-mac-scheduler.h"
 #include <ns3/lte-common.h>
 #include <ns3/boolean.h>
@@ -39,6 +40,7 @@
 #include <cmath>
 #include <sstream>      // std::stringstream
 #include <algorithm>
+#include <fstream>      // std::ofstream
 
 namespace ns3 {
 
@@ -171,6 +173,8 @@ const unsigned MmWavePaddedHbfMacScheduler::m_rlcHdrSize = 3;
 
 const double MmWavePaddedHbfMacScheduler::m_berDl = 0.001;
 
+
+
 MmWavePaddedHbfMacScheduler::MmWavePaddedHbfMacScheduler ()
   : m_nextRnti (0),
     m_subframeNo (0),
@@ -178,7 +182,7 @@ MmWavePaddedHbfMacScheduler::MmWavePaddedHbfMacScheduler ()
     m_macSchedSapUser (0),
     m_macCschedSapUser (0),
     m_iabScheduler (false),
-    m_split (false), // Disable split mode to prevent overlapping signals
+    m_split (false), // Enable split mode so busy mask is applied during scheduling
     m_maxSchedulingDelay (1)
 {
   NS_LOG_FUNCTION (this);
@@ -367,13 +371,13 @@ MmWavePaddedHbfMacScheduler::DoSchedDlCqiInfoReq (const struct MmWaveMacSchedSap
           std::map <uint16_t,uint8_t>::iterator it;
           uint16_t rnti = params.m_cqiList.at (i).m_rnti;
           it = m_wbCqiRxed.find (rnti);
-          if (it == m_wbCqiRxed.end ())
-            {
-              // create the new entry
-              m_wbCqiRxed.insert ( std::pair<uint16_t, uint8_t > (rnti, params.m_cqiList.at (i).m_wbCqi) ); // only codeword 0 at this stage (SISO)
-              // generate correspondent timer
-              m_wbCqiTimers.insert ( std::pair<uint16_t, uint32_t > (rnti, m_cqiTimersThreshold));
-            }
+                      if (it == m_wbCqiRxed.end ())
+              {
+                // create the new entry
+                m_wbCqiRxed.insert ( std::pair<uint16_t, uint8_t > (rnti, params.m_cqiList.at (i).m_wbCqi) ); // only codeword 0 at this stage (SISO)
+                // generate correspondent timer
+                m_wbCqiTimers.insert ( std::pair<uint16_t, uint32_t > (rnti, m_cqiTimersThreshold));
+              }
           else
             {
               // update the CQI value
@@ -677,7 +681,17 @@ unsigned MmWavePaddedHbfMacScheduler::CalcMinTbSizeNumSym (unsigned mcs, unsigne
 void
 MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapProvider::SchedTriggerReqParameters& params)
 {
+  // Open log file for writing
+  std::ofstream logFile;
+  logFile.open("scheduler_logs.txt", std::ios::app);
+  if (logFile.is_open()) {
+    logFile << "Time: " << Simulator::Now().GetSeconds() << "s - this: " << this << " - ";
+    logFile << "DoSchedTriggerReq started" << std::endl;
+    logFile.close();
+  }
+  
   NS_LOG_DEBUG("m_rntiIabInfoMap size " << m_rntiIabInfoMap.size());
+  WriteLogToFile("m_rntiIabInfoMap size " + std::to_string(m_rntiIabInfoMap.size()));
   uint16_t frameNum = params.m_sfnSf.m_frameNum;
   uint8_t sfNum = params.m_sfnSf.m_sfNum;
   //uint8_t slotNum = params.m_sfnSf.m_slotNum;
@@ -696,12 +710,18 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
                << " + delay " << m_phyMacConfig->GetUlSchedDelay() 
                << " = UL subframe " << (unsigned)ulSfn.m_sfNum 
                << " in frame " << (unsigned)ulSfn.m_frameNum);
+  WriteLogToFile("UL scheduling delay calculation: current subframe " + std::to_string((unsigned)ret.m_sfnSf.m_sfNum) 
+               + " + delay " + std::to_string(m_phyMacConfig->GetUlSchedDelay()) 
+               + " = UL subframe " + std::to_string((unsigned)ulSfn.m_sfNum) 
+               + " in frame " + std::to_string((unsigned)ulSfn.m_frameNum));
   
   // For UL allocations, we need to use the UL subframe timing
   SfnSf ulSchedSfn = ulSfn;
   
   NS_LOG_DEBUG ("Scheduling DL frame " << (unsigned)frameNum << " subframe " << (unsigned)sfNum
                                        << " UL frame " << (unsigned)ulSfn.m_frameNum << " subframe " << (unsigned)ulSfn.m_sfNum);
+  WriteLogToFile("Scheduling DL frame " + std::to_string((unsigned)frameNum) + " subframe " + std::to_string((unsigned)sfNum)
+                                       + " UL frame " + std::to_string((unsigned)ulSfn.m_frameNum) + " subframe " + std::to_string((unsigned)ulSfn.m_sfNum));
 
   // add slot for DL control
   SlotAllocInfo dlCtrlSlot (0, SlotAllocInfo::DL_slotAllocInfo, SlotAllocInfo::CTRL, SlotAllocInfo::DIGITAL, 0, 0);
@@ -760,6 +780,7 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
 
   // IAB: get the resources which are already set as busy
   symAvail = UpdateBusySymbolsForIab(sfNum, m_phyMacConfig->GetDlCtrlSymbols(), symAvail);
+  WriteLogToFile("IAB: Updated busy symbols, symAvail = " + std::to_string(symAvail));
 
   //m_rlcBufferReq.sort (SortRlcBufferReq);     // sort list by RNTI
   // number of DL/UL flows for new transmissions (not HARQ RETX)
@@ -922,6 +943,7 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
             }
         }
       NS_LOG_LOGIC("Processed " <<  m_dlHarqInfoList.size () <<" DL harq processes, sorted "<< sortedDlHarqRetx.size() << " NACKs in descending size order ");
+  WriteLogToFile("Processed " + std::to_string(m_dlHarqInfoList.size()) + " DL harq processes, sorted " + std::to_string(sortedDlHarqRetx.size()) + " NACKs in descending size order");
       // After we have sorted all DL-HARQ by TBsize, we allocate them in increasing sequential layer-time blocks (increasing layer first)
       layerIdx = 0;
       std::vector< std::pair <uint8_t,uint32_t> >::iterator itSortedHarq = sortedDlHarqRetx.begin();
@@ -992,6 +1014,8 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
               NS_LOG_LOGIC ("UE" << dciInfoReTx.m_rnti << " gets DL slots " << (unsigned)dciInfoReTx.m_symStart << "-" << (unsigned)(dciInfoReTx.m_symStart + dciInfoReTx.m_numSym - 1) <<
                             " tbs " << dciInfoReTx.m_tbSize << " harqId " << (unsigned)dciInfoReTx.m_harqProcess << " harqId " << (unsigned)dciInfoReTx.m_harqProcess <<
                             " rv " << (unsigned)dciInfoReTx.m_rv << " in frame " << ret.m_sfnSf.m_frameNum << " subframe " << (unsigned)ret.m_sfnSf.m_sfNum << " layer " << (unsigned) dciInfoReTx.m_layerInd << " RETX");
+              WriteLogToFile("UE " + std::to_string(dciInfoReTx.m_rnti) + " gets DL slots " + std::to_string((unsigned)dciInfoReTx.m_symStart) + "-" + std::to_string((unsigned)(dciInfoReTx.m_symStart + dciInfoReTx.m_numSym - 1)) +
+                            " tbs " + std::to_string(dciInfoReTx.m_tbSize) + " harqId " + std::to_string((unsigned)dciInfoReTx.m_harqProcess) + " rv " + std::to_string((unsigned)dciInfoReTx.m_rv) + " in frame " + std::to_string(ret.m_sfnSf.m_frameNum) + " subframe " + std::to_string((unsigned)ret.m_sfnSf.m_sfNum) + " layer " + std::to_string((unsigned)dciInfoReTx.m_layerInd) + " RETX");
               std::map <uint16_t, DlHarqRlcPduList_t>::iterator itRlcList =  m_dlHarqProcessesRlcPduMap.find (rnti);
               if ( itRlcList == m_dlHarqProcessesRlcPduMap.end () )
                 {
@@ -1197,6 +1221,7 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
         }
 
       NS_LOG_LOGIC("Processed " <<  m_ulHarqInfoList.size () <<" UL harq processes, sorted "<< sortedUlHarqRetx.size() << " NACKs in descending size order ");
+  WriteLogToFile("Processed " + std::to_string(m_ulHarqInfoList.size()) + " UL harq processes, sorted " + std::to_string(sortedUlHarqRetx.size()) + " NACKs in descending size order");
       layerIdx = 0;
       itSortedHarq = sortedUlHarqRetx.begin();
       done = ( itSortedHarq == sortedUlHarqRetx.end() );
@@ -1628,6 +1653,9 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
   NS_LOG_DEBUG(this << " nFlowsDl " << nFlowsDl << " nFlowsUl " << nFlowsUl 
     << " nFlowsAccessDl " << nFlowsAccessDl << " nFlowsAccessUl " << nFlowsAccessUl
     << " nFlowsBackhaulDl " << nFlowsBackhaulDl << " nFlowBackhaulsUl " << nFlowsBackhaulUl);
+  WriteLogToFile("nFlowsDl " + std::to_string(nFlowsDl) + " nFlowsUl " + std::to_string(nFlowsUl) 
+    + " nFlowsAccessDl " + std::to_string(nFlowsAccessDl) + " nFlowsAccessUl " + std::to_string(nFlowsAccessUl)
+    + " nFlowsBackhaulDl " + std::to_string(nFlowsBackhaulDl) + " nFlowBackhaulsUl " + std::to_string(nFlowsBackhaulUl));
 
   if (ueInfo.size () > 0)
     {
@@ -1721,6 +1749,19 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       NS_LOG_DEBUG(this << " totDlSymReq " << totDlSymReq << " totUlSymReq " << totUlSymReq 
         << " totAccessDlSymReq " << totAccessDlSymReq << " totAccessUlSymReq " << totAccessUlSymReq
         << " totBackhaulDlSymReq " << totBackhaulDlSymReq << " totBackhaulUlSymReq " << totBackhaulUlSymReq);
+      WriteLogToFile("totDlSymReq " + std::to_string(totDlSymReq) + " totUlSymReq " + std::to_string(totUlSymReq) 
+        + " totAccessDlSymReq " + std::to_string(totAccessDlSymReq) + " totAccessUlSymReq " + std::to_string(totAccessUlSymReq)
+        + " totBackhaulDlSymReq " + std::to_string(totBackhaulDlSymReq) + " totBackhaulUlSymReq " + std::to_string(totBackhaulUlSymReq));
+      
+      // Display final flow counts
+      NS_LOG_DEBUG("=== FINAL FLOW COUNTS ===");
+      NS_LOG_DEBUG("DL Flows - Total: " << nFlowsDl << " Access: " << nFlowsAccessDl << " Backhaul: " << nFlowsBackhaulDl);
+      NS_LOG_DEBUG("UL Flows - Total: " << nFlowsUl << " Access: " << nFlowsAccessUl << " Backhaul: " << nFlowsBackhaulUl);
+      NS_LOG_DEBUG("========================");
+      WriteLogToFile("=== FINAL FLOW COUNTS ===");
+      WriteLogToFile("DL Flows - Total: " + std::to_string(nFlowsDl) + " Access: " + std::to_string(nFlowsAccessDl) + " Backhaul: " + std::to_string(nFlowsBackhaulDl));
+      WriteLogToFile("UL Flows - Total: " + std::to_string(nFlowsUl) + " Access: " + std::to_string(nFlowsAccessUl) + " Backhaul: " + std::to_string(nFlowsBackhaulUl));
+      WriteLogToFile("========================");
 
       totDlSymReq -= removedSymbolsDl;
       totUlSymReq -= removedSymbolsUl;
@@ -1730,11 +1771,15 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       NS_LOG_DEBUG(this << " after totDlSymReq " << totDlSymReq << " totUlSymReq " << totUlSymReq 
         << " totAccessDlSymReq " << totAccessDlSymReq << " totAccessUlSymReq " << totAccessUlSymReq
         << " totBackhaulDlSymReq " << totBackhaulDlSymReq << " totBackhaulUlSymReq " << totBackhaulUlSymReq);
+      WriteLogToFile("after totDlSymReq " + std::to_string(totDlSymReq) + " totUlSymReq " + std::to_string(totUlSymReq) 
+        + " totAccessDlSymReq " + std::to_string(totAccessDlSymReq) + " totAccessUlSymReq " + std::to_string(totAccessUlSymReq)
+        + " totBackhaulDlSymReq " + std::to_string(totBackhaulDlSymReq) + " totBackhaulUlSymReq " + std::to_string(totBackhaulUlSymReq));
 
       //Divide the HBF frame in DL and UL contiguous regions proportionally to the total demand for new TB allocations.
       uint32_t firstUlSymbol = nextSymAvail + round ( ((double) lastSymAvail - (double) nextSymAvail +1 ) * ( (double) totDlSymReq) / ( (double) totDlSymReq + (double) totUlSymReq) );
 
       NS_LOG_LOGIC("Semiempty frame after HARQ alloc: Available symbols " << nextSymAvail << " to " << lastSymAvail << " UL start in symbol "<<firstUlSymbol);
+      WriteLogToFile("Semiempty frame after HARQ alloc: Available symbols " + std::to_string(nextSymAvail) + " to " + std::to_string(lastSymAvail) + " UL start in symbol " + std::to_string(firstUlSymbol));
 
       //Run a (almost always) RR allocator on each Layer separately for the each DL UL portions
 
@@ -1746,11 +1791,13 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
         {//if there are more UE than symbols not all ue get one and RR serves as many UE as possible
           symPerDlBlock=1;
         }
+
       if (m_fixedTti)
         {
           symPerDlBlock = ceil ((double)symPerDlBlock / (double)m_symPerSlot) * m_symPerSlot;
         }
       NS_LOG_LOGIC("RR division of DL region: "<< (int)nDlFlowsPerLayer <<" groups up to "<< (int)m_phyMacConfig->GetNumEnbLayers () <<" UE get up to " << (int)symPerDlBlock << " symbols each");
+      WriteLogToFile("RR division of DL region: " + std::to_string((int)nDlFlowsPerLayer) + " groups up to " + std::to_string((int)m_phyMacConfig->GetNumEnbLayers()) + " UE get up to " + std::to_string((int)symPerDlBlock) + " symbols each");
 
 
       //UL allocation part
@@ -1766,6 +1813,7 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
           symPerUlBlock = ceil ((double)symPerUlBlock / (double)m_symPerSlot) * m_symPerSlot;
         }
       NS_LOG_LOGIC("RR division of UL region: "<< (int)nUlFlowsPerLayer <<" groups up to "<< (int)m_phyMacConfig->GetNumEnbLayers () <<" UE get up to " << (int)symPerUlBlock << " symbols each");
+      WriteLogToFile("RR division of UL region: " + std::to_string((int)nUlFlowsPerLayer) + " groups up to " + std::to_string((int)m_phyMacConfig->GetNumEnbLayers()) + " UE get up to " + std::to_string((int)symPerUlBlock) + " symbols each");
 
       //recover the last UE that was served
       std::map <uint16_t, struct UeSchedInfo>::iterator itUeInfoStart;
@@ -1793,256 +1841,406 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       uint8_t layerIdxDl = 0;
       uint8_t blockIdxUl = 0;
       uint8_t layerIdxUl = 0;
-      bool done = false;
-      while ( ! done )
-        {
-          UeSchedInfo &ueSchedInfo = itUeInfo->second;
-          // RR allocator gives equal blocks to all UE. The UE gets to transmit min( block_size, buffer_size).
-          //TODO: verify the following has no error.
+      
+      // NEW APPROACH: Buffer-based priority scheduling instead of pure Round Robin
+      // Phase 1: Allocate DL for all UEs (including IAB) with buffer-based priority
+      // Phase 2: Allocate UL for all UEs (including IAB) after DL allocation is complete
+      
+      // Display the UeInfo list with the amount of data each user has
+      NS_LOG_DEBUG("=== UE Buffer Status List ===");
+      WriteLogToFile("=== UE Buffer Status List ===");
+      for (const auto& uePair : ueInfo) {
+        NS_LOG_DEBUG("  RNTI: " << uePair.first
+                      << "  maxDlBufSize: " << uePair.second.m_maxDlBufSize
+                      << "  maxUlBufSize: " << uePair.second.m_maxUlBufSize
+                      << "  IAB: " << uePair.second.m_iab);
+        WriteLogToFile("  RNTI: " + std::to_string(uePair.first)
+                      + "  maxDlBufSize: " + std::to_string(uePair.second.m_maxDlBufSize)
+                      + "  maxUlBufSize: " + std::to_string(uePair.second.m_maxUlBufSize)
+                      + "  IAB: " + std::to_string(uePair.second.m_iab));
+      }
+      NS_LOG_DEBUG("============================");
+      WriteLogToFile("============================");
+      
+      
+      // Phase 1: DL Allocation for all UEs (including IAB) with buffer-based priority
+      NS_LOG_DEBUG("*** PHASE 1: DL ALLOCATION START ***");
+      WriteLogToFile("*** PHASE 1: DL ALLOCATION START ***");
+      
+      // Create a priority queue based on buffer size to prevent buffer overflow
+      std::vector<std::pair<uint16_t, uint32_t>> uePriorityList;
+      for (auto& uePair : ueInfo) {
+        if (!uePair.second.m_dlAllocDone && uePair.second.m_maxDlBufSize > 0) {
+          uePriorityList.push_back(std::make_pair(uePair.first, uePair.second.m_maxDlBufSize));
+        }
+      }
+      
+      // Display buffer list before sorting
+      NS_LOG_DEBUG("=== BUFFER LIST BEFORE SORTING ===");
+      WriteLogToFile("=== BUFFER LIST BEFORE SORTING ===");
+      for (const auto& uePair : uePriorityList) {
+        NS_LOG_DEBUG("  RNTI: " << uePair.first << " Buffer Size: " << uePair.second);
+        WriteLogToFile("  RNTI: " + std::to_string(uePair.first) + " Buffer Size: " + std::to_string(uePair.second));
+      }
+      NS_LOG_DEBUG("=================================");
+      WriteLogToFile("=================================");
+      
+      // // Sort by buffer size (largest first) to prioritize UEs with buffer overflow
+      // std::sort(uePriorityList.begin(), uePriorityList.end(), 
+      //           [](const std::pair<uint16_t, uint32_t>& a, const std::pair<uint16_t, uint32_t>& b) {
+      //             return a.second > b.second; // Sort by buffer size descending
+      //           });
+      
+      // Display buffer list after sorting
+      NS_LOG_DEBUG("=== BUFFER LIST AFTER SORTING ===");
+      WriteLogToFile("=== BUFFER LIST AFTER SORTING ===");
+      for (const auto& uePair : uePriorityList) {
+        NS_LOG_DEBUG("  RNTI: " << uePair.first << " Buffer Size: " << uePair.second);
+        WriteLogToFile("  RNTI: " + std::to_string(uePair.first) + " Buffer Size: " + std::to_string(uePair.second));
+      }
+      NS_LOG_DEBUG("==================================");
+      WriteLogToFile("==================================");
+      
+      bool dlPhaseDone = false;
+      size_t priorityIndex = 0;
+      
+      while (!dlPhaseDone && priorityIndex < uePriorityList.size()) {
+        uint16_t currentRnti = uePriorityList[priorityIndex].first;
+        auto itUeInfoDl = ueInfo.find(currentRnti);
+        
+        if (itUeInfoDl == ueInfo.end()) {
+          priorityIndex++;
+          continue;
+        }
+        
+        UeSchedInfo &ueSchedInfo = itUeInfoDl->second;
+        
+        // Allocate DL for all UEs (including IAB) with buffer-based priority
+        if (!ueSchedInfo.m_dlAllocDone && ueSchedInfo.m_maxDlBufSize > 0) {
+          NS_LOG_DEBUG("*** UE HAS DATA: RNTI=" << currentRnti 
+                        << " IAB=" << ueSchedInfo.m_iab 
+                        << " maxDlBufSize=" << ueSchedInfo.m_maxDlBufSize 
+                        << " at time " << Simulator::Now().GetSeconds() << "s");
+          WriteLogToFile("*** UE HAS DATA: RNTI=" + std::to_string(currentRnti) 
+                        + " IAB=" + std::to_string(ueSchedInfo.m_iab) 
+                        + " maxDlBufSize=" + std::to_string(ueSchedInfo.m_maxDlBufSize) 
+                        + " at time " + std::to_string(Simulator::Now().GetSeconds()) + "s");
+        } else {
+          NS_LOG_DEBUG("*** UE NO DATA: RNTI=" << currentRnti 
+                        << " IAB=" << ueSchedInfo.m_iab 
+                        << " dlAllocDone=" << ueSchedInfo.m_dlAllocDone 
+                        << " maxDlBufSize=" << ueSchedInfo.m_maxDlBufSize 
+                        << " at time " << Simulator::Now().GetSeconds() << "s");
+          WriteLogToFile("*** UE NO DATA: RNTI=" + std::to_string(currentRnti) 
+                        + " IAB=" + std::to_string(ueSchedInfo.m_iab) 
+                        + " dlAllocDone=" + std::to_string(ueSchedInfo.m_dlAllocDone) 
+                        + " maxDlBufSize=" + std::to_string(ueSchedInfo.m_maxDlBufSize) 
+                        + " at time " + std::to_string(Simulator::Now().GetSeconds()) + "s");
+        }
+        
+        if (!ueSchedInfo.m_dlAllocDone && ueSchedInfo.m_maxDlBufSize > 0) {
+          ueSchedInfo.m_dlSymbols = std::min(symPerDlBlock, ueSchedInfo.m_maxDlSymbols);
+          ueSchedInfo.m_ulSymbols = 0; // No UL allocation in DL phase
           
-          // FIX: Apply mutual exclusion logic ONLY for IAB devices
-          // Regular UEs can handle simultaneous DL+UL allocation (standard cellular behavior)
-          // IAB devices need mutual exclusion due to hardware constraints
-          if (itUeInfo->second.m_iab) {
-            // IAB devices: Apply mutual exclusion to prevent simultaneous DL+UL (hardware constraint)
-            if (!itUeInfo->second.m_dlAllocDone && !itUeInfo->second.m_ulAllocDone) {
-              // Choose between DL and UL based on round-robin
-              if (!itUeInfo->second.m_allocUlLast) {
-                // Prefer DL allocation first
-                itUeInfo->second.m_dlSymbols = std::min(symPerDlBlock, itUeInfo->second.m_maxDlSymbols);
-                itUeInfo->second.m_ulSymbols = 0; // No UL allocation
-                NS_LOG_DEBUG("IAB MUTUAL EXCLUSION: UE " << itUeInfo->first 
-                              << " IAB: " << itUeInfo->second.m_iab 
-                              << " allocated DL only (DL: " << (int)itUeInfo->second.m_dlSymbols 
-                              << ", UL: " << (int)itUeInfo->second.m_ulSymbols 
-                              << ") at time " << Simulator::Now().GetSeconds() << "s");
-              } else {
-                // Prefer UL allocation
-                itUeInfo->second.m_dlSymbols = 0; // No DL allocation
-                itUeInfo->second.m_ulSymbols = std::min(symPerUlBlock, itUeInfo->second.m_maxUlSymbols);
-                NS_LOG_DEBUG("IAB MUTUAL EXCLUSION: UE " << itUeInfo->first 
-                              << " IAB: " << itUeInfo->second.m_iab 
-                              << " allocated UL only (DL: " << (int)itUeInfo->second.m_dlSymbols 
-                              << ", UL: " << (int)itUeInfo->second.m_ulSymbols 
-                              << ") at time " << Simulator::Now().GetSeconds() << "s");
-              }
-            } else {
-              // Use existing logic if allocation is already done
-              itUeInfo->second.m_dlSymbols = std::min(symPerDlBlock, itUeInfo->second.m_maxDlSymbols);
-              itUeInfo->second.m_ulSymbols = std::min(symPerUlBlock, itUeInfo->second.m_maxUlSymbols);
+          NS_LOG_DEBUG("*** SCHEDULING DECISION: UE RNTI=" << currentRnti 
+                        << " IAB=" << ueSchedInfo.m_iab 
+                        << " allocated DL=" << (int)ueSchedInfo.m_dlSymbols 
+                        << " UL=" << (int)ueSchedInfo.m_ulSymbols 
+                        << " Layer=" << (int)layerIdxDl
+                        << " Block=" << (int)blockIdxDl
+                        << " at time " << Simulator::Now().GetSeconds() << "s");
+          WriteLogToFile("*** SCHEDULING DECISION: UE RNTI=" + std::to_string(currentRnti) 
+                        + " IAB=" + std::to_string(ueSchedInfo.m_iab) 
+                        + " allocated DL=" + std::to_string((int)ueSchedInfo.m_dlSymbols) 
+                        + " UL=" + std::to_string((int)ueSchedInfo.m_ulSymbols) 
+                        + " Layer=" + std::to_string((int)layerIdxDl)
+                        + " Block=" + std::to_string((int)blockIdxDl)
+                        + " at time " + std::to_string(Simulator::Now().GetSeconds()) + "s");
+          
+          // Choose DL start symbol avoiding IAB busy symbols if split mode is active
+          uint32_t allocStartDl = nextSymAvail;
+          if (ueSchedInfo.m_dlSymbols > 0 && m_split && CheckOverlapWithBusyResources(allocStartDl, ueSchedInfo.m_dlSymbols, layerIdxDl)) 
+          {
+            uint8_t tmp = static_cast<uint8_t>(nextSymAvail);
+            bool found = false;
+            while ((uint32_t)tmp + ueSchedInfo.m_dlSymbols <= firstUlSymbol) {
+              int freeCnt = GetNumFreeSymbols(tmp, ueSchedInfo.m_dlSymbols);
+              if (freeCnt >= (int)ueSchedInfo.m_dlSymbols) { allocStartDl = tmp; found = true; break; }
+              tmp = GetFirstFreeSymbol(tmp, std::max(0, freeCnt));
+              if ((uint32_t)tmp + ueSchedInfo.m_dlSymbols > firstUlSymbol) break;
             }
-          } else {
-            // Regular UEs: Allow both DL and UL allocations (standard behavior)
-            itUeInfo->second.m_dlSymbols = std::min(symPerDlBlock, itUeInfo->second.m_maxDlSymbols);
-            itUeInfo->second.m_ulSymbols = std::min(symPerUlBlock, itUeInfo->second.m_maxUlSymbols);
-            NS_LOG_DEBUG("REGULAR UE ALLOCATION: UE " << itUeInfo->first 
-                          << " IAB: " << itUeInfo->second.m_iab 
-                          << " allocated DL: " << (int)itUeInfo->second.m_dlSymbols 
-                          << " UL: " << (int)itUeInfo->second.m_ulSymbols 
-                          << " (standard simultaneous allocation) at time " << Simulator::Now().GetSeconds() << "s");
+            if (!found) {
+              // No room without overlap in DL region for this UE in this round
+              ueSchedInfo.m_dlAllocDone = true;
+              priorityIndex++;
+              if (priorityIndex >= uePriorityList.size()) { dlPhaseDone = true; }
+              continue;
+            }
           }
 
-          if ( ( itUeInfo->second.m_dlSymbols > 0 ) & ( (nextSymAvail + symPerDlBlock) <= firstUlSymbol ) ) // If buffer_size is 0 this UE is not counted in nFlowsDl and no actual block is created
-            {
-              NS_ASSERT( symAvail >= symPerDlBlock );
-              NS_ASSERT( symAvailLayer[layerIdxDl]>= symPerDlBlock);
-              symAvail -= symPerDlBlock;
-              symAvailLayer[layerIdxDl] -= symPerDlBlock;
+          if (ueSchedInfo.m_dlSymbols > 0 && (allocStartDl + ueSchedInfo.m_dlSymbols) <= firstUlSymbol) {
+            NS_ASSERT(symAvail >= symPerDlBlock);
+            NS_ASSERT(symAvailLayer[layerIdxDl] >= symPerDlBlock);
+            symAvail -= symPerDlBlock;
+            symAvailLayer[layerIdxDl] -= symPerDlBlock;
 
-              DciInfoElementTdma dci;
-              dci.m_rnti = itUeInfo->first;
-              dci.m_format = 0;
-              dci.m_layerInd = layerIdxDl;
-              dci.m_symStart = nextSymAvail;
-              dci.m_numSym = ueSchedInfo.m_dlSymbols;
-              dci.m_ndi = 1;
-              dci.m_mcs = ueSchedInfo.m_dlMcs;
-              dci.m_tbSize = m_amc->GetTbSizeFromMcsSymbols (dci.m_mcs, dci.m_numSym) / 8;
-              dci.m_rv = 0;
-              dci.m_harqProcess = UpdateDlHarqProcessId (itUeInfo->first);
-              NS_ASSERT (dci.m_harqProcess < m_phyMacConfig->GetNumHarqProcess ());
-              NS_LOG_LOGIC ("UE " << itUeInfo->first << " DL harqId " << (unsigned)dci.m_harqProcess << " HARQ process assigned");
+            DciInfoElementTdma dci;
+            dci.m_rnti = currentRnti;
+            dci.m_format = 0;
+            dci.m_layerInd = layerIdxDl;
+            dci.m_symStart = static_cast<uint8_t>(allocStartDl);
+            dci.m_numSym = ueSchedInfo.m_dlSymbols;
+            dci.m_ndi = 1;
+            dci.m_mcs = ueSchedInfo.m_dlMcs;
+            dci.m_tbSize = m_amc->GetTbSizeFromMcsSymbols(dci.m_mcs, dci.m_numSym) / 8;
+            dci.m_rv = 0;
+            dci.m_harqProcess = UpdateDlHarqProcessId(currentRnti);
+            NS_ASSERT(dci.m_harqProcess < m_phyMacConfig->GetNumHarqProcess());
+            NS_LOG_LOGIC("UE " << currentRnti << " DL harqId " << (unsigned)dci.m_harqProcess << " HARQ process assigned");
 
-              SlotAllocInfo slotInfo (tempDlslotIdx++, SlotAllocInfo::DL_slotAllocInfo, SlotAllocInfo::CTRL_DATA, SlotAllocInfo::DIGITAL, itUeInfo->first, layerIdxDl);
-              slotInfo.m_dci = dci;
-              NS_LOG_LOGIC ("UE " << dci.m_rnti << " gets DL slots " << (unsigned)dci.m_symStart << "-" << (unsigned)(dci.m_symStart + dci.m_numSym - 1) <<
-                            " tbs " << dci.m_tbSize << " mcs " << (unsigned)dci.m_mcs << " harqId " << (unsigned)dci.m_harqProcess << " rv " << (unsigned)dci.m_rv <<
-                            " in frame " << ret.m_sfnSf.m_frameNum << " subframe " << (unsigned)ret.m_sfnSf.m_sfNum<< " layer " << (unsigned) dci.m_layerInd);
+            SlotAllocInfo slotInfo(tempDlslotIdx++, SlotAllocInfo::DL_slotAllocInfo, SlotAllocInfo::CTRL_DATA, SlotAllocInfo::DIGITAL, currentRnti, layerIdxDl);
+            slotInfo.m_dci = dci;
+                          NS_LOG_LOGIC("UE " << dci.m_rnti << " gets DL slots " << (unsigned)dci.m_symStart << "-" << (unsigned)(dci.m_symStart + dci.m_numSym - 1) <<
+                          " tbs " << dci.m_tbSize << " mcs " << (unsigned)dci.m_mcs << " harqId " << (unsigned)dci.m_harqProcess << " rv " << (unsigned)dci.m_rv <<
+                          " in frame " << ret.m_sfnSf.m_frameNum << " subframe " << (unsigned)ret.m_sfnSf.m_sfNum << " layer " << (unsigned)dci.m_layerInd);
 
-              if (m_harqOn == true)
-                {                   // store DCI for HARQ buffer
-                  std::map <uint16_t, DlHarqProcessesDciInfoList_t>::iterator itDciInfo = m_dlHarqProcessesDciInfoMap.find (dci.m_rnti);
-                  if (itDciInfo == m_dlHarqProcessesDciInfoMap.end ())
-                    {
-                      NS_FATAL_ERROR ("Unable to find RNTI entry in DCI HARQ buffer for RNTI " << dci.m_rnti);
-                    }
-                  (*itDciInfo).second.at (dci.m_harqProcess) = dci;
-                  // refresh timer
-                  std::map <uint16_t, DlHarqProcessesTimer_t>::iterator itHarqTimer =  m_dlHarqProcessesTimer.find (dci.m_rnti);
-                  if (itHarqTimer == m_dlHarqProcessesTimer.end ())
-                    {
-                      NS_FATAL_ERROR ("Unable to find HARQ timer for RNTI " << (uint16_t)dci.m_rnti);
-                    }
-                  (*itHarqTimer).second.at (dci.m_harqProcess) = 0;
-                }
-
-              // distribute bytes between active RLC queues
-              unsigned numLc = ueSchedInfo.m_rlcPduInfo.size ();
-              unsigned bytesRem = dci.m_tbSize;
-              unsigned numFulfilled = 0;
-              uint16_t avgPduSize = bytesRem / numLc;
-              // first for loop computes extra to add to average if some flows are less than average
-              for (unsigned i = 0; i < ueSchedInfo.m_rlcPduInfo.size (); i++)
-                {
-                  if (ueSchedInfo.m_rlcPduInfo[i].m_size < avgPduSize)
-                    {
-                      bytesRem -= ueSchedInfo.m_rlcPduInfo[i].m_size;
-                      numFulfilled++;
-                    }
-                }
-
-              if (numFulfilled < ueSchedInfo.m_rlcPduInfo.size ())
-                {
-                  avgPduSize = bytesRem / (ueSchedInfo.m_rlcPduInfo.size () - numFulfilled);
-                }
-
-              for (unsigned i = 0; i < ueSchedInfo.m_rlcPduInfo.size (); i++)
-                {
-                  if (ueSchedInfo.m_rlcPduInfo[i].m_size > avgPduSize)
-                    {
-                      ueSchedInfo.m_rlcPduInfo[i].m_size = avgPduSize;
-                    }
-                  // else tbSize equals RLC queue size
-                  NS_ASSERT (ueSchedInfo.m_rlcPduInfo[i].m_size > 0);
-                  // update RLC buffer info with expected queue size after scheduling
-                  UpdateDlRlcBufferInfo (itUeInfo->first, ueSchedInfo.m_rlcPduInfo[i].m_lcid, ueSchedInfo.m_rlcPduInfo[i].m_size - m_subHdrSize);
-                  //schedInfo.m_rlcPduList[schedInfo.m_rlcPduList.size ()-1].push_back (itRlcInfo->second[i]);
-                  slotInfo.m_rlcPduInfo.push_back (ueSchedInfo.m_rlcPduInfo[i]);
-                  if (m_harqOn == true)
-                    {
-                      // store RLC PDU list for HARQ
-                      std::map <uint16_t, DlHarqRlcPduList_t>::iterator itRlcPdu =  m_dlHarqProcessesRlcPduMap.find (dci.m_rnti);
-                      if (itRlcPdu == m_dlHarqProcessesRlcPduMap.end ())
-                        {
-                          NS_FATAL_ERROR ("Unable to find RlcPdcList in HARQ buffer for RNTI " << dci.m_rnti);
-                        }
-                      (*itRlcPdu).second.at (dci.m_harqProcess).push_back (ueSchedInfo.m_rlcPduInfo[i]);
-                    }
-                }
-
-              tempDlslotAllocInfo[layerIdxDl].push_back (slotInfo);
-              ret.m_sfAllocInfo.m_numSymAlloc += dci.m_numSym;
-              
-              // FIX: Update allocation flags after DL allocation
-              itUeInfo->second.m_dlAllocDone = true;
-              itUeInfo->second.m_allocUlLast = false;
-
-              layerIdxDl++;
-              if (layerIdxDl == m_phyMacConfig->GetNumEnbLayers () )
-                {
-                  layerIdxDl = 0;
-                  blockIdxDl++;
-                  NS_ASSERT (blockIdxDl <= nDlFlowsPerLayer);
-                  nextSymAvail += symPerDlBlock;
-                  NS_ASSERT (nextSymAvail <= firstUlSymbol);
-                }
+            if (m_harqOn == true) {
+              // store DCI for HARQ buffer
+              std::map <uint16_t, DlHarqProcessesDciInfoList_t>::iterator itDciInfo = m_dlHarqProcessesDciInfoMap.find(dci.m_rnti);
+              if (itDciInfo == m_dlHarqProcessesDciInfoMap.end()) {
+                NS_FATAL_ERROR("Unable to find RNTI entry in DCI HARQ buffer for RNTI " << dci.m_rnti);
+              }
+              (*itDciInfo).second.at(dci.m_harqProcess) = dci;
+              // refresh timer
+              std::map <uint16_t, DlHarqProcessesTimer_t>::iterator itHarqTimer = m_dlHarqProcessesTimer.find(dci.m_rnti);
+              if (itHarqTimer == m_dlHarqProcessesTimer.end()) {
+                NS_FATAL_ERROR("Unable to find HARQ timer for RNTI " << (uint16_t)dci.m_rnti);
+              }
+              (*itHarqTimer).second.at(dci.m_harqProcess) = 0;
             }
 
-          if ( ( ueSchedInfo.m_ulSymbols > 0 ) & ( (lastSymAvail - symPerUlBlock + 1 ) >= firstUlSymbol ) )
-            {
-              NS_ASSERT( symAvail >= symPerUlBlock );
-              NS_ASSERT_MSG( symAvailLayer[layerIdxUl]>= symPerUlBlock , "UL allocation problem: UE " << itUeInfo->first << " needs " << (int) symPerUlBlock  <<
-                             " symbols but only " << symAvailLayer[layerIdxUl] << " remain free in layer " << layerIdxUl);
-              symAvail -= symPerUlBlock;
-              symAvailLayer[layerIdxUl] -= symPerUlBlock;
+                         // distribute bytes between active RLC queues
+             unsigned numLc = ueSchedInfo.m_rlcPduInfo.size();
+             unsigned bytesRem = dci.m_tbSize;
+             unsigned numFulfilled = 0;
+             uint16_t avgPduSize = bytesRem / numLc;
+             // first for loop computes extra to add to average if some flows are less than average
+             for (unsigned i = 0; i < ueSchedInfo.m_rlcPduInfo.size(); i++) {
+               if (ueSchedInfo.m_rlcPduInfo[i].m_size < avgPduSize) {
+                 bytesRem -= ueSchedInfo.m_rlcPduInfo[i].m_size;
+                 numFulfilled++;
+               }
+             }
+             
+             if (numFulfilled < ueSchedInfo.m_rlcPduInfo.size()) {
+               avgPduSize = bytesRem / (ueSchedInfo.m_rlcPduInfo.size() - numFulfilled);
+             }
+             
+             for (unsigned i = 0; i < ueSchedInfo.m_rlcPduInfo.size(); i++) {
+               if (ueSchedInfo.m_rlcPduInfo[i].m_size > avgPduSize) {
+                 ueSchedInfo.m_rlcPduInfo[i].m_size = avgPduSize;
+               }
+               // else tbSize equals RLC queue size
+               NS_ASSERT(ueSchedInfo.m_rlcPduInfo[i].m_size > 0);
+               // update RLC buffer info with expected queue size after scheduling
+              UpdateDlRlcBufferInfo(currentRnti, ueSchedInfo.m_rlcPduInfo[i].m_lcid, ueSchedInfo.m_rlcPduInfo[i].m_size - m_subHdrSize);
+               slotInfo.m_rlcPduInfo.push_back(ueSchedInfo.m_rlcPduInfo[i]);
+               if (m_harqOn == true) {
+                 // store RLC PDU list for HARQ
+                 std::map <uint16_t, DlHarqRlcPduList_t>::iterator itRlcPdu = m_dlHarqProcessesRlcPduMap.find(dci.m_rnti);
+                 if (itRlcPdu == m_dlHarqProcessesRlcPduMap.end()) {
+                   NS_FATAL_ERROR("Unable to find RlcPdcList in HARQ buffer for RNTI " << dci.m_rnti);
+                 }
+                 (*itRlcPdu).second.at(dci.m_harqProcess).push_back(ueSchedInfo.m_rlcPduInfo[i]);
+               }
+             }
 
-              DciInfoElementTdma dci;
-              dci.m_rnti = itUeInfo->first;
-              dci.m_format = 1;
-              dci.m_layerInd = layerIdxUl;
-              dci.m_symStart = lastSymAvail - symPerUlBlock +1 ;
-              dci.m_numSym = ueSchedInfo.m_ulSymbols;
-              dci.m_mcs = ueSchedInfo.m_ulMcs;
-              dci.m_ndi = 1;
-              dci.m_tbSize = m_amc->GetTbSizeFromMcsSymbols (dci.m_mcs, dci.m_numSym) / 8;
-              /*        while (dci.m_tbSize > m_phyMacConfig->GetMaxTbSize () && dci.m_mcs > 0)
-                           {
-                                   dci.m_mcs--;
-                                   dci.m_tbSize = m_amc->GetTbSizeFromMcsSymbols (dci.m_mcs, dci.m_numSym) / 8;
-                           }*/
-              dci.m_harqProcess = UpdateUlHarqProcessId (itUeInfo->first);
-              NS_LOG_LOGIC ("UE " << itUeInfo->first << " UL harqId " << (unsigned)dci.m_harqProcess << " HARQ process assigned");
-              NS_ASSERT (dci.m_harqProcess < m_phyMacConfig->GetNumHarqProcess ());
-              SlotAllocInfo slotInfo (tempUlSlotIdx++, SlotAllocInfo::UL_slotAllocInfo, SlotAllocInfo::CTRL_DATA, SlotAllocInfo::DIGITAL, itUeInfo->first, layerIdxUl);
-              slotInfo.m_dci = dci;
-              NS_LOG_LOGIC ("UE " << dci.m_rnti << " gets UL slots " << (unsigned)dci.m_symStart << "-" << (unsigned)(dci.m_symStart + dci.m_numSym - 1) <<
-                            " tbs " << dci.m_tbSize << " mcs " << (unsigned)dci.m_mcs << " harqId " << (unsigned)dci.m_harqProcess << " rv " << (unsigned)dci.m_rv <<
-                            " in frame " << ulSchedSfn.m_frameNum << " subframe " << (unsigned)ulSchedSfn.m_sfNum << " layer " << (unsigned) dci.m_layerInd );
-              UpdateUlRlcBufferInfo (itUeInfo->first, dci.m_tbSize - m_subHdrSize);
-              //          ret.m_sfAllocInfo.m_slotAllocInfo.push_back (slotInfo);                // add to front
-              tempUlslotAllocInfo[layerIdxUl].push_front (slotInfo); //remember we fill from end backward
-              ret.m_sfAllocInfo.m_numSymAlloc += dci.m_numSym;
-              
-              // FIX: Update allocation flags after UL allocation
-              itUeInfo->second.m_ulAllocDone = true;
-              itUeInfo->second.m_allocUlLast = true;
-              std::vector<uint16_t> ueChunkMap;
-              for (unsigned i = 0; i < m_phyMacConfig->GetTotalNumChunk (); i++)
-                {
-                  ueChunkMap.push_back (dci.m_rnti);
-                }
-              SfnSf slotSfn = ret.m_sfAllocInfo.m_sfnSf; //this sfnsf struct is used only to tag uplink CQI where the slotNum is not know upon reception so we use the following trick
-              slotSfn.m_slotNum = dci.m_symStart * m_phyMacConfig->GetNumEnbLayers () + layerIdxUl;                // use the start symbol index of the slot because the absolute UL slot index depends on the future DL allocation
-              // insert into allocation map to recall previous allocations upon receiving UL-CQI
-              m_ulAllocationMap.insert ( std::pair<uint32_t, struct AllocMapElem> (slotSfn.Encode (), AllocMapElem (ueChunkMap, dci.m_numSym, dci.m_tbSize)) );
-
-              if (m_harqOn == true)
-                {
-                  uint8_t harqId = dci.m_harqProcess;
-                  std::map <uint16_t, UlHarqProcessesDciInfoList_t>::iterator itHarqTbInfo = m_ulHarqProcessesDciInfoMap.find (dci.m_rnti);
-                  if (itHarqTbInfo == m_ulHarqProcessesDciInfoMap.end ())
-                    {
-                      NS_FATAL_ERROR ("Unable to find RNTI entry in UL DCI HARQ buffer for RNTI " << dci.m_rnti);
-                    }
-                  (*itHarqTbInfo).second.at (harqId) = dci;
-                  // Update HARQ process status (RV 0)
-                  std::map <uint16_t, UlHarqProcessesStatus_t>::iterator itStat = m_ulHarqProcessesStatus.find (dci.m_rnti);
-                  NS_ASSERT (itStat->second[dci.m_harqProcess] > 0);
-                  // refresh timer
-                  std::map <uint16_t, UlHarqProcessesTimer_t>::iterator itHarqTimer =  m_ulHarqProcessesTimer.find (dci.m_rnti);
-                  if (itHarqTimer == m_ulHarqProcessesTimer.end ())
-                    {
-                      NS_FATAL_ERROR ("Unable to find HARQ timer for RNTI " << (uint16_t)dci.m_rnti);
-                    }
-                  (*itHarqTimer).second.at (dci.m_harqProcess) = 0;
-                }
-
-              layerIdxUl++;
-              if (layerIdxUl == m_phyMacConfig->GetNumEnbLayers () )
-                {
-                  layerIdxUl = 0;
-                  blockIdxUl++;
-                  NS_ASSERT (blockIdxUl <= nUlFlowsPerLayer);
-                  lastSymAvail -= symPerUlBlock;
-                  NS_ASSERT (lastSymAvail + 1 >= firstUlSymbol);
-                }
+                         tempDlslotAllocInfo[layerIdxDl].push_back(slotInfo);
+             ret.m_sfAllocInfo.m_numSymAlloc += dci.m_numSym;
+             
+             // Update allocation flags after DL allocation
+             ueSchedInfo.m_dlAllocDone = true;
+             ueSchedInfo.m_allocUlLast = false;
+            nextSymAvail = std::max(nextSymAvail, (uint32_t)dci.m_symStart) + symPerDlBlock;
+            layerIdxDl++;
+            if (layerIdxDl == m_phyMacConfig->GetNumEnbLayers()) {
+              layerIdxDl = 0;
+              blockIdxDl++;
+              NS_ASSERT(blockIdxDl <= nDlFlowsPerLayer);
             }
-
-          itUeInfo++; //move to next UE (and possibly schedule)
-          if (itUeInfo == ueInfo.end ())
-            {                 // loop around to first RNTI in map
-              itUeInfo = ueInfo.begin ();
-            }
-          m_nextRnti = itUeInfo->first;
-          if (itUeInfo == itUeInfoStart)
-            {                 // break RR loop when looped back to initial RNTI or no symbols remain
-              done = true;//this might be improved
-              break;
-            }
+          } else {
+            ueSchedInfo.m_dlAllocDone = true; // Mark as done even if no allocation
+          }
+        } else {
+          ueSchedInfo.m_dlAllocDone = true; // Mark as done if no buffer or already done
         }
+
+        priorityIndex++; // Move to next UE in priority list
+        if (priorityIndex >= uePriorityList.size()) {
+          dlPhaseDone = true;
+        }
+      }
+      NS_LOG_DEBUG("*** PHASE 1: DL ALLOCATION COMPLETE ***");
+      WriteLogToFile("*** PHASE 1: DL ALLOCATION COMPLETE ***");
+      
+      // Display final DL flow allocation summary
+      NS_LOG_DEBUG("=== DL ALLOCATION SUMMARY ===");
+      NS_LOG_DEBUG("DL Flows Allocated - Total: " << nFlowsDl << " Access: " << nFlowsAccessDl << " Backhaul: " << nFlowsBackhaulDl);
+      NS_LOG_DEBUG("DL Symbols Per Block: " << (int)symPerDlBlock << " Total DL Symbols: " << (int)nDlSymPerLayer);
+      NS_LOG_DEBUG("=============================");
+      WriteLogToFile("=== DL ALLOCATION SUMMARY ===");
+      WriteLogToFile("DL Flows Allocated - Total: " + std::to_string(nFlowsDl) + " Access: " + std::to_string(nFlowsAccessDl) + " Backhaul: " + std::to_string(nFlowsBackhaulDl));
+      WriteLogToFile("DL Symbols Per Block: " + std::to_string((int)symPerDlBlock) + " Total DL Symbols: " + std::to_string((int)nDlSymPerLayer));
+      WriteLogToFile("=============================");
+
+      // Phase 2: UL Allocation for all UEs (including IAB) after DL allocation
+      NS_LOG_DEBUG("*** PHASE 2: UL ALLOCATION START ***");
+      WriteLogToFile("*** PHASE 2: UL ALLOCATION START ***");
+      std::map <uint16_t, struct UeSchedInfo>::iterator itUeInfoUl = itUeInfoStart;
+      bool ulPhaseDone = false;
+      
+      while (!ulPhaseDone) {
+        UeSchedInfo &ueSchedInfo = itUeInfoUl->second;
+        
+        // Allocate UL for all UEs (including IAB) after DL allocation is complete
+        if (!ueSchedInfo.m_ulAllocDone && ueSchedInfo.m_maxUlBufSize > 0) {
+          ueSchedInfo.m_ulSymbols = std::min(symPerUlBlock, ueSchedInfo.m_maxUlSymbols);
+          
+          NS_LOG_DEBUG("*** UL PHASE: UE " << itUeInfoUl->first 
+                        << " IAB: " << ueSchedInfo.m_iab 
+                        << " allocated DL: " << (int)ueSchedInfo.m_dlSymbols 
+                        << " UL: " << (int)ueSchedInfo.m_ulSymbols 
+                        << " Layer: " << (int)layerIdxUl
+                        << " Block: " << (int)blockIdxUl
+                        << " at time " << Simulator::Now().GetSeconds() << "s");
+          WriteLogToFile("*** UL PHASE: UE " + std::to_string(itUeInfoUl->first) 
+                        + " IAB: " + std::to_string(ueSchedInfo.m_iab) 
+                        + " allocated DL: " + std::to_string((int)ueSchedInfo.m_dlSymbols) 
+                        + " UL: " + std::to_string((int)ueSchedInfo.m_ulSymbols) 
+                        + " Layer: " + std::to_string((int)layerIdxUl)
+                        + " Block: " + std::to_string((int)blockIdxUl)
+                        + " at time " + std::to_string(Simulator::Now().GetSeconds()) + "s");
+          
+          // Compute UL start avoiding IAB busy symbols
+          uint32_t allocStartUl = (lastSymAvail + 1 >= static_cast<uint32_t>(symPerUlBlock)) ? (lastSymAvail + 1 - static_cast<uint32_t>(symPerUlBlock)) : firstUlSymbol;
+          if (ueSchedInfo.m_ulSymbols > 0 && m_split && CheckOverlapWithBusyResources(allocStartUl, ueSchedInfo.m_ulSymbols, layerIdxUl)) {
+            // Scan upward within the UL region to find a contiguous free window
+            uint8_t tmp = static_cast<uint8_t>(firstUlSymbol);
+            bool found = false;
+            while ((uint32_t)tmp + ueSchedInfo.m_ulSymbols <= (lastSymAvail + 1)) {
+              int freeCnt = GetNumFreeSymbols(tmp, ueSchedInfo.m_ulSymbols);
+              if (freeCnt >= (int)ueSchedInfo.m_ulSymbols) { allocStartUl = tmp; found = true; break; }
+              tmp = GetFirstFreeSymbol(tmp, std::max(0, freeCnt));
+              if ((uint32_t)tmp + ueSchedInfo.m_ulSymbols > (lastSymAvail + 1)) break;
+            }
+            if (!found) {
+              ueSchedInfo.m_ulAllocDone = true;
+              // advance RR
+              itUeInfoUl++;
+              if (itUeInfoUl == ueInfo.end()) { itUeInfoUl = ueInfo.begin(); }
+              if (itUeInfoUl == itUeInfoStart) { ulPhaseDone = true; }
+              continue;
+            }
+          }
+
+          if (ueSchedInfo.m_ulSymbols > 0 && (allocStartUl >= firstUlSymbol) && ((allocStartUl + ueSchedInfo.m_ulSymbols) <= (lastSymAvail + 1))) {
+            DciInfoElementTdma dci;
+            dci.m_rnti = itUeInfoUl->first;
+            dci.m_format = 1;
+            dci.m_layerInd = layerIdxUl;
+            dci.m_symStart = static_cast<uint8_t>(allocStartUl);
+            dci.m_numSym = ueSchedInfo.m_ulSymbols;
+            dci.m_ndi = 1;
+            dci.m_mcs = ueSchedInfo.m_ulMcs;
+            dci.m_tbSize = m_amc->GetTbSizeFromMcsSymbols(dci.m_mcs, dci.m_numSym) / 8;
+            dci.m_rv = 0;
+            dci.m_harqProcess = UpdateUlHarqProcessId(itUeInfoUl->first);
+            NS_ASSERT(dci.m_harqProcess < m_phyMacConfig->GetNumHarqProcess());
+            NS_LOG_LOGIC("UE " << itUeInfoUl->first << " UL harqId " << (unsigned)dci.m_harqProcess << " HARQ process assigned");
+
+            SlotAllocInfo slotInfo(tempUlSlotIdx++, SlotAllocInfo::UL_slotAllocInfo, SlotAllocInfo::CTRL_DATA, SlotAllocInfo::DIGITAL, itUeInfoUl->first, layerIdxUl);
+            slotInfo.m_dci = dci;
+                          NS_LOG_LOGIC("UE " << dci.m_rnti << " gets UL slots " << (unsigned)dci.m_symStart << "-" << (unsigned)(dci.m_symStart + dci.m_numSym - 1) <<
+                          " tbs " << dci.m_tbSize << " mcs " << (unsigned)dci.m_mcs << " harqId " << (unsigned)dci.m_harqProcess << " rv " << (unsigned)dci.m_rv <<
+                          " in frame " << ulSchedSfn.m_frameNum << " subframe " << (unsigned)ulSchedSfn.m_sfNum << " layer " << (unsigned)dci.m_layerInd);
+
+            if (m_harqOn == true) {
+              uint8_t harqId = dci.m_harqProcess;
+              std::map <uint16_t, UlHarqProcessesDciInfoList_t>::iterator itHarqTbInfo = m_ulHarqProcessesDciInfoMap.find(dci.m_rnti);
+              if (itHarqTbInfo == m_ulHarqProcessesDciInfoMap.end()) {
+                NS_FATAL_ERROR("Unable to find RNTI entry in UL DCI HARQ buffer for RNTI " << dci.m_rnti);
+              }
+              (*itHarqTbInfo).second.at(harqId) = dci;
+              // Update HARQ process status (RV 0)
+              std::map <uint16_t, UlHarqProcessesStatus_t>::iterator itStat = m_ulHarqProcessesStatus.find(dci.m_rnti);
+              NS_ASSERT(itStat->second[dci.m_harqProcess] > 0);
+              // refresh timer
+              std::map <uint16_t, UlHarqProcessesTimer_t>::iterator itHarqTimer = m_ulHarqProcessesTimer.find(dci.m_rnti);
+              if (itHarqTimer == m_ulHarqProcessesTimer.end()) {
+                NS_FATAL_ERROR("Unable to find HARQ timer for RNTI " << (uint16_t)dci.m_rnti);
+              }
+              (*itHarqTimer).second.at(dci.m_harqProcess) = 0;
+            }
+
+            UpdateUlRlcBufferInfo(itUeInfoUl->first, dci.m_tbSize - m_subHdrSize);
+            tempUlslotAllocInfo[layerIdxUl].push_front(slotInfo); //remember we fill from end backward
+            ret.m_sfAllocInfo.m_numSymAlloc += dci.m_numSym;
+            
+            // Update allocation flags after UL allocation
+            ueSchedInfo.m_ulAllocDone = true;
+            ueSchedInfo.m_allocUlLast = true;
+            std::vector<uint16_t> ueChunkMap;
+            for (unsigned i = 0; i < m_phyMacConfig->GetTotalNumChunk(); i++) {
+              ueChunkMap.push_back(dci.m_rnti);
+            }
+            SfnSf slotSfn = ret.m_sfAllocInfo.m_sfnSf; //this sfnsf struct is used only to tag uplink CQI where the slotNum is not know upon reception so we use the following trick
+            slotSfn.m_slotNum = dci.m_symStart * m_phyMacConfig->GetNumEnbLayers() + layerIdxUl;                // use the start symbol index of the slot because the absolute UL slot index depends on the future DL allocation
+            // insert into allocation map to recall previous allocations upon receiving UL-CQI
+            m_ulAllocationMap.insert(std::pair<uint32_t, struct AllocMapElem>(slotSfn.Encode(), AllocMapElem(ueChunkMap, dci.m_numSym, dci.m_tbSize)));
+            layerIdxUl++;
+            if (layerIdxUl == m_phyMacConfig->GetNumEnbLayers()) {
+              layerIdxUl = 0;
+              blockIdxUl++;
+              NS_ASSERT(blockIdxUl <= nUlFlowsPerLayer);
+              // Move the UL cursor to just before the block we used
+              if (allocStartUl > 0) { lastSymAvail = allocStartUl - 1; }
+              NS_ASSERT(lastSymAvail + 1 >= firstUlSymbol);
+            }
+          } else {
+            ueSchedInfo.m_ulAllocDone = true; // Mark as done even if no allocation
+          }
+        } else {
+          ueSchedInfo.m_ulAllocDone = true; // Mark as done if no buffer or already done
+        }
+
+        itUeInfoUl++; // move to next UE
+        if (itUeInfoUl == ueInfo.end()) {
+          itUeInfoUl = ueInfo.begin();
+        }
+        if (itUeInfoUl == itUeInfoStart) {
+          ulPhaseDone = true;
+        }
+      }
+      NS_LOG_DEBUG("*** PHASE 2: UL ALLOCATION COMPLETE ***");
+      WriteLogToFile("*** PHASE 2: UL ALLOCATION COMPLETE ***");
+      
+      // Display final UL flow allocation summary
+      NS_LOG_DEBUG("=== UL ALLOCATION SUMMARY ===");
+      NS_LOG_DEBUG("UL Flows Allocated - Total: " << nFlowsUl << " Access: " << nFlowsAccessUl << " Backhaul: " << nFlowsBackhaulUl);
+      NS_LOG_DEBUG("UL Symbols Per Block: " << (int)symPerUlBlock << " Total UL Symbols: " << (int)nUlSymPerLayer);
+      NS_LOG_DEBUG("=============================");
+      WriteLogToFile("=== UL ALLOCATION SUMMARY ===");
+      WriteLogToFile("UL Flows Allocated - Total: " + std::to_string(nFlowsUl) + " Access: " + std::to_string(nFlowsAccessUl) + " Backhaul: " + std::to_string(nFlowsBackhaulUl));
+      WriteLogToFile("UL Symbols Per Block: " + std::to_string((int)symPerUlBlock) + " Total UL Symbols: " + std::to_string((int)nUlSymPerLayer));
+      WriteLogToFile("=============================");
+
+            // Update the main iterator for compatibility with existing code
+      itUeInfo = itUeInfoStart;
+      m_nextRnti = itUeInfo->first;
     }
 
   NS_LOG_INFO ("Fr "<< (int)ret.m_sfnSf.m_frameNum<<" Sf "<<(int)ret.m_sfnSf.m_sfNum <<" DL slot no. "<< 0 << " DL CTRL sym range "<<(int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_symStart << " to "<<(int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_numSym+(int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_symStart-1 << " of " << m_phyMacConfig->GetSymbolsPerSubframe () <<" layerIdx " << (int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_layerInd <<" of "<< (int) ret.m_sfAllocInfo.m_numAllocLayers);
+  WriteLogToFile("Fr " + std::to_string((int)ret.m_sfnSf.m_frameNum) + " Sf " + std::to_string((int)ret.m_sfnSf.m_sfNum) + " DL slot no. " + std::to_string(0) + " DL CTRL sym range " + std::to_string((int)ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_symStart) + " to " + std::to_string((int)ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_numSym+(int)ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_symStart-1) + " of " + std::to_string(m_phyMacConfig->GetSymbolsPerSubframe()) + " layerIdx " + std::to_string((int)ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_layerInd) + " of " + std::to_string((int)ret.m_sfAllocInfo.m_numAllocLayers));
 
   //pass the temporary SlotAllocInfo 2d lists to a single deque as expected by the PHY
   uint32_t finalSlotIdx = 1; //ctrl already inserted
@@ -2083,6 +2281,7 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       itSlotDl[layerIdx]->m_slotIdx = finalSlotIdx++;
       ret.m_sfAllocInfo.m_slotAllocInfo.push_back (*(itSlotDl[layerIdx]));
       NS_LOG_INFO ("Fr "<< (int)ret.m_sfnSf.m_frameNum<<" Sf "<<(int)ret.m_sfnSf.m_sfNum <<" DL slot no. "<< finalSlotIdx -1 << " to UE "<< itSlotDl[layerIdx]->m_dci.m_rnti <<" sym range "<<(int) itSlotDl[layerIdx]->m_dci.m_symStart << " to "<<(int) itSlotDl[layerIdx]->m_dci.m_numSym+itSlotDl[layerIdx]->m_dci.m_symStart-1 << " of " << m_phyMacConfig->GetSymbolsPerSubframe () <<" layerIdx " << (int) itSlotDl[layerIdx]->m_dci.m_layerInd <<" of "<< (int) ret.m_sfAllocInfo.m_numAllocLayers);
+      WriteLogToFile("Fr " + std::to_string((int)ret.m_sfnSf.m_frameNum) + " Sf " + std::to_string((int)ret.m_sfnSf.m_sfNum) + " DL slot no. " + std::to_string(finalSlotIdx -1) + " to UE " + std::to_string(itSlotDl[layerIdx]->m_dci.m_rnti) + " sym range " + std::to_string((int)itSlotDl[layerIdx]->m_dci.m_symStart) + " to " + std::to_string((int)itSlotDl[layerIdx]->m_dci.m_numSym+itSlotDl[layerIdx]->m_dci.m_symStart-1) + " of " + std::to_string(m_phyMacConfig->GetSymbolsPerSubframe()) + " layerIdx " + std::to_string((int)itSlotDl[layerIdx]->m_dci.m_layerInd) + " of " + std::to_string((int)ret.m_sfAllocInfo.m_numAllocLayers));
       itSlotDl[layerIdx]++;
 
       if (itSlotDl[layerIdx] == tempDlslotAllocInfo[layerIdx].end ())
@@ -2124,6 +2323,7 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       itSlotUl[layerIdx]->m_slotIdx = finalSlotIdx++;
       ret.m_sfAllocInfo.m_slotAllocInfo.push_back (*(itSlotUl[layerIdx]));
       NS_LOG_INFO ("Fr "<< (int)ret.m_sfnSf.m_frameNum<<" Sf "<<(int)ret.m_sfnSf.m_sfNum <<" UL slot no. "<< finalSlotIdx -1 << " to UE "<< itSlotUl[layerIdx]->m_dci.m_rnti <<" sym range "<<(int) itSlotUl[layerIdx]->m_dci.m_symStart << " to "<<(int) itSlotUl[layerIdx]->m_dci.m_numSym+itSlotUl[layerIdx]->m_dci.m_symStart-1 << " of " << m_phyMacConfig->GetSymbolsPerSubframe () <<" layerIdx " << (int) itSlotUl[layerIdx]->m_dci.m_layerInd <<" of "<< (int) ret.m_sfAllocInfo.m_numAllocLayers);
+      WriteLogToFile("Fr " + std::to_string((int)ret.m_sfnSf.m_frameNum) + " Sf " + std::to_string((int)ret.m_sfnSf.m_sfNum) + " UL slot no. " + std::to_string(finalSlotIdx -1) + " to UE " + std::to_string(itSlotUl[layerIdx]->m_dci.m_rnti) + " sym range " + std::to_string((int)itSlotUl[layerIdx]->m_dci.m_symStart) + " to " + std::to_string((int)itSlotUl[layerIdx]->m_dci.m_numSym+itSlotUl[layerIdx]->m_dci.m_symStart-1) + " of " + std::to_string(m_phyMacConfig->GetSymbolsPerSubframe()) + " layerIdx " + std::to_string((int)itSlotUl[layerIdx]->m_dci.m_layerInd) + " of " + std::to_string((int)ret.m_sfAllocInfo.m_numAllocLayers));
       itSlotUl[layerIdx]++;
 
 
@@ -2156,12 +2356,26 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
 
   //	finalSlotIdx=ret.m_sfAllocInfo.m_slotAllocInfo.size()-1;
   NS_LOG_INFO ("Fr "<< (int)ret.m_sfnSf.m_frameNum<<" Sf "<<(int)ret.m_sfnSf.m_sfNum <<" UL slot no. "<< finalSlotIdx << " UL CTRL sym range "<<(int) ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_symStart << " to "<<(int) ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_numSym+(int) ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_symStart-1 << " of " << m_phyMacConfig->GetSymbolsPerSubframe () <<" layerIdx " << (int) ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_layerInd <<" of "<< (int) ret.m_sfAllocInfo.m_numAllocLayers);
+  WriteLogToFile("Fr " + std::to_string((int)ret.m_sfnSf.m_frameNum) + " Sf " + std::to_string((int)ret.m_sfnSf.m_sfNum) + " UL slot no. " + std::to_string(finalSlotIdx) + " UL CTRL sym range " + std::to_string((int)ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_symStart) + " to " + std::to_string((int)ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_numSym+(int)ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_symStart-1) + " of " + std::to_string(m_phyMacConfig->GetSymbolsPerSubframe()) + " layerIdx " + std::to_string((int)ret.m_sfAllocInfo.m_slotAllocInfo[finalSlotIdx].m_dci.m_layerInd) + " of " + std::to_string((int)ret.m_sfAllocInfo.m_numAllocLayers));
   //  for (std::deque <SlotAllocInfo>::iterator itSlot = tempUlslotAllocInfo.begin (); itSlot != tempUlslotAllocInfo.end() ; itSlot++){
   //	  itSlot->m_slotIdx=tempDlslotIdx++;
   //	  ret.m_sfAllocInfo.m_slotAllocInfo.push_back(*itSlot);
   //  }
 
   m_macSchedSapUser->SchedConfigInd (ret);
+
+  // Log scheduler footer
+  std::stringstream footerMsg;
+  footerMsg << "=========== SCHEDULER COMPLETE ===========";
+  footerMsg << " Frame: " << (int)ret.m_sfnSf.m_frameNum;
+  footerMsg << " Subframe: " << (int)ret.m_sfnSf.m_sfNum;
+  footerMsg << " Total Slots: " << ret.m_sfAllocInfo.m_slotAllocInfo.size();
+  footerMsg << " Total Symbols Allocated: " << ret.m_sfAllocInfo.m_numSymAlloc;
+  footerMsg << " Total Layers: " << (int)ret.m_sfAllocInfo.m_numAllocLayers;
+  footerMsg << " ========================================";
+  WriteLogToFile(footerMsg.str());
+  
+  WriteLogToFile("DoSchedTriggerReq completed");
 
   return;
 }
@@ -2394,6 +2608,7 @@ void
 MmWavePaddedHbfMacScheduler::DoCschedUeConfigReq (const struct MmWaveMacCschedSapProvider::CschedUeConfigReqParameters& params)
 {
   NS_LOG_FUNCTION (this << " RNTI " << params.m_rnti << " txMode " << (uint16_t)params.m_transmissionMode);
+  NS_LOG_DEBUG("*** UE ADDED TO SCHEDULER: RNTI=" << params.m_rnti << " IAB=" << params.m_ueCapabilities.m_iab << " numIabDevs=" << params.m_ueCapabilities.m_numIabDevsPerRnti << " at time " << Simulator::Now().GetSeconds() << "s");
 
   if (m_dlHarqProcessesStatus.find (params.m_rnti) == m_dlHarqProcessesStatus.end ())
     {
@@ -2489,6 +2704,7 @@ void
 MmWavePaddedHbfMacScheduler::DoCschedUeReleaseReq (const struct MmWaveMacCschedSapProvider::CschedUeReleaseReqParameters& params)
 {
   NS_LOG_FUNCTION (this << " Release RNTI " << params.m_rnti);
+  NS_LOG_DEBUG("*** UE REMOVED FROM SCHEDULER: RNTI=" << params.m_rnti << " at time " << Simulator::Now().GetSeconds() << "s");
 
   //m_dlHarqCurrentProcessId.erase (params.m_rnti);
   m_dlHarqProcessesStatus.erase  (params.m_rnti);
@@ -2810,6 +3026,17 @@ MmWavePaddedHbfMacScheduler::CheckOverlapWithBusyResources(uint32_t symStart, ui
     }
   }
   return false;
+}
+
+void
+MmWavePaddedHbfMacScheduler::WriteLogToFile(const std::string& message)
+{
+  std::ofstream logFile;
+  logFile.open("scheduler_logs.txt", std::ios::app);
+  if (logFile.is_open()) {
+    logFile << "Time: " << Simulator::Now().GetSeconds() << "s - this: " << this << " - " << message << std::endl;
+    logFile.close();
+  }
 }
 
 } // namespace ns3

@@ -103,13 +103,25 @@ class LteMacSapUser
 public:
   virtual ~LteMacSapUser ();
   /**
-   * Called by the MAC to notify the RLC that the scheduler granted a
-   * transmission opportunity to this RLC instance.
+   * Parameters for LteMacSapUser::NotifyTxOpportunity
    *
-   * \param bytes the number of bytes to transmit
-   * \param layer the layer of transmission (MIMO)
    */
-  virtual void NotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId) = 0;
+   struct TxOpportunityParameters
+   {
+     uint32_t bytes;  /**< the number of bytes to transmit */
+     uint8_t layer; /**<  the layer of transmission (MIMO) */
+     uint8_t harqId; /**< the HARQ ID */
+     uint16_t rnti; /**< the C-RNTI identifying the UE */
+     uint8_t lcid; /**< the logical channel id */
+   };
+
+  /**
+  * Called by the MAC to notify the RLC that the scheduler granted a
+  * transmission opportunity to this RLC instance.
+  *
+  * \param params the TxOpportunityParameters
+  */
+  virtual void NotifyTxOpportunity (TxOpportunityParameters params) = 0;
 
   /**
    * Called by the MAC to notify the RLC that an HARQ process related
@@ -124,11 +136,22 @@ public:
   virtual void NotifyUlHarqDeliveryFailure (uint8_t harqId);
 
   /**
+  * Parameters for LteMacSapUser::ReceivePdu
+  *
+  */
+  struct ReceivePduParameters
+  {
+    Ptr<Packet> p;  /**< the RLC PDU to be received */
+    uint16_t rnti; /**< the C-RNTI identifying the UE */
+    uint8_t lcid; /**< the logical channel id */
+  };
+
+  /**
    * Called by the MAC to notify the RLC of the reception of a new PDU
    *
    * \param p
    */
-  virtual void ReceivePdu (Ptr<Packet> p) = 0;
+  virtual void ReceivePdu (ReceivePduParameters params) = 0;
 
 };
 

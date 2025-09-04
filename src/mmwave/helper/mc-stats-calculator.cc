@@ -93,7 +93,7 @@ void
 McStatsCalculator::SetLteOutputFilename (std::string outputFilename)
 {
   m_lteOutputFilename = outputFilename;
-  NS_LOG_UNCOND("m_lteOutputFilename " << m_lteOutputFilename);
+  NS_LOG_DEBUG("m_lteOutputFilename " << m_lteOutputFilename);
 }
 
 void

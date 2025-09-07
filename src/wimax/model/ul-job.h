@@ -208,7 +208,7 @@ private:
 };
 
 /// SortProcess structure 
-struct SortProcess : public std::binary_function<PriorityUlJob*, PriorityUlJob*, bool>
+struct SortProcess
 {
   /**
    * \brief comparison operator
@@ -243,7 +243,7 @@ struct SortProcess : public std::binary_function<PriorityUlJob*, PriorityUlJob*,
 };
 
 /// SortProcessPtr structure
-struct SortProcessPtr: public std::binary_function< Ptr<PriorityUlJob>, Ptr<PriorityUlJob>, bool>
+struct SortProcessPtr
 {
   /**
    * \brief comparison operator

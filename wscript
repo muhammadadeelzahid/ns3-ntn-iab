@@ -65,7 +65,7 @@ cflags.default_profile = 'debug'
 Configure.autoconfig = 0
 
 # the following two variables are used by the target "waf dist"
-VERSION = open("VERSION", "rt").read().strip()
+VERSION = open("NS3_VERSION.txt", "rt").read().strip()
 APPNAME = 'ns'
 
 wutils.VERSION = VERSION
@@ -428,6 +428,14 @@ def configure(conf):
                 env.append_value('CXXFLAGS', '-Wno-unused-local-typedefs')
             if conf.env['CC_VERSION'] >= clang_version_warn_potentially_evaluated: 
                 env.append_value('CXXFLAGS', '-Wno-potentially-evaluated-expression')
+
+        # On modern macOS/clang, treat warnings as warnings (not errors)
+        # and demote a few noisy diagnostics that break older ns-3 code.
+        env.append_value('CXXFLAGS', '-Wno-error')
+        env.append_value('CXXFLAGS', '-Wno-error=deprecated-declarations')
+        env.append_value('CXXFLAGS', '-Wno-error=unused-private-field')
+        # The following is a Clang diagnostic (-Wdangling-gsl); demote it from error.
+        env.append_value('CXXFLAGS', '-Wno-error=dangling-gsl')
     env['ENABLE_STATIC_NS3'] = False
     if Options.options.enable_static:
         if Options.platform == 'darwin':

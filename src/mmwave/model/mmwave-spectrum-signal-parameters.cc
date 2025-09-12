@@ -23,6 +23,10 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -81,6 +85,8 @@ MmwaveSpectrumSignalParametersDataFrame::MmwaveSpectrumSignalParametersDataFrame
       packetBurst = p.packetBurst->Copy ();
     }
   ctrlMsgList = p.ctrlMsgList;
+  layerInd = p.layerInd;
+  slotInd = p.slotInd;
 }
 
 Ptr<SpectrumSignalParameters>

@@ -24,7 +24,11 @@
  *              Sourjya Dutta <sdutta@nyu.edu>
  *              Russell Ford <russell.ford@nyu.edu>
  *              Menglei Zhang <menglei@nyu.edu>
- *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca> 
+ *   
+ *   Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *
+ *                  
  */
 #include <ns3/buildings-module.h>
 #include "ns3/mmwave-helper.h"
@@ -41,122 +45,8 @@
 #include "ns3/mmwave-point-to-point-epc-helper.h"
 //#include "ns3/gtk-config-store.h"
 using namespace ns3;
-NS_LOG_COMPONENT_DEFINE ("MmWaveIabGrid");
+NS_LOG_COMPONENT_DEFINE ("MmWaveNtnRuralDlIab");
 
-void 
-PrintGnuplottableBuildingListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  uint32_t index = 0;
-  for (BuildingList::Iterator it = BuildingList::Begin (); it != BuildingList::End (); ++it)
-    {
-      ++index;
-      Box box = (*it)->GetBoundaries ();
-      outFile << "set object " << index
-              << " rect from " << box.xMin  << "," << box.yMin
-              << " to "   << box.xMax  << "," << box.yMax
-              //<< " height " << box.zMin << "," << box.zMax
-              << " front fs empty "
-              << std::endl;
-    }
-}
-void 
-PrintGnuplottableUeListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  
-  outFile << "# Node ID, IMSI, Position (x, y, z)" << std::endl; // Add a header to the output file
-  for (NodeList::Iterator it = NodeList::Begin (); it != NodeList::End (); ++it)
-    {
-      Ptr<Node> node = *it;
-      uint32_t nodeId = node->GetId(); // Get the Node ID
-      int nDevs = node->GetNDevices ();
-      for (int j = 0; j < nDevs; j++)
-        {
-          Ptr<LteUeNetDevice> uedev = node->GetDevice (j)->GetObject <LteUeNetDevice> ();
-          Ptr<MmWaveUeNetDevice> mmuedev = node->GetDevice (j)->GetObject <MmWaveUeNetDevice> ();
-          Ptr<McUeNetDevice> mcuedev = node->GetDevice (j)->GetObject <McUeNetDevice> ();
-          if (uedev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << uedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mmuedev)
-           {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << mmuedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mcuedev)
-           {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << mcuedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-        }
-    }
-}
-void 
-PrintGnuplottableEnbListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  outFile << "# Node ID, Cell ID, Position (x, y, z)" << std::endl; // Add a header to the output file
-  for (NodeList::Iterator it = NodeList::Begin (); it != NodeList::End (); ++it)
-    {
-      Ptr<Node> node = *it;
-      uint32_t nodeId = node->GetId(); // Get the Node ID
-      int nDevs = node->GetNDevices ();
-      for (int j = 0; j < nDevs; j++)
-        {
-          Ptr<LteEnbNetDevice> enbdev = node->GetDevice (j)->GetObject <LteEnbNetDevice> ();
-          Ptr<MmWaveEnbNetDevice> mmdev = node->GetDevice (j)->GetObject <MmWaveEnbNetDevice> ();
-          Ptr<MmWaveIabNetDevice> mmIabdev = node->GetDevice (j)->GetObject <MmWaveIabNetDevice> ();
-          if (enbdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "ENB Node ID: " << nodeId << ", Cell ID: " << enbdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mmdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "mmdev Node ID: " << nodeId << ", Cell ID: " << mmdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-          else if (mmIabdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "IAB Node ID: " << nodeId << ", Cell ID: " << mmIabdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-        }
-    }
-}
 void
 ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
@@ -250,7 +140,7 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("UMa"));
-  
+  Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
 
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
@@ -324,7 +214,7 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(28);
+  ueNodes.Create(20);
   // Install Mobility Model
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
   enbPositionAlloc->Add (posWired);
@@ -414,15 +304,13 @@ for (const Vector& center : clusterCenters)
   
   // Install mmWave Devices to the nodes
   NetDeviceContainer enbmmWaveDevs = mmwaveHelper->InstallSatelliteEnbDevice (enbNodes);
+  mmwaveHelper->SetBeamformerType("ns3::MmWaveMMSESpectrumBeamforming");
   NetDeviceContainer iabmmWaveDevs;
   if(numRelays > 0)
   {
     iabmmWaveDevs = mmwaveHelper->InstallIabDevice (iabNodes);
   }
   NetDeviceContainer uemmWaveDevs = mmwaveHelper->InstallUeDevice (ueNodes);
-  PrintGnuplottableBuildingListToFile("buildings.txt");// fileName.str ());
-  PrintGnuplottableEnbListToFile("enbs.txt");
-  PrintGnuplottableUeListToFile("ues.txt");
   // Install the IP stack on the UEs
   internet.Install (ueNodes);
   Ipv4InterfaceContainer ueIpIface;
@@ -442,7 +330,7 @@ for (const Vector& center : clusterCenters)
   {
     mmwaveHelper->AttachIabToClosestSatelliteEnb (iabmmWaveDevs, enbmmWaveDevs);
   }
-  mmwaveHelper->AttachToClosestSatelliteEnbWithDelay (uemmWaveDevs, possibleBaseStations, Seconds(0.3));
+  mmwaveHelper->AttachToClosestSatelliteEnbWithDelay (uemmWaveDevs, possibleBaseStations, Seconds(0.1));
   // Install and start applications on UEs and remote host
   uint16_t dlPort = 1234;
   // uint16_t ulPort = 2000;

@@ -27,6 +27,10 @@
  *
  * Modified by: Michele Polese <michele.polese@gmail.com> 
  *                 Dual Connectivity and Handover functionalities
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -145,6 +149,21 @@ MmWavePhy::MmWavePhy(Ptr<MmWaveSpectrumPhy> dlChannelPhy, Ptr<MmWaveSpectrumPhy>
 	m_phySapProvider = new MmWaveMemberPhySapProvider (this);
 }
 
+MmWavePhy::MmWavePhy (std::vector<Ptr<MmWaveSpectrumPhy> > dlChannelPhy, std::vector<Ptr<MmWaveSpectrumPhy> > ulChannelPhy)
+  : //m_downlinkSpectrumPhy (dlChannelPhy.at(0)),
+    //m_uplinkSpectrumPhy (ulChannelPhy.at(0)),
+    m_downlinkSpectrumPhyList (dlChannelPhy),
+    m_uplinkSpectrumPhyList (ulChannelPhy),
+    m_cellId (0),
+    m_frameNum (0),
+    m_sfNum (0),
+    m_slotNum (0),
+    m_sfAllocInfoUpdated (false)
+{
+  NS_LOG_FUNCTION (this);
+  m_phySapProvider = new MmWaveMemberPhySapProvider (this);
+}
+
 MmWavePhy::~MmWavePhy ()
 {
 
@@ -189,12 +208,27 @@ MmWavePhy::GetTti (void) const
 	return m_phyMacConfig->GetTti();
 }
 
+// to do adeel how is this used to be updated?
 void
 MmWavePhy::DoSetCellId (uint16_t cellId)
 {
 
 	NS_LOG_FUNCTION (this);
 	m_cellId = cellId;
+	if (m_downlinkSpectrumPhy != 0)
+    {
+      m_downlinkSpectrumPhy->SetCellId (cellId);
+      m_uplinkSpectrumPhy->SetCellId (cellId);
+    }
+  	else
+    {
+      uint8_t numEnbLayers = m_phyMacConfig->GetNumEnbLayers ();
+      for (uint8_t layerInd = 0; layerInd < numEnbLayers; layerInd++)
+        {
+          m_downlinkSpectrumPhyList.at (layerInd)->SetCellId (cellId);
+          m_uplinkSpectrumPhyList.at (layerInd)->SetCellId (cellId);
+        }
+    }
 }
 
 
@@ -216,99 +250,111 @@ MmWavePhy::SendRachPreamble (uint32_t PreambleId, uint32_t Rnti)
 	m_raPreambleId = PreambleId;
 	Ptr<MmWaveRachPreambleMessage> msg = Create<MmWaveRachPreambleMessage> ();
 	msg->SetRapId (PreambleId);
+	NS_LOG_DEBUG("*** RACH PREAMBLE MESSAGE CREATED *** PHY " << this << " Message ID: " << msg->GetMessageId() << " PreambleId: " << PreambleId << " RNTI: " << Rnti << " at time " << Simulator::Now().GetSeconds() << "s");
 	SetControlMessage (msg);
 }
 
 void
 MmWavePhy::SetMacPdu (Ptr<Packet> p)
 {
-	MmWaveMacPduTag tag;
-	if(p->PeekPacketTag (tag))
-	{
-		NS_ASSERT((tag.GetSfn().m_sfNum >= 0) && (tag.GetSfn().m_sfNum < m_phyMacConfig->GetSymbolsPerSubframe ()));
-		std::map<uint32_t, Ptr<PacketBurst> >::iterator it = m_packetBurstMap.find (tag.GetSfn ().Encode());
-		if (it == m_packetBurstMap.end())
-		{
-			it = m_packetBurstMap.insert (std::pair<uint32_t, Ptr<PacketBurst> > (tag.GetSfn ().Encode(), CreateObject<PacketBurst> ())).first;
-		}
-		else
-		{
-			NS_FATAL_ERROR ("Packet burst map entry already exists");
-		}
-		it->second->AddPacket (p);
-	}
-	else
-	{
-		NS_FATAL_ERROR ("No MAC packet PDU header available");
-	}
+  MmWaveMacPduTag tag;
+  if (p->PeekPacketTag (tag))
+    {
+      //uint8_t numLayers = m_phyMacConfig->GetNumEnbLayers();
+      NS_ASSERT ((tag.GetSfn ().m_sfNum >= 0) && (tag.GetSfn ().m_sfNum < m_phyMacConfig->GetSymbolsPerSubframe ()));
+      uint8_t sfNum = tag.GetSfn ().m_sfNum;
+      uint8_t slotNum = tag.GetSfn ().m_slotNum;
+      uint8_t numAllocLayers = tag.GetNumAllocLayers();
+      uint8_t layerInd = tag.GetLayerInd();
+      NS_LOG_INFO (this << " Set MAC PDU Sf num: " << (int)sfNum << ", slot num: " << (int)slotNum <<
+                   " No. of allocated layers: " << (int)numAllocLayers << ", Layer number: " << (int)layerInd);
+
+          std::map<uint64_t, Ptr<PacketBurst>>::iterator it = m_packetBurstLayerMap.find (tag.Encode());
+          if (it == m_packetBurstLayerMap.end ())
+            {
+              it = m_packetBurstLayerMap.insert (std::pair<uint64_t, Ptr<PacketBurst> > (tag.Encode(), CreateObject<PacketBurst> ())).first;
+            }
+          else
+            {
+              NS_FATAL_ERROR ("Packet burst map entry already exists with key: " << tag.Encode());
+            }
+          it->second->AddPacket (p);
+        }
+//    }
+  else
+    {
+      NS_FATAL_ERROR ("No MAC packet PDU header available");
+    }
 }
 
 Ptr<PacketBurst>
-MmWavePhy::GetPacketBurst (SfnSf sfn)
+MmWavePhy::GetPacketBurst (SfnSf sfn, uint8_t layerInd)
 {
-	Ptr<PacketBurst> pburst;
-	std::map<uint32_t, Ptr<PacketBurst> >::iterator it = m_packetBurstMap.find (sfn.Encode());
-	if (it == m_packetBurstMap.end())
-	{
-		NS_LOG_ERROR ("GetPacketBurst(): Packet burst not found for subframe " << (unsigned)sfn.m_sfNum << " slot/sym start "  << (unsigned)sfn.m_slotNum);
-		return 	pburst;
-	}
-	else
-	{
-		pburst = it->second;
-		m_packetBurstMap.erase (it);
-	}
-	return pburst;
+  Ptr<PacketBurst> pburst;
+  MmWaveMacPduTag pduTag (sfn, 0, 0, 0, layerInd); // 0 values equal null
+  NS_LOG_INFO ("Prepare PB frame:" << (unsigned)sfn.m_frameNum << ", subframe:" << (unsigned)sfn.m_sfNum << ", symStart:" << (unsigned)sfn.m_slotNum << ", layerInd: " << (int)layerInd);
+  std::map<uint64_t, Ptr<PacketBurst> >::iterator it = m_packetBurstLayerMap.find (pduTag.Encode ());
+  if (it == m_packetBurstLayerMap.end ())
+    {
+      NS_LOG_ERROR ("GetPacketBurst(): Packet burst not found for subframe " << (unsigned)sfn.m_sfNum << " slot/sym start "  << (unsigned)sfn.m_slotNum << " layer index " << (int)layerInd);
+      return pburst;
+    }
+  else
+    {
+      pburst = it->second;
+      m_packetBurstLayerMap.erase (it);
+    }
+  return pburst;
 }
 
 void
 MmWavePhy::SetControlMessage (Ptr<MmWaveControlMessage> m)
 {
-	if (m_controlMessageQueue.empty ())
-	{
-		std::list<Ptr<MmWaveControlMessage> > l;
-		l.push_back(m);
-		m_controlMessageQueue.push_back (l);
-	}
-	else
-	{
-		m_controlMessageQueue.at (m_controlMessageQueue.size () - 1).push_back (m);
-	}
+  
+  if (m_controlMessageQueue.empty ())
+    {
+      std::list<Ptr<MmWaveControlMessage> > l;
+      l.push_back (m);
+      m_controlMessageQueue.push_back (l);
+    }
+  else
+    {
+      m_controlMessageQueue.at (m_controlMessageQueue.size () - 1).push_back (m);
+    }
 }
 
 std::list<Ptr<MmWaveControlMessage> >
 MmWavePhy::GetControlMessages (void)
 {
-	NS_LOG_FUNCTION (this);
-	if (m_controlMessageQueue.empty())
-	{
-		std::list<Ptr<MmWaveControlMessage> > emptylist;
-		return (emptylist);
-	}
+  NS_LOG_FUNCTION (this);
+  if (m_controlMessageQueue.empty ())
+    {
+      std::list<Ptr<MmWaveControlMessage> > emptylist;
+      return (emptylist);
+    }
 
-	if (m_controlMessageQueue.at (0).size () > 0)
-	{
-	    std::list<Ptr<MmWaveControlMessage> > ret = m_controlMessageQueue.front ();
-	    m_controlMessageQueue.erase (m_controlMessageQueue.begin ());
-	    std::list<Ptr<MmWaveControlMessage> > newlist;
-	    m_controlMessageQueue.push_back (newlist);
-	    return (ret);
-	}
-	else
-	{
-	    m_controlMessageQueue.erase (m_controlMessageQueue.begin ());
-	    std::list<Ptr<MmWaveControlMessage> > newlist;
-	    m_controlMessageQueue.push_back (newlist);
-	    std::list<Ptr<MmWaveControlMessage> > emptylist;
-	    return (emptylist);
-	}
+  if (m_controlMessageQueue.at (0).size () > 0)
+    {
+      std::list<Ptr<MmWaveControlMessage> > ret = m_controlMessageQueue.front ();
+      m_controlMessageQueue.erase (m_controlMessageQueue.begin ());
+      std::list<Ptr<MmWaveControlMessage> > newlist;
+      m_controlMessageQueue.push_back (newlist);
+      return (ret);
+    }
+  else
+    {
+      m_controlMessageQueue.erase (m_controlMessageQueue.begin ());
+      std::list<Ptr<MmWaveControlMessage> > newlist;
+      m_controlMessageQueue.push_back (newlist);
+      std::list<Ptr<MmWaveControlMessage> > emptylist;
+      return (emptylist);
+    }
 }
 
 void
 MmWavePhy::SetConfigurationParameters (Ptr<MmWavePhyMacCommon> ptrConfig)
 {
-	m_phyMacConfig = ptrConfig;
-	m_schedulingDelay = m_phyMacConfig->GetL1L2CtrlLatency();
+  m_phyMacConfig = ptrConfig;
 }
 
 Ptr<MmWavePhyMacCommon>
@@ -334,36 +380,19 @@ MmWavePhy::GetSfAllocInfo (uint8_t subframeNum)
 void
 MmWavePhy::SetDlSfAllocInfo (SfAllocInfo sfAllocInfo)
 {
-	// get previously enqueued SfAllocInfo and set DL slot allocations
-	//SfAllocInfo &sf = m_sfAllocInfo[sfAllocInfo.m_sfnSf.m_sfNum];
-	// merge slot lists
-	//sf.m_dlSlotAllocInfo = sfAllocInfo.m_dlSlotAllocInfo;
-	NS_LOG_LOGIC("MmWavePhy insert sfAllocInfo for frame " << (uint32_t)sfAllocInfo.m_sfnSf.m_frameNum <<
-		" subframe " << (uint16_t)sfAllocInfo.m_sfnSf.m_sfNum << " at time " << m_frameNum << " " << (uint16_t)m_sfNum);
-	
-	uint32_t delay = 0;
-	// get the scheduling delay
-	if(m_frameNum == sfAllocInfo.m_sfnSf.m_frameNum)
-	{
-		delay = sfAllocInfo.m_sfnSf.m_sfNum - m_sfNum;
-	}
-	else
-	{
-		delay = (m_phyMacConfig->GetSubframesPerFrame() - m_sfNum) +  sfAllocInfo.m_sfnSf.m_sfNum;
-	}
-	NS_LOG_LOGIC("MmWavePhy scheduling delay " << delay);
-
-	m_schedulingDelay = delay;
-
-	m_sfAllocInfo[sfAllocInfo.m_sfnSf.m_sfNum] = sfAllocInfo;
-	//m_sfAllocInfoUpdated = true;
+  // get previously enqueued SfAllocInfo and set DL slot allocations
+  //SfAllocInfo &sf = m_sfAllocInfo[sfAllocInfo.m_sfnSf.m_sfNum];
+  // merge slot lists
+  //sf.m_dlSlotAllocInfo = sfAllocInfo.m_dlSlotAllocInfo;
+  m_sfAllocInfo[sfAllocInfo.m_sfnSf.m_sfNum] = sfAllocInfo;
+  //m_sfAllocInfoUpdated = true;
 }
 
 void
 MmWavePhy::SetUlSfAllocInfo (SfAllocInfo sfAllocInfo)
 {
-	// add new SfAllocInfo with UL slot allocation
-	//m_sfAllocInfo[sfAllocInfo.m_sfnSf.m_sfNum] = sfAllocInfo;
+  // add new SfAllocInfo with UL slot allocation
+  //m_sfAllocInfo[sfAllocInfo.m_sfnSf.m_sfNum] = sfAllocInfo;
 }
 
 void MmWavePhy::SetSatelliteChannelModelFlag(bool flag)

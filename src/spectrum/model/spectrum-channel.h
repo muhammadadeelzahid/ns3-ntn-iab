@@ -68,6 +68,13 @@ public:
    */
   virtual void AddSpectrumPropagationLossModel (Ptr<SpectrumPropagationLossModel> loss) = 0;
 
+
+  /**
+   * Get the frequency-dependent propagation loss model
+   * \return loss a pointer to the propagation loss model to be used.
+   *  */  
+  virtual Ptr<SpectrumPropagationLossModel> GetSpectrumPropagationLossModel () = 0;
+
   /**
    * Set the propagation delay model to be used
    * \param delay Ptr to the propagation delay model to be used.

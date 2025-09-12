@@ -29,6 +29,10 @@
  *                 Dual Connectivity and Handover functionalities
  *				Marco Giordani <m.giordani91@gmail.com>
  *					LOS-NLOS transitions, SINR measurement error and filtering
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -60,6 +64,7 @@ public:
 	MmWaveEnbPhy ();
 
 	MmWaveEnbPhy (Ptr<MmWaveSpectrumPhy> , Ptr<MmWaveSpectrumPhy>);
+	MmWaveEnbPhy (std::vector<Ptr<MmWaveSpectrumPhy> >, std::vector<Ptr<MmWaveSpectrumPhy> >);
 	virtual ~MmWaveEnbPhy ();
 
 	static TypeId GetTypeId (void);
@@ -93,8 +98,11 @@ public:
 
 	void SendCtrlChannels (std::list<Ptr<MmWaveControlMessage> > ctrlMsg, Time slotPrd);
 
+	void IncrSlotCtrAndStartSlot();
 	Ptr<MmWaveSpectrumPhy> GetDlSpectrumPhy () const;
 	Ptr<MmWaveSpectrumPhy> GetUlSpectrumPhy () const;
+	std::vector <Ptr<MmWaveSpectrumPhy> > GetDlSpectrumPhyList () const;
+	std::vector <Ptr<MmWaveSpectrumPhy> > GetUlSpectrumPhyList () const;
 
 	/**virtual void SendIdealControlMessage(Ptr<IdealControlMessage> msg);
 	virtual void ReceiveIdealControlMessage(Ptr<IdealControlMessage> msg)**/
@@ -105,7 +113,7 @@ public:
 
 	void PhyDataPacketReceived (Ptr<Packet> p);
 
-	void GenerateDataCqiReport (const SpectrumValue& sinr);
+	void GenerateDataCqiReport (const SpectrumValue& sinr, uint8_t layerInd = 0);
 
 	void PhyCtrlMessagesReceived (std::list<Ptr<MmWaveControlMessage> > msgList);
 
@@ -133,29 +141,32 @@ public:
 
 	std::vector<double> MakeFilter (std::vector<double> , std::vector<double> , std::pair <uint64_t , uint64_t > );
 
-
-
-private:
-
-	bool AddUePhy (uint16_t rnti);
-	// LteEnbCphySapProvider forwarded methods
-	void DoSetBandwidth (uint8_t ulBandwidth, uint8_t dlBandwidth);
-	void DoSetEarfcn (uint16_t dlEarfcn, uint16_t ulEarfcn);
-	void DoAddUe (uint16_t rnti);
-	void DoRemoveUe (uint16_t rnti);
-	void DoSetPa (uint16_t rnti, double pa);
-	void DoSetTransmissionMode (uint16_t  rnti, uint8_t txMode);
-	void DoSetSrsConfigurationIndex (uint16_t  rnti, uint16_t srcCi);
-	void DoSetMasterInformationBlock (LteRrcSap::MasterInformationBlock mib);
-	void DoSetSystemInformationBlockType1 (LteRrcSap::SystemInformationBlockType1 sib1);
-
-	void DoSetBandwidth (uint8_t Bandwidth );
-	void DoSetEarfcn (uint16_t Earfcn );
+	uint8_t GetCurrNumAllocLayers ();
 
 	void QueueUlTbAlloc (TbAllocInfo tbAllocInfo);
 	std::list<TbAllocInfo> DequeueUlTbAlloc ();
 
-	uint8_t m_currSfNumSlots;
+	bool IsReceptionEnabled ();
+
+	struct SlotBundleInfo
+	{
+		SlotBundleInfo ()
+		: m_numLayers (0),
+		  m_symStart (0),
+		  m_minNumSym (0)
+		{
+		}
+		uint8_t m_numLayers; 
+		uint8_t m_symStart;
+		uint8_t m_minNumSym;
+	};
+
+	typedef std::deque<SlotBundleInfo> SlotBundleList;
+	SlotBundleList m_slotBundleList;
+
+	std::list<uint8_t> m_allActiveSlotNums;//TODO consider replacing this with an array of fixed size with the active slot num in each layer
+
+	bool m_receptionEnabled;
 
   uint32_t m_numRbg;
 
@@ -198,11 +209,30 @@ private:
 	Time m_lastSfStart;
 
 	uint8_t m_currSymStart;
+	uint8_t m_currSfNumSlots;
 
 	TracedCallback< uint64_t, SpectrumValue&, SpectrumValue& > m_ulSinrTrace;
+	uint8_t m_currNumAllocLayers;
+
+private:
+
+	bool AddUePhy (uint16_t rnti);
+	// LteEnbCphySapProvider forwarded methods
+	void DoSetBandwidth (uint8_t ulBandwidth, uint8_t dlBandwidth);
+	void DoSetEarfcn (uint16_t dlEarfcn, uint16_t ulEarfcn);
+	void DoAddUe (uint16_t rnti);
+	void DoRemoveUe (uint16_t rnti);
+	void DoSetPa (uint16_t rnti, double pa);
+	void DoSetTransmissionMode (uint16_t  rnti, uint8_t txMode);
+	void DoSetSrsConfigurationIndex (uint16_t  rnti, uint16_t srcCi);
+	void DoSetMasterInformationBlock (LteRrcSap::MasterInformationBlock mib);
+	void DoSetSystemInformationBlockType1 (LteRrcSap::SystemInformationBlockType1 sib1);
+
+	void DoSetBandwidth (uint8_t Bandwidth );
+	void DoSetEarfcn (uint16_t Earfcn );
 };
 
 }
 
 
-#endif /* SRC_MMWAVE_MODEL_MMWAVE_ENB_PHY_H_ */
+#endif // SRC_MMWAVE_MODEL_MMWAVE_ENB_PHY_H_

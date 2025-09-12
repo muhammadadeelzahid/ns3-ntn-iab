@@ -24,6 +24,10 @@
  *
  * Modified by: Michele Polese <michele.polese@gmail.com>
  *			Dual Connectivity and Handover functionalities
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -707,7 +711,7 @@ MmWaveBeamforming::GetUeEnbAntennaPair(Ptr<NetDevice> ueDevice, Ptr<NetDevice> e
 	Ptr<AntennaArrayModel> ueAntennaArray = DynamicCast<AntennaArrayModel> (
 														uePhy->GetDlSpectrumPhy ()->GetRxAntenna ());
 	Ptr<AntennaArrayModel> enbAntennaArray = DynamicCast<AntennaArrayModel> (
-														enbPhy->GetDlSpectrumPhy ()->GetRxAntenna ());
+														enbPhy->GetDlSpectrumPhyList ().at(0)->GetRxAntenna ());
 
 	return antennaPair(ueAntennaArray, enbAntennaArray);
 }

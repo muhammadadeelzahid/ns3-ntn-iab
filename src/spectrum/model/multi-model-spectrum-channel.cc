@@ -261,6 +261,7 @@ MultiModelSpectrumChannel::StartTx (Ptr<SpectrumSignalParameters> txParams)
 
   NS_ASSERT (txParams->txPhy);
   NS_ASSERT (txParams->psd);
+  NS_LOG_DEBUG("StartTx, txParams->psd: " << Sum(*txParams->psd));
 
 
   Ptr<MobilityModel> txMobility = txParams->txPhy->GetMobility ();
@@ -349,8 +350,10 @@ MultiModelSpectrumChannel::StartTx (Ptr<SpectrumSignalParameters> txParams)
                       continue;
                     }
                   double pathGainLinear = std::pow (10.0, (-pathLossDb) / 10.0);
+                  NS_LOG_DEBUG("pathGainLinear: " << pathGainLinear);
+                  NS_LOG_DEBUG("TX Params: " << *rxParams->psd);
                   *(rxParams->psd) *= pathGainLinear;              
-
+                  NS_LOG_DEBUG("RX Params: " << *rxParams->psd);
                   if (m_spectrumPropagationLoss)
                     {
                       rxParams->psd = m_spectrumPropagationLoss->CalcRxPowerSpectralDensity (rxParams->psd, txMobility, receiverMobility);
@@ -361,7 +364,7 @@ MultiModelSpectrumChannel::StartTx (Ptr<SpectrumSignalParameters> txParams)
                       delay = m_propagationDelay->GetDelay (txMobility, receiverMobility);
                     }
                 }
-
+                NS_LOG_DEBUG("RX Params: " << *rxParams->psd);
               Ptr<NetDevice> netDev = (*rxPhyIterator)->GetDevice ();
               if (netDev)
                 {

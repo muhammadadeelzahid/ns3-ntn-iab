@@ -24,7 +24,10 @@
  *              Sourjya Dutta <sdutta@nyu.edu>
  *              Russell Ford <russell.ford@nyu.edu>
  *              Menglei Zhang <menglei@nyu.edu>
- *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca> 
+ *   
+ *   Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                  
  */
 #include <ns3/buildings-module.h>
 #include "ns3/mmwave-helper.h"
@@ -41,126 +44,12 @@
 #include "ns3/mmwave-point-to-point-epc-helper.h"
 //#include "ns3/gtk-config-store.h"
 using namespace ns3;
-NS_LOG_COMPONENT_DEFINE ("MmWaveIabGrid");
+NS_LOG_COMPONENT_DEFINE ("MmWaveNtnRuralUlIab");
 
-void 
-PrintGnuplottableBuildingListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  uint32_t index = 0;
-  for (BuildingList::Iterator it = BuildingList::Begin (); it != BuildingList::End (); ++it)
-    {
-      ++index;
-      Box box = (*it)->GetBoundaries ();
-      outFile << "set object " << index
-              << " rect from " << box.xMin  << "," << box.yMin
-              << " to "   << box.xMax  << "," << box.yMax
-              //<< " height " << box.zMin << "," << box.zMax
-              << " front fs empty "
-              << std::endl;
-    }
-}
-void 
-PrintGnuplottableUeListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  
-  outFile << "# Node ID, IMSI, Position (x, y, z)" << std::endl; // Add a header to the output file
-  for (NodeList::Iterator it = NodeList::Begin (); it != NodeList::End (); ++it)
-    {
-      Ptr<Node> node = *it;
-      uint32_t nodeId = node->GetId(); // Get the Node ID
-      int nDevs = node->GetNDevices ();
-      for (int j = 0; j < nDevs; j++)
-        {
-          Ptr<LteUeNetDevice> uedev = node->GetDevice (j)->GetObject <LteUeNetDevice> ();
-          Ptr<MmWaveUeNetDevice> mmuedev = node->GetDevice (j)->GetObject <MmWaveUeNetDevice> ();
-          Ptr<McUeNetDevice> mcuedev = node->GetDevice (j)->GetObject <McUeNetDevice> ();
-          if (uedev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << uedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mmuedev)
-           {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << mmuedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mcuedev)
-           {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << mcuedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-        }
-    }
-}
-void 
-PrintGnuplottableEnbListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  outFile << "# Node ID, Cell ID, Position (x, y, z)" << std::endl; // Add a header to the output file
-  for (NodeList::Iterator it = NodeList::Begin (); it != NodeList::End (); ++it)
-    {
-      Ptr<Node> node = *it;
-      uint32_t nodeId = node->GetId(); // Get the Node ID
-      int nDevs = node->GetNDevices ();
-      for (int j = 0; j < nDevs; j++)
-        {
-          Ptr<LteEnbNetDevice> enbdev = node->GetDevice (j)->GetObject <LteEnbNetDevice> ();
-          Ptr<MmWaveEnbNetDevice> mmdev = node->GetDevice (j)->GetObject <MmWaveEnbNetDevice> ();
-          Ptr<MmWaveIabNetDevice> mmIabdev = node->GetDevice (j)->GetObject <MmWaveIabNetDevice> ();
-          if (enbdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "ENB Node ID: " << nodeId << ", Cell ID: " << enbdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mmdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "mmdev Node ID: " << nodeId << ", Cell ID: " << mmdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-          else if (mmIabdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "IAB Node ID: " << nodeId << ", Cell ID: " << mmIabdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-        }
-    }
-}
 void
 ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
-    NS_LOG_UNCOND("Connecting IMSI: " << imsi << " to ConnectionEstablished trace");
+    NS_LOG_DEBUG("Connecting IMSI: " << imsi << " to ConnectionEstablished trace");
     // Open the file in append mode to log data
     std::ofstream outFile("connection_established.txt", std::ios_base::app);
     if (!outFile.is_open())
@@ -249,6 +138,8 @@ main (int argc, char *argv[])
   //Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWaveChannelRaytracing"));
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
+  Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
+
   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("UMa"));
   
 
@@ -310,7 +201,7 @@ main (int argc, char *argv[])
   Vector posIab5 = Vector(xMax / 2.0 + xOffset, yMax / 2.0, iabHeight);                  // Mid-right
   Vector posIab6 = Vector(xMax / 2.0 - xOffset, yMax / 2.0, iabHeight);                  // Mid-left
 
-  NS_LOG_UNCOND("wired " << posWired << 
+  NS_LOG_DEBUG("wired " << posWired << 
               " iab1 " << posIab1 <<
               " iab2 " << posIab2 << 
               " iab3 " << posIab3 << 
@@ -358,7 +249,7 @@ std::vector<Vector> clusterCenters = {
 Ptr<UniformRandomVariable> offsetX = CreateObject<UniformRandomVariable>();
 Ptr<UniformRandomVariable> offsetY = CreateObject<UniformRandomVariable>();
 double max_distance = 100;//sxMax - (xMax/2.0 + xOffset) - 100;
-NS_LOG_UNCOND("max distance of UE from base station: "<<max_distance);
+NS_LOG_DEBUG("max distance of UE from base station: "<<max_distance);
 
 double zHeight = 1.7;
 double offset = 50; // distance from IAB center to each UE
@@ -385,9 +276,7 @@ for (const Vector& center : clusterCenters)
     iabmmWaveDevs = mmwaveHelper->InstallIabDevice (iabNodes);
   }
   NetDeviceContainer uemmWaveDevs = mmwaveHelper->InstallUeDevice (ueNodes);
-  PrintGnuplottableBuildingListToFile("buildings.txt");// fileName.str ());
-  PrintGnuplottableEnbListToFile("enbs.txt");
-  PrintGnuplottableUeListToFile("ues.txt");
+
   // Install the IP stack on the UEs
   internet.Install (ueNodes);
   Ipv4InterfaceContainer ueIpIface;
@@ -401,7 +290,7 @@ for (const Vector& center : clusterCenters)
       ueStaticRouting->SetDefaultRoute (epcHelper->GetUeDefaultGatewayAddress (), 1);
     }
   NetDeviceContainer possibleBaseStations(enbmmWaveDevs, iabmmWaveDevs);
-  NS_LOG_UNCOND("number of IAB devs " << iabmmWaveDevs.GetN() << " num of possibleBaseStations " 
+  NS_LOG_DEBUG("number of IAB devs " << iabmmWaveDevs.GetN() << " num of possibleBaseStations " 
     << possibleBaseStations.GetN());
   if(numRelays > 0)
   {

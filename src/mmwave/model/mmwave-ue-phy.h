@@ -28,6 +28,10 @@
  *
  *	Modified by: Michele Polese <michele.polese@gmail.com> 
  *                Dual Connectivity and Handover functionalities
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -103,6 +107,7 @@ public:
 	void StartSlot ();
 	void EndSlot ();
 
+	uint8_t GetAllocLayerInd ();
 
 	uint32_t GetSubframeNumber (void);
 
@@ -212,7 +217,7 @@ private:
 	uint8_t m_consecutiveSinrBelowThreshold;
 	long double m_outageThreshold;
 	uint8_t m_n310;
-
+	uint8_t m_allocLayerInd;
 };
 
 

@@ -23,6 +23,10 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -49,32 +53,49 @@
 
 namespace ns3 {
 
-	struct MacPduInfo
+struct MacPduInfo
+{
+	MacPduInfo (SfnSf sfn, uint32_t size, uint8_t numRlcPdu)
+	: m_sfnSf (sfn),
+		m_size (size),
+		m_numRlcPdu (numRlcPdu)
 	{
-		MacPduInfo (SfnSf sfn, uint32_t size, uint8_t numRlcPdu) :
-			m_sfnSf (sfn), m_size (size), m_numRlcPdu (numRlcPdu)
-		{
-			m_pdu = Create<Packet> ();
-			m_macHeader = MmWaveMacPduHeader ();
-			MmWaveMacPduTag tag (sfn);
-			m_pdu->AddPacketTag (tag);
-		}
+	m_pdu = Create<Packet> ();
+	m_macHeader = MmWaveMacPduHeader ();
+	MmWaveMacPduTag tag (sfn);
+	m_pdu->AddPacketTag (tag);
+	}
 
-		MacPduInfo (SfnSf sfn, uint32_t size, uint8_t numRlcPdu, DciInfoElementTdma dci) :
-			m_sfnSf (sfn), m_size (size), m_numRlcPdu (numRlcPdu)
-		{
-			m_pdu = Create<Packet> ();
-			m_macHeader = MmWaveMacPduHeader ();
-			MmWaveMacPduTag tag (sfn, dci.m_symStart, dci.m_numSym);
-			m_pdu->AddPacketTag (tag);
-		}
+	MacPduInfo (SfnSf sfn, uint32_t size, uint8_t numRlcPdu, DciInfoElementTdma dci)
+	: m_sfnSf (sfn),
+		m_size (size),
+		m_numRlcPdu (numRlcPdu)
+	{
+	m_pdu = Create<Packet> ();
+	m_macHeader = MmWaveMacPduHeader ();
+	MmWaveMacPduTag tag (sfn, dci.m_symStart, dci.m_numSym);
+	m_pdu->AddPacketTag (tag);
+	}
 
-		SfnSf m_sfnSf;
-		uint32_t m_size;
-		uint8_t m_numRlcPdu;
-		Ptr<Packet> m_pdu;
-		MmWaveMacPduHeader m_macHeader;
-	};
+	MacPduInfo (SfnSf sfn, uint32_t size, uint8_t numRlcPdu, DciInfoElementTdma dci, uint8_t numAllocLayers, uint8_t layerNum)
+	: m_sfnSf (sfn),
+		m_size (size),
+		m_numRlcPdu (numRlcPdu)
+	{
+	m_pdu = Create<Packet> ();
+	m_macHeader = MmWaveMacPduHeader ();
+	//NS_LOG_DEBUG ("jskim added: " << (int)numAllocLayers << " " << (int)layerNum);
+	//NS_LOG_DEBUG ("jskim added: " << (int)dci.m_symStart << " " << (int)dci.m_numSym);
+	MmWaveMacPduTag tag (sfn, dci.m_symStart, dci.m_numSym, numAllocLayers, layerNum);
+	m_pdu->AddPacketTag (tag);
+	}
+
+	SfnSf m_sfnSf;
+	uint32_t m_size;
+	uint8_t m_numRlcPdu;
+	Ptr<Packet> m_pdu;
+	MmWaveMacPduHeader m_macHeader;
+};
 
 class MmWaveMac : public Object
 {

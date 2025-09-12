@@ -83,4 +83,37 @@ SpectrumPropagationLossModel::CalcRxPowerSpectralDensity (Ptr<const SpectrumValu
   return rxPsd;
 }
 
+Ptr<SpectrumValue>
+SpectrumPropagationLossModel::CalcRxPowerSpectralDensityMultiLayers (Ptr<const SpectrumValue> txPsd,
+                                                                    Ptr<const MobilityModel> a,
+                                                                    Ptr<const MobilityModel> b,
+                                                                    uint8_t txLayerInd,
+                                                                    uint8_t rxLayerInd) const
+{
+  Ptr<SpectrumValue> rxPsd = DoCalcRxPowerSpectralDensityMultilayers (txPsd, a, b,txLayerInd,rxLayerInd);
+  if (m_next != 0)
+    {
+      rxPsd = m_next->CalcRxPowerSpectralDensityMultiLayers (rxPsd, a, b,txLayerInd,rxLayerInd);
+    }
+  return rxPsd;
+}
+
+Ptr<SpectrumValue>
+SpectrumPropagationLossModel::DoCalcRxPowerSpectralDensityMultilayers (
+    Ptr<const SpectrumValue> txPsd,
+    Ptr<const MobilityModel> a,
+    Ptr<const MobilityModel> b,
+    uint8_t txLayerInd,
+    uint8_t rxLayerInd) const
+{
+  if (m_next)
+    {
+      return m_next->CalcRxPowerSpectralDensityMultiLayers (txPsd, a, b, txLayerInd, rxLayerInd);
+    }
+  else
+    {
+      NS_FATAL_ERROR ("DoCalcRxPowerSpectralDensityMultilayers() not implemented in subclass");
+    }
+}
+
 } // namespace ns3

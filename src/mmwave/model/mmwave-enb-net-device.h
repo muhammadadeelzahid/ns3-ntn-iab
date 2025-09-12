@@ -23,6 +23,10 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -88,6 +92,14 @@ public:
 
     uint8_t GetAntennaNum () const;
 
+    // Multi-beam interface - direct access to multiple PHY layers
+    Ptr<MmWaveEnbPhy> GetPhy (uint8_t layerIndex);
+    Ptr<MmWaveEnbMac> GetMac (uint8_t layerIndex);
+    uint8_t GetNumLayers () const;
+    void SetNumLayers (uint8_t numLayers);
+    void SetPhyLayer (uint8_t layerIndex, Ptr<MmWaveEnbPhy> phy);
+    void SetMacLayer (uint8_t layerIndex, Ptr<MmWaveEnbMac> mac);
+
 protected:
 
     virtual void DoInitialize(void);
@@ -112,6 +124,11 @@ private:
 	bool m_isConstructed;
 	bool m_isConfigured;
 	uint8_t m_antennaNum;
+
+    // Multi-beam support - direct layer management
+    uint8_t m_numLayers;  // Number of layers/beams supported
+    std::vector<Ptr<MmWaveEnbPhy>> m_phyLayers;  // Multiple PHY layers
+    std::vector<Ptr<MmWaveEnbMac>> m_macLayers;  // Multiple MAC layers
 
 };
 }

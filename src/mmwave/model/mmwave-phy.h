@@ -27,6 +27,10 @@
  *
  * Modified by: Michele Polese <michele.polese@gmail.com> 
  *                 Dual Connectivity and Handover functionalities
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -65,6 +69,8 @@ public:
 	MmWavePhy();
 
 	MmWavePhy(Ptr<MmWaveSpectrumPhy> dlChannelPhy, Ptr<MmWaveSpectrumPhy> ulChannelPhy);
+
+	MmWavePhy (std::vector<Ptr<MmWaveSpectrumPhy> > dlChannelPhy, std::vector<Ptr<MmWaveSpectrumPhy> > ulChannelPhy);
 
 	virtual ~MmWavePhy ();
 
@@ -106,7 +112,8 @@ public:
 
 
 //	virtual Ptr<PacketBurst> GetPacketBurst (void);
-	virtual Ptr<PacketBurst> GetPacketBurst (SfnSf);
+	// virtual Ptr<PacketBurst> GetPacketBurst (SfnSf);
+	virtual Ptr<PacketBurst> GetPacketBurst (SfnSf sfn, uint8_t layerInd = 0);
 
 	void SetConfigurationParameters (Ptr<MmWavePhyMacCommon> ptrConfig);
 	Ptr<MmWavePhyMacCommon> GetConfigurationParameters (void) const;
@@ -134,6 +141,8 @@ protected:
 	Ptr<MmWaveSpectrumPhy> m_spectrumPhy;
 	Ptr<MmWaveSpectrumPhy> m_downlinkSpectrumPhy;
 	Ptr<MmWaveSpectrumPhy> m_uplinkSpectrumPhy;
+	std::vector <Ptr<MmWaveSpectrumPhy> > m_downlinkSpectrumPhyList;
+	std::vector <Ptr<MmWaveSpectrumPhy> > m_uplinkSpectrumPhyList;
 
 	double m_txPower;
 	double m_noiseFigure;
@@ -143,6 +152,7 @@ protected:
 	Ptr<MmWavePhyMacCommon> m_phyMacConfig;
 
 	std::map<uint32_t, Ptr<PacketBurst> > m_packetBurstMap;
+	std::map<uint64_t, Ptr<PacketBurst> > m_packetBurstLayerMap;
 	std::vector< std::list<Ptr<MmWaveControlMessage> > > m_controlMessageQueue;
 
 	TddSlotTypeList m_currTddMap;

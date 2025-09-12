@@ -23,6 +23,10 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -52,6 +56,8 @@ public:
   MmWaveMacPduTag (SfnSf sfn);
 
   MmWaveMacPduTag (SfnSf sfn, uint8_t symStart, uint8_t numSym);
+  
+  MmWaveMacPduTag (SfnSf sfn, uint8_t symStart, uint8_t numSym, uint8_t numAllocLayers, uint8_t layerInd);
 
   virtual void  Serialize (TagBuffer i) const;
   virtual void  Deserialize (TagBuffer i);
@@ -60,38 +66,75 @@ public:
 
   SfnSf  GetSfn () const
   {
-  	return m_sfnSf;
+    return m_sfnSf;
   }
 
   void  SetSfn (SfnSf sfn)
   {
-  	this->m_sfnSf = sfn;
+    this->m_sfnSf = sfn;
   }
 
   uint8_t GetSymStart ()
   {
-  	return m_symStart;
+    return m_symStart;
   }
 
   uint8_t GetNumSym ()
   {
-  	return m_numSym;
+    return m_numSym;
   }
 
   void SetSymStart (uint8_t symStart)
   {
-  	m_symStart = symStart;
+    m_symStart = symStart;
   }
 
   void SetNumSym (uint8_t numSym)
   {
-  	m_numSym = numSym;
+    m_numSym = numSym;
   }
+
+  void SetLayerInd (uint8_t layerInd)
+  {
+    this->m_layerInd = layerInd;
+  }
+
+  uint8_t GetLayerInd () const
+  {
+    return m_layerInd;
+  }
+
+  void SetNumAllocLayers (uint8_t numAllocLayers)
+  {
+    this->m_numAllocLayers = numAllocLayers;
+  }
+
+  uint8_t GetNumAllocLayers () const
+  {
+    return m_numAllocLayers;
+  }
+
+  uint64_t
+  Encode () const
+  {
+    return ((m_sfnSf.m_frameNum << 24) | ((m_sfnSf.m_sfNum & 0xFF) << 16) | ((m_sfnSf.m_slotNum & 0xFF) << 8) | (m_layerInd & 0xFF));
+  }
+
+  /*void
+  DecodeWithLayer (uint64_t sfnLayer)
+  {
+    m_sfnSf.m_frameNum = sfnLayer >> 24;
+    m_sfnSf.m_sfNum = (sfnLayer & 0xFF0000) >> 16;
+    m_sfnSf.m_slotNum = (sfnLayer & 0xFF00) >> 8;
+    m_layerInd = (sfnLayer & 0xFF);
+  }*/
 
 protected:
   SfnSf m_sfnSf;
   uint8_t m_symStart;
   uint8_t m_numSym;
+  uint8_t m_numAllocLayers;
+  uint8_t m_layerInd;
   uint32_t m_tagSize;
 };
 

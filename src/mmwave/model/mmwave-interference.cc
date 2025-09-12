@@ -134,19 +134,19 @@ mmWaveInterference::EndRx ()
 void
 mmWaveInterference::AddSignal (Ptr<const SpectrumValue> spd, const Time duration)
 {
-	NS_LOG_FUNCTION (this << *spd << duration);
-	DoAddSignal (spd);
-	uint32_t signalId = ++m_lastSignalId;
-	if (signalId == m_lastSignalIdBeforeReset)
+  NS_LOG_FUNCTION (this << *spd << duration);
+  DoAddSignal (spd);
+  uint32_t signalId = ++m_lastSignalId;
+  if (signalId == m_lastSignalIdBeforeReset)
     {
-		// This happens when m_lastSignalId eventually wraps around. Given that so
-		// many signals have elapsed since the last reset, we hope that by now there is
-		// no stale pending signal (i.e., a signal that was scheduled
-		// for subtraction before the reset). So we just move the
-		// boundary further.
-		m_lastSignalIdBeforeReset += 0x10000000;
+      // This happens when m_lastSignalId eventually wraps around. Given that so
+      // many signals have elapsed since the last reset, we hope that by now there is
+      // no stale pending signal (i.e., a signal that was scheduled
+      // for subtraction before the reset). So we just move the
+      // boundary further.
+      m_lastSignalIdBeforeReset += 0x10000000;
     }
-	Simulator::Schedule (duration, &mmWaveInterference::DoSubtractSignal, this, spd, signalId);
+  Simulator::Schedule (duration, &mmWaveInterference::DoSubtractSignal, this, spd, signalId);
 }
 
 
@@ -160,7 +160,7 @@ mmWaveInterference::DoAddSignal  (Ptr<const SpectrumValue> spd)
 
 void
 mmWaveInterference::DoSubtractSignal  (Ptr<const SpectrumValue> spd, uint32_t signalId)
-{ 
+{
 	NS_LOG_FUNCTION (this << *spd);
 	ConditionallyEvaluateChunk ();
 	int32_t deltaSignalId = signalId - m_lastSignalIdBeforeReset;

@@ -23,6 +23,10 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -34,14 +38,18 @@ namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("mmWaveControlMessage");
 
+// Initialize static member
+uint64_t MmWaveControlMessage::s_nextMessageId = 1;
+
 MmWaveControlMessage::MmWaveControlMessage (void)
+	: m_messageId (s_nextMessageId++)
 {
-	NS_LOG_INFO (this);
+	NS_LOG_DEBUG("CONTROL MESSAGE CREATED" << this << " Message ID: " << m_messageId << " at time " << Simulator::Now().GetSeconds() << "s");
 }
 
 MmWaveControlMessage::~MmWaveControlMessage (void)
 {
-	NS_LOG_INFO (this);
+	NS_LOG_INFO (this << " Destroyed message with ID: " << m_messageId);
 }
 
 void
@@ -54,6 +62,18 @@ MmWaveControlMessage::messageType
 MmWaveControlMessage::GetMessageType (void)
 {
 	return m_messageType;
+}
+
+void
+MmWaveControlMessage::SetMessageId (uint64_t id)
+{
+	m_messageId = id;
+}
+
+uint64_t
+MmWaveControlMessage::GetMessageId (void) const
+{
+	return m_messageId;
 }
 
 MmWaveTdmaDciMessage::MmWaveTdmaDciMessage (void)

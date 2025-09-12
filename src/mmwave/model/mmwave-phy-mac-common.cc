@@ -27,6 +27,10 @@
  *
  * Modified by: Michele Polese <michele.polese@gmail.com> 
  *                 Dual Connectivity and Handover functionalities
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -98,7 +102,7 @@ MmWavePhyMacCommon::GetTypeId (void)
 						   MakeUintegerChecker<uint32_t> ())
 			.AddAttribute ("ChunkWidth",
 						   "Width of each chunk in Hz",
-						   DoubleValue (1.3889e6),
+						   DoubleValue (13.889e6),
 						   MakeDoubleAccessor (&MmWavePhyMacCommon::m_chunkWidth),
 						   MakeDoubleChecker<double> ())
 			.AddAttribute ("ResourceBlockNum",
@@ -156,6 +160,11 @@ MmWavePhyMacCommon::GetTypeId (void)
 									 UintegerValue (100.0),
 									 MakeUintegerAccessor (&MmWavePhyMacCommon::m_tbDecodeLatencyUs),
 									 MakeUintegerChecker<uint32_t> ())
+		.AddAttribute ("NumEnbLayers",
+						"Number of layers for the MU-MIMO operation in eNB",
+						UintegerValue (1),
+						MakeUintegerAccessor (&MmWavePhyMacCommon::m_numEnbLayers),
+						MakeUintegerChecker<uint32_t> ())
 	;
 
 	return tid;
@@ -188,7 +197,8 @@ MmWavePhyMacCommon::MmWavePhyMacCommon ()
   m_ulSchedDelay (1),
 	m_wbCqiPeriodUs (500.0),
 	m_tbDecodeLatencyUs (100.0),
-	m_maxTbSizeBytes (0x7FFF)
+	m_maxTbSizeBytes (0x7FFF),
+	m_numEnbLayers (1)
 {
 	NS_LOG_INFO ("Initialized MmWavePhyMacCommon");
 }

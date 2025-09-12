@@ -27,6 +27,10 @@
  *
  * Modified by: Michele Polese <michele.polese@gmail.com> 
  *                 Dual Connectivity and Handover functionalities
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -108,7 +112,7 @@ private:
   void SendReportBufferStatus (void);
   void RefreshHarqProcessesPacketBuffer (void);
 
-  std::map<uint32_t, struct MacPduInfo>::iterator AddToMacPduMap (DciInfoElementTdma dci, unsigned activeLcs, SfnSf sfn);
+  std::map<uint32_t, struct MacPduInfo>::iterator AddToMacPduMap (DciInfoElementTdma dci, unsigned activeLcs);
 
 	Ptr<MmWavePhyMacCommon> m_phyMacConfig;
 

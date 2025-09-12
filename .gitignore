@@ -2,11 +2,12 @@
 *.orig
 *.patch
 *.rej
-
+.cache/
 *.o
 *.pyc
 *.pyo
-
+*.rsyncignore
+*.csv
 *.cwnd
 *.dat
 *.log

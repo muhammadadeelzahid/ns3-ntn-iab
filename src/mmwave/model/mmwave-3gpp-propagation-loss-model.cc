@@ -21,6 +21,10 @@
  *        	 Sourjya Dutta <sdutta@nyu.edu>
  *        	 Russell Ford <russell.ford@nyu.edu>
  *        	 Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -865,7 +869,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 	enbMob = std::get<0>(returnParams);
 	ueMob =  std::get<1>(returnParams);
-
+	
 	
 
 	Vector uePos = ueMob->GetPosition();
@@ -876,7 +880,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 	double hBs = enbPos.z;
 	double hUt = uePos.z;
 	double loss = 0;
-
+	
 	channelConditionMap_t::const_iterator it;
 	it = m_channelConditionMap.find(std::make_pair(a,b));
 
@@ -992,8 +996,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			}
 		}
 
-		//NS_LOG_UNCOND ("NTN Rural scenario, 2D distance = " << distance2D <<"m, LOS = " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt
-		//<<"Loss: "<<loss);
+		NS_LOG_DEBUG ("NTN Rural scenario, 2D distance = " << distance2D <<"m, LOS = " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt <<"Loss: "<<loss);
 		return loss;
 	}
 	else
@@ -1005,12 +1008,12 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			if (m_channelConditions.compare("l")==0 )
 			{
 				condition.m_channelCondition = 'l';
-				NS_LOG_UNCOND (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
+				NS_LOG_DEBUG (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
 			}
 			else if (m_channelConditions.compare("n")==0)
 			{
 				condition.m_channelCondition = 'n';
-				NS_LOG_UNCOND (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
+				NS_LOG_DEBUG (m_scenario << " scenario, channel condition is fixed to be " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
 			}
 			else if (m_channelConditions.compare("a")==0)
 			{
@@ -1103,15 +1106,18 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 					NS_FATAL_ERROR ("Unknown scenario");
 				}
 
+				
 				if (PRef <= probLos)
 				{
 					condition.m_channelCondition = 'l';
+					//NS_LOG_DEBUG("  - Decision: PRef <= Prob_LOS → LOS condition selected");
 				}
 				else
 				{
 					condition.m_channelCondition = 'n';
+					//NS_LOG_DEBUG("  - Decision: PRef > Prob_LOS → NLOS condition selected");
 				}
-				NS_LOG_UNCOND (m_scenario << " scenario, 2D distance = " << distance2D <<"m, Prob_LOS = " << probLos
+				NS_LOG_DEBUG (m_scenario << " scenario, 2D distance = " << distance2D <<"m, Prob_LOS = " << probLos
 						<< ", Prob_REF = " << PRef << ", the channel condition is " << condition.m_channelCondition<<", h_BS="<<hBs<<",h_UT="<<hUt);
 
 			}
@@ -1248,7 +1254,8 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			else
 			{
 				//PL2
-				lossDb = 32.4+40*log10(distance3D)+20*log10(freqGHz)-10*log10(pow(dBP,2)+pow(hBs-hUt,2));
+				double PL2_additional = 40*log10(distance3D)+20*log10(freqGHz)-10*log10(pow(dBP,2)+pow(hBs-hUt,2));
+				lossDb = 32.4 + PL2_additional;
 			}
 
 
@@ -1275,8 +1282,6 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 						shadowingStd = 6;
 						lossDb = std::max(PLNlos, lossDb);
 					}
-
-
 					break;
 				}
 				default:
@@ -1394,7 +1399,7 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 
 			if(distance3D < 1 || distance3D > 150)
 			{
-				NS_LOG_UNCOND ("The pathloss might not be accurate since 3GPP InH-Shopping mall model only supports 3D distance between 1 m and 150 m");\
+				NS_LOG_DEBUG ("The pathloss might not be accurate since 3GPP InH-Shopping mall model only supports 3D distance between 1 m and 150 m");\
 			}
 			lossDb = 32.4+17.3*log10(distance3D)+20*log10(freqGHz);
 			shadowingStd = 2;
@@ -1412,19 +1417,28 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			//we perform this if check the identify first  transmission.
 			if((*it).second.m_shadowing < -1e5)
 			{
-				cond.m_shadowing = m_norVar->GetValue()*shadowingStd;
+				double shadowingRandomValue = m_norVar->GetValue();
+				cond.m_shadowing = shadowingRandomValue * shadowingStd;
 			}
 			else
 			{
 				double deltaX = uePos.x-(*it).second.m_position.x;
 				double deltaY = uePos.y-(*it).second.m_position.y;
 				double disDiff = sqrt (deltaX*deltaX +deltaY*deltaY);
-				//NS_LOG_UNCOND (shadowingStd <<"  "<<disDiff <<"  "<<shadowingCorDistance);
+				
 				double R = exp(-1*disDiff/shadowingCorDistance); // from equation 7.4-5.
-				cond.m_shadowing = R*(*it).second.m_shadowing + sqrt(1-R*R)*m_norVar->GetValue()*shadowingStd;
+				
+				double previousShadowing = (*it).second.m_shadowing;
+				double newRandomComponent = m_norVar->GetValue();
+				double uncorrelatedComponent = sqrt(1-R*R)*newRandomComponent*shadowingStd;
+				
+				
+				cond.m_shadowing = R*previousShadowing + uncorrelatedComponent;
 			}
 
+			
 			lossDb += cond.m_shadowing;
+			
 			cond.m_position = ueMob->GetPosition();
 			UpdateConditionMap(a,b,cond);
 		}
@@ -1464,8 +1478,9 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 			lossDb += (*it).second.m_carPenetrationLoss;
 		}
 
-		NS_LOG_FUNCTION(this<<"Terrestial loss: "<<(std::max (lossDb, m_minLoss)));
-		return std::max (lossDb, m_minLoss);
+		double finalLoss = std::max (lossDb, m_minLoss);
+		
+		return finalLoss;
 	}
 
 
@@ -1577,7 +1592,13 @@ MmWave3gppPropagationLossModel::GetChannelCondition(Ptr<MobilityModel> a, Ptr<Mo
 	it = m_channelConditionMap.find(std::make_pair(a,b));
 	if (it == m_channelConditionMap.end ())
 	{
-		NS_FATAL_ERROR ("Cannot find the link in the map");
+		// this is a new link, so we need to compute the channel condition
+		GetLoss(a, b);
+		it = m_channelConditionMap.find(std::make_pair(a,b));
+		if (it == m_channelConditionMap.end ())
+		{
+			NS_FATAL_ERROR ("Cannot find the link in the map");
+		}
 	}
 	return (*it).second.m_channelCondition;
 

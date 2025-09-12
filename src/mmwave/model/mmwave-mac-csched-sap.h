@@ -390,6 +390,7 @@ public:
   {
     DciInfoElementTdma m_dciInfoElementTdma;
     SfnSf m_sfnSf;
+    uint64_t m_messageId; // Message ID for tracking control message flow
   };
 
   virtual void IabBackhaulSchedNotify (const struct IabBackhaulSchedInfo& info) = 0;

@@ -77,6 +77,19 @@ public:
   Ptr<SpectrumValue> CalcRxPowerSpectralDensity (Ptr<const SpectrumValue> txPsd,
                                                  Ptr<const MobilityModel> a,
                                                  Ptr<const MobilityModel> b) const;
+	/**
+	 * Computes the received PSD
+	 * \param tx PSD
+	 * \param tx mobility model
+	 * \param rx mobility model
+	 * \param hbf layer to be used by antenna arrays
+	 * \return the received PSD
+	 */
+	Ptr<SpectrumValue> CalcRxPowerSpectralDensityMultiLayers (Ptr<const SpectrumValue> txPsd,
+                                                            Ptr<const MobilityModel> a,
+                                                            Ptr<const MobilityModel> b,
+                                                            uint8_t txLayerInd,
+                                                            uint8_t rxLayerInd) const;
 
   void SetUseSatelliteModel(bool flag);
   bool GetUseSatelliteModel() const;
@@ -99,6 +112,21 @@ private:
                                                            Ptr<const MobilityModel> a,
                                                            Ptr<const MobilityModel> b) const = 0;
 
+	/**
+	 * Computes the received PSD
+	 * \param tx PSD
+	 * \param tx mobility model
+	 * \param rx mobility model
+	 * \param txlayerInd layer to be used by antenna array for transmitter
+	 * \param rxlayerInd layer to be used by antenna array for receiver
+	 * \return the received PSD
+	 */
+  virtual Ptr<SpectrumValue> DoCalcRxPowerSpectralDensityMultilayers (Ptr<const SpectrumValue> txPsd,
+                                                                      Ptr<const MobilityModel> a,
+                                                                      Ptr<const MobilityModel> b,
+                                                                      uint8_t txLayerInd,
+                                                                      uint8_t rxLayerInd) const;
+                                                    
   Ptr<SpectrumPropagationLossModel> m_next; //!< SpectrumPropagationLossModel chained to this one.
 
   bool m_useSatelliteModel;    ///< is the channel model for satellite/NTN

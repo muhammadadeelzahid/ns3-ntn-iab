@@ -23,6 +23,10 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -96,7 +100,7 @@ MmWaveSpectrumValueHelper::CreateTxPowerSpectralDensity (Ptr<MmWavePhyMacCommon>
         (*txPsd)[rbId] = txPowerDensity;
     }
 
-    NS_LOG_LOGIC (*txPsd);
+    NS_LOG_DEBUG ("CreateTxPowerSpectralDensity txPsd: " << *txPsd);
 
     return txPsd;
 

@@ -73,17 +73,6 @@ LteRlcTm::DoDispose ()
   LteRlc::DoDispose ();
 }
 
-void
-LteRlcTm::SetMaxTxBufferSize(uint32_t maxTxBuffersize)
-{
-  NS_FATAL_ERROR("Cannot set max tx buffer size for RLC TM");
-}
-
-uint32_t
-LteRlcTm::GetMaxTxBufferSize()
-{
-  NS_FATAL_ERROR("Cannot get max tx buffer size for RLC SM");
-}
 
 /**
  * RLC SAP
@@ -120,7 +109,19 @@ LteRlcTm::DoTransmitPdcpPdu (Ptr<Packet> p)
   m_rbsTimer.Cancel ();
 }
 
-void 
+void
+LteRlcTm::SetMaxTxBufferSize(uint32_t maxTxBuffersize)
+{
+  NS_FATAL_ERROR("Cannot set max tx buffer size for RLC TM");
+}
+
+uint32_t
+LteRlcTm::GetMaxTxBufferSize()
+{
+  NS_FATAL_ERROR("Cannot get max tx buffer size for RLC SM");
+}
+
+void
 LteRlcTm::DoSendMcPdcpSdu(EpcX2Sap::UeDataParams params)
 {
   NS_LOG_FUNCTION(this);
@@ -132,11 +133,11 @@ LteRlcTm::DoSendMcPdcpSdu(EpcX2Sap::UeDataParams params)
  */
 
 void
-LteRlcTm::DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId)
+LteRlcTm::DoNotifyTxOpportunity (LteMacSapUser::TxOpportunityParameters txOpParams)
 {
-  NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << bytes  << (uint32_t) layer << (uint32_t) harqId);
+  NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << txOpParams.bytes  << (uint32_t) txOpParams.layer << (uint32_t) txOpParams.harqId);
 
-  // 5.1.1.1 Transmit operations 
+  // 5.1.1.1 Transmit operations
   // 5.1.1.1.1 General
   // When submitting a new TMD PDU to lower layer, the transmitting TM RLC entity shall:
   // - submit a RLC SDU without any modification to lower layer.
@@ -150,15 +151,15 @@ LteRlcTm::DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId)
 
   Ptr<Packet> packet = (*(m_txBuffer.begin ()))->Copy ();
 
-  if (bytes < packet->GetSize ())
+  if (txOpParams.bytes < packet->GetSize ())
     {
-      NS_LOG_WARN ("TX opportunity too small = " << bytes << " (PDU size: " << packet->GetSize () << ")");
+      NS_LOG_WARN ("TX opportunity too small = " << txOpParams.bytes << " (PDU size: " << packet->GetSize () << ")");
       return;
     }
 
   m_txBufferSize -= (*(m_txBuffer.begin()))->GetSize ();
   m_txBuffer.erase (m_txBuffer.begin ());
- 
+
   // Sender timestamp
   RlcTag rlcTag (Simulator::Now ());
   packet->AddByteTag (rlcTag);
@@ -169,8 +170,8 @@ LteRlcTm::DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId)
   params.pdu = packet;
   params.rnti = m_rnti;
   params.lcid = m_lcid;
-  params.layer = layer;
-  params.harqProcessId = harqId;
+  params.layer = txOpParams.layer;
+  params.harqProcessId = txOpParams.harqId;
 
   m_macSapProvider->TransmitPdu (params);
 
@@ -188,25 +189,25 @@ LteRlcTm::DoNotifyHarqDeliveryFailure ()
 }
 
 void
-LteRlcTm::DoReceivePdu (Ptr<Packet> p)
+LteRlcTm::DoReceivePdu (LteMacSapUser::ReceivePduParameters rxPduParams)
 {
-  NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << p->GetSize ());
+  NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << rxPduParams.p->GetSize ());
 
   // Receiver timestamp
   RlcTag rlcTag;
   Time delay;
-  if (p->FindFirstMatchingByteTag (rlcTag))
+  if (rxPduParams.p->FindFirstMatchingByteTag (rlcTag))
     {
       delay = Simulator::Now() - rlcTag.GetSenderTimestamp ();
     }
-  m_rxPdu (m_rnti, m_lcid, p->GetSize (), delay.GetNanoSeconds ());
+  m_rxPdu (m_rnti, m_lcid, rxPduParams.p->GetSize (), delay.GetNanoSeconds ());
 
-  // 5.1.1.2 Receive operations 
+  // 5.1.1.2 Receive operations
   // 5.1.1.2.1  General
   // When receiving a new TMD PDU from lower layer, the receiving TM RLC entity shall:
   // - deliver the TMD PDU without any modification to upper layer.
 
-   m_rlcSapUser->ReceivePdcpPdu (p);
+   m_rlcSapUser->ReceivePdcpPdu (rxPduParams.p);
 }
 
 

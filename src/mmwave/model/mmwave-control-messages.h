@@ -23,6 +23,10 @@
  *        	 	  Sourjya Dutta <sdutta@nyu.edu>
  *        	 	  Russell Ford <russell.ford@nyu.edu>
  *        		  Menglei Zhang <menglei@nyu.edu>
+ *
+ * Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 
  */
 
 
@@ -59,11 +63,16 @@ public:
 	virtual ~MmWaveControlMessage (void);
 
 	void SetMessageType (messageType type);
-
 	messageType GetMessageType (void);
+
+	// Message tracking methods
+	void SetMessageId (uint64_t id);
+	uint64_t GetMessageId (void) const;
 
 private:
 	messageType m_messageType;
+	uint64_t m_messageId; // Unique identifier for message tracking
+	static uint64_t s_nextMessageId; // Static counter for generating unique IDs
 };
 
 /************************************************************

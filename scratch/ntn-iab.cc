@@ -24,9 +24,14 @@
  *              Sourjya Dutta <sdutta@nyu.edu>
  *              Russell Ford <russell.ford@nyu.edu>
  *              Menglei Zhang <menglei@nyu.edu>
- *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca> 
+ *
+ *   Modified by:
+ *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
+ *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                  
  */
 #include <ns3/buildings-module.h>
+#include "ns3/log.h"
 #include "ns3/mmwave-helper.h"
 #include "ns3/lte-module.h"
 #include "ns3/epc-helper.h"
@@ -41,122 +46,9 @@
 #include "ns3/mmwave-point-to-point-epc-helper.h"
 //#include "ns3/gtk-config-store.h"
 using namespace ns3;
-NS_LOG_COMPONENT_DEFINE ("MmWaveIabGrid");
 
-void 
-PrintGnuplottableBuildingListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  uint32_t index = 0;
-  for (BuildingList::Iterator it = BuildingList::Begin (); it != BuildingList::End (); ++it)
-    {
-      ++index;
-      Box box = (*it)->GetBoundaries ();
-      outFile << "set object " << index
-              << " rect from " << box.xMin  << "," << box.yMin
-              << " to "   << box.xMax  << "," << box.yMax
-              //<< " height " << box.zMin << "," << box.zMax
-              << " front fs empty "
-              << std::endl;
-    }
-}
-void 
-PrintGnuplottableUeListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  
-  outFile << "# Node ID, IMSI, Position (x, y, z)" << std::endl; // Add a header to the output file
-  for (NodeList::Iterator it = NodeList::Begin (); it != NodeList::End (); ++it)
-    {
-      Ptr<Node> node = *it;
-      uint32_t nodeId = node->GetId(); // Get the Node ID
-      int nDevs = node->GetNDevices ();
-      for (int j = 0; j < nDevs; j++)
-        {
-          Ptr<LteUeNetDevice> uedev = node->GetDevice (j)->GetObject <LteUeNetDevice> ();
-          Ptr<MmWaveUeNetDevice> mmuedev = node->GetDevice (j)->GetObject <MmWaveUeNetDevice> ();
-          Ptr<McUeNetDevice> mcuedev = node->GetDevice (j)->GetObject <McUeNetDevice> ();
-          if (uedev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << uedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mmuedev)
-           {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << mmuedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mcuedev)
-           {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "Node ID: " << nodeId << ", IMSI: " << mcuedev->GetImsi()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-        }
-    }
-}
-void 
-PrintGnuplottableEnbListToFile (std::string filename)
-{
-  std::ofstream outFile;
-  outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::trunc);
-  if (!outFile.is_open ())
-    {
-      NS_LOG_ERROR ("Can't open file " << filename);
-      return;
-    }
-  outFile << "# Node ID, Cell ID, Position (x, y, z)" << std::endl; // Add a header to the output file
-  for (NodeList::Iterator it = NodeList::Begin (); it != NodeList::End (); ++it)
-    {
-      Ptr<Node> node = *it;
-      uint32_t nodeId = node->GetId(); // Get the Node ID
-      int nDevs = node->GetNDevices ();
-      for (int j = 0; j < nDevs; j++)
-        {
-          Ptr<LteEnbNetDevice> enbdev = node->GetDevice (j)->GetObject <LteEnbNetDevice> ();
-          Ptr<MmWaveEnbNetDevice> mmdev = node->GetDevice (j)->GetObject <MmWaveEnbNetDevice> ();
-          Ptr<MmWaveIabNetDevice> mmIabdev = node->GetDevice (j)->GetObject <MmWaveIabNetDevice> ();
-          if (enbdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "ENB Node ID: " << nodeId << ", Cell ID: " << enbdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            }
-          else if (mmdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "mmdev Node ID: " << nodeId << ", Cell ID: " << mmdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-          else if (mmIabdev)
-            {
-              Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
-              outFile << "IAB Node ID: " << nodeId << ", Cell ID: " << mmIabdev->GetCellId()
-                      << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                      << std::endl;
-            } 
-        }
-    }
-}
+NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIab");
+
 void
 ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
@@ -186,7 +78,6 @@ main (int argc, char *argv[])
   // LogComponentEnableAll (LOG_PREFIX_FUNC);
   // LogComponentEnableAll (LOG_PREFIX_NODE);
   // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_ALL);
   // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
   // LogComponentEnable("MmWaveUeMac", LOG_ALL);
   // LogComponentEnable("MmWaveUePhy", LOG_ALL);
@@ -199,7 +90,11 @@ main (int argc, char *argv[])
   // // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
-  //LogComponentEnable("MmWaveHelper", LOG_LEVEL_LOGIC);
+  LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
+  // LogComponentEnable("MmWaveUePhy", ns3::LOG_LEVEL_INFO);
   // LogComponentEnable("MmWavePointToPointEpcHelper", LOG_LEVEL_LOGIC);
   // //LogComponentEnable("EpcS1ap", LOG_LEVEL_LOGIC);
   // // LogComponentEnable("EpcTftClassifier", LOG_LEVEL_LOGIC);
@@ -219,14 +114,38 @@ main (int argc, char *argv[])
   // LogComponentEnable("SingleModelSpectrumChannel", LOG_LEVEL_INFO);
   // LogComponentEnable("MultiModelSpectrumChannel", LOG_LEVEL_INFO);
   // LogComponentEnable("MmWaveMiErrorModel", LOG_LEVEL_LOGIC);
-  
-  CommandLine cmd;
+  // LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_ALL);
+  // LogComponentEnable("EpcIabApplication", LOG_LEVEL_ALL);
+  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_ALL);
+  // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteRlcAm", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteRlcUm", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteRlcUmLowLat", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteRlc", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
+  // LogComponentEnable("LtePdcp", LOG_LEVEL_ALL);
+  // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
+  // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_ALL);
+  // LogComponentEnable("LteUeRrc", LOG_LEVEL_ALL);
+
+  CommandLine cmd; 
   unsigned run = 0;
-  bool rlcAm = true;
-  uint32_t numRelays = 1;
+  bool rlcAm = false;
+  uint32_t numRelays = 0;
   uint32_t rlcBufSize = 10;
-  uint32_t interPacketInterval = 200;
-  uint32_t throughput = 54;
+  uint32_t interPacketInterval = 5;
+  uint32_t throughput = 200;
   uint32_t packetSize = 1400; //bytes
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
@@ -256,6 +175,32 @@ main (int argc, char *argv[])
   // Config::SetDefault ("ns3::LteRlcAm::StatusProhibitTimer", TimeValue(MicroSeconds(500)));
   // Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
   // Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
+  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubcarriersPerChunk", UintegerValue (12));
+  
+  Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
+
+  // Set center frequency to 6 GHz for RMa scenario compatibility
+  Config::SetDefault ("ns3::MmWavePhyMacCommon::CenterFreq", DoubleValue (6.0e9)); 
+  // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
+
+// 	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
+// 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
+// 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
+// //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
+// 	Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
+//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
+//   Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
+  
+//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReorderingTimeExpires", TimeValue (MilliSeconds (10.0)));
+//   Config::SetDefault ("ns3::LteRlcUm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
+// 	Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
+  
+//   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
+//   Config::SetDefault ("ns3::LteRlcUmLowLat::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
+//   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
+//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::HarqEnabled", BooleanValue (true));
+//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::CqiTimerThreshold", UintegerValue (100));
+
   Config::SetDefault ("ns3::MmWaveHelper::RlcAmEnabled", BooleanValue(rlcAm));
   // Config::SetDefault ("ns3::MmWaveFlexTtiMacScheduler::CqiTimerThreshold", UintegerValue(100));
   Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::MmWave3gppPropagationLossModel"));
@@ -263,9 +208,12 @@ main (int argc, char *argv[])
   //Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWaveChannelRaytracing"));
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
-  //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("UMa"));
+  //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
   
-
+  // Enable multi-beam functionality
+//  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
+  Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
+  
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
   // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolsPerSubframe", UintegerValue(240));
@@ -275,11 +223,21 @@ main (int argc, char *argv[])
   Ptr<MmWavePointToPointEpcHelper>  epcHelper = CreateObject<MmWavePointToPointEpcHelper> ();
   mmwaveHelper->SetEpcHelper (epcHelper);
   mmwaveHelper->Initialize();
+  
+  // Add bandwidth verification
+  Ptr<MmWavePhyMacCommon> phyMacConfig = mmwaveHelper->GetPhyMacConfigurable();
+  NS_LOG_UNCOND("=== BANDWIDTH VERIFICATION ===");
+  NS_LOG_UNCOND("ChunkWidth: " << phyMacConfig->GetChunkWidth() / 1e6 << " MHz");
+  NS_LOG_UNCOND("ChunkPerRB: " << phyMacConfig->GetNumChunkPerRb());
+  NS_LOG_UNCOND("ResourceBlockNum: " << phyMacConfig->GetNumRb());
+  NS_LOG_UNCOND("Total Bandwidth: " << (phyMacConfig->GetChunkWidth() * phyMacConfig->GetNumChunkPerRb() * phyMacConfig->GetNumRb()) / 1e6 << " MHz");
+  NS_LOG_UNCOND("Center Frequency: " << phyMacConfig->GetCenterFrequency() / 1e9 << " GHz");
+  NS_LOG_UNCOND("================================");
+  
   ConfigStore inputConfig;
   inputConfig.ConfigureDefaults();
   // parse again so you can override default values from the command line
   cmd.Parse(argc, argv);
-  interPacketInterval = (packetSize*8)/throughput;
   NS_LOG_UNCOND("Throughput: "<<throughput<<" Inter-packet interval: "<<interPacketInterval);
  
   Ptr<Node> pgw = epcHelper->GetPgwNode ();
@@ -304,8 +262,8 @@ main (int argc, char *argv[])
   Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
   remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
 
-  double xMax = 500.0;
-  double yMax = 500.0;
+  double xMax = 4000.0;
+  double yMax = xMax;
 
   // Altitudes
   double gnbHeight = 2000000.0;
@@ -320,10 +278,10 @@ main (int argc, char *argv[])
   Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);
 
   // Symmetric IAB positions
-  Vector posIab1 = Vector(xMax / 2.0, yMax / 2.0, iabHeight);        // Mid
-  Vector posIab2 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 + yOffset, iabHeight);        // Top-left
-  Vector posIab3 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-left
-  Vector posIab4 = Vector(xMax / 2.0 + xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-right
+  Vector posIab1 = Vector(xMax / 2.0 , yMax / 2.0, iabHeight);        // Mid
+  Vector posIab3 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 + yOffset, iabHeight);        // Top-left
+  Vector posIab4 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-left
+  Vector posIab2 = Vector(xMax / 2.0 + xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-right
   Vector posIab5 = Vector(xMax / 2.0 + xOffset, yMax / 2.0, iabHeight);                  // Mid-right
   Vector posIab6 = Vector(xMax / 2.0 - xOffset, yMax / 2.0, iabHeight);                  // Mid-left
 
@@ -341,7 +299,7 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(14);
+  ueNodes.Create(20);
   // Install Mobility Model
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
   enbPositionAlloc->Add (posWired);
@@ -367,16 +325,49 @@ main (int argc, char *argv[])
   MobilityHelper uemobility;
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
-  // code is for constant UE position
-//   MobilityHelper uemobility;
-//   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
-//   uePosAlloc->Add(Vector(x_val, y_val, 1.7));  // Set exact position of UE
-//   uemobility.SetPositionAllocator (uePosAlloc);
-//   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-//   uemobility.Install (ueNodes);
+  // // Random user generation code
+  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  // radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
+  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
   
-Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  radiusRand->SetAttribute("Min", DoubleValue(500));               // minimum radius from center
+  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+  // angleRand->SetAttribute("Min", DoubleValue(0));
+  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+  
+  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+  // {
+  //     double radius = radiusRand->GetValue();
+  //     double angle = angleRand->GetValue();
+  
+  //     double x = xMax/2 + radius * std::cos(angle);
+  //     double y = yMax/2 + radius * std::sin(angle);
+  //     double z = 1.7; // typical UE height
+  
+  //     // Ensure within boundaries
+  //     x = std::min(std::max(x, 0.0), xMax);
+  //     y = std::min(std::max(y, 0.0), yMax);
+  
+  //     uePosAlloc->Add(Vector(x, y, z));
+  // }
+
+  // Create one user at fixed position 100 meters away from eNB
+  // eNB is at center (xMax/2, yMax/2, gnbHeight)
+  // Place UE 100 meters north of eNB
+  // double ueX = xMax/2.0+10000;  // Same X coordinate as eNB
+  // double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
+  // double ueZ = 1.7;  // Typical UE height
+  
+  // uePosAlloc->Add(Vector(ueX, ueY, ueZ));
+  
+
+// Additional user positioning code (no longer needed)
+// uint32_t totalUes = ueNodes.GetN();        // e.g., 20
+// uint32_t clusterCount = clusterCenters.size(); // 7 clusters
+// uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
+// uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
+
+  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
   radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
   
   Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
@@ -399,33 +390,6 @@ Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
       uePosAlloc->Add(Vector(x, y, z));
   }
 
-// IAB and donor positions
-std::vector<Vector> clusterCenters = {
-  posIab1, posIab2, posIab3, posIab4, posIab5, posIab6, posWired // 6 IABs + donor
-};
-
-// uint32_t totalUes = ueNodes.GetN();        // e.g., 20
-// uint32_t clusterCount = clusterCenters.size(); // 7 clusters
-// uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
-// uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
-
-// Ptr<UniformRandomVariable> offsetX = CreateObject<UniformRandomVariable>();
-// Ptr<UniformRandomVariable> offsetY = CreateObject<UniformRandomVariable>();
-// double max_distance = 100;//sxMax - (xMax/2.0 + xOffset) - 100;
-// NS_LOG_UNCOND("max distance of UE from base station: "<<max_distance);
-
-// double zHeight = 1.7;
-// double offset = 50; // distance from IAB center to each UE
-
-// for (const Vector& center : clusterCenters)
-// {
-//     // Diagonal positions around each IAB node
-//     uePosAlloc->Add(Vector(center.x + offset, center.y + offset, zHeight)); // ↗
-//     uePosAlloc->Add(Vector(center.x - offset, center.y - offset, zHeight)); // ↙
-//     uePosAlloc->Add(Vector(center.x - offset, center.y + offset, zHeight)); // ↖
-//     uePosAlloc->Add(Vector(center.x + offset, center.y - offset, zHeight)); // ↘
-// }
-
   uemobility.SetPositionAllocator (uePosAlloc);
   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   uemobility.Install (ueNodes);
@@ -438,9 +402,6 @@ std::vector<Vector> clusterCenters = {
     iabmmWaveDevs = mmwaveHelper->InstallIabDevice (iabNodes);
   }
   NetDeviceContainer uemmWaveDevs = mmwaveHelper->InstallUeDevice (ueNodes);
-  PrintGnuplottableBuildingListToFile("buildings.txt");// fileName.str ());
-  PrintGnuplottableEnbListToFile("enbs.txt");
-  PrintGnuplottableUeListToFile("ues.txt");
   // Install the IP stack on the UEs
   internet.Install (ueNodes);
   Ipv4InterfaceContainer ueIpIface;
@@ -456,11 +417,13 @@ std::vector<Vector> clusterCenters = {
   NetDeviceContainer possibleBaseStations(enbmmWaveDevs, iabmmWaveDevs);
   NS_LOG_UNCOND("number of IAB devs " << iabmmWaveDevs.GetN() << " num of possibleBaseStations " 
     << possibleBaseStations.GetN());
-  if(numRelays > 0)
+
+    if(numRelays > 0)
   {
     mmwaveHelper->AttachIabToClosestSatelliteEnb (iabmmWaveDevs, enbmmWaveDevs);
   }
-  mmwaveHelper->AttachToClosestSatelliteEnbWithDelay (uemmWaveDevs, possibleBaseStations, Seconds(0.3));
+  mmwaveHelper->AttachToClosestEnb (uemmWaveDevs, possibleBaseStations);
+
   // Install and start applications on UEs and remote host
   uint16_t dlPort = 1234;
   // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_INFO);
@@ -478,30 +441,59 @@ std::vector<Vector> clusterCenters = {
     UdpClientHelper dlClient (ueIpIface.GetAddress (u), dlPort);
     dlClient.SetAttribute ("Interval", TimeValue (MicroSeconds(interPacketInterval)));
     dlClient.SetAttribute ("PacketSize", UintegerValue(packetSize));
-    dlClient.SetAttribute ("MaxPackets", UintegerValue(1780));
+    dlClient.SetAttribute ("MaxPackets", UintegerValue(500));
     clientApps.Add (dlClient.Install (remoteHost));
     dlPort++;
   }
-  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
-  {
-      Ptr<Node> ueNode = ueNodes.Get(u);
-      Ptr<LteUeNetDevice> lteUeDev = ueNode->GetDevice(0)->GetObject<LteUeNetDevice>();
-      if (lteUeDev)
-      {
-          uint64_t imsi = lteUeDev->GetImsi(); // Retrieve IMSI of the UE
-          Config::Connect(
-              "/NodeList/" + std::to_string(ueNode->GetId()) + "/DeviceList/0/LteUeRrc/ConnectionEstablished",
-              MakeBoundCallback(&ConnectionEstablishedTraceSink, imsi));
-      }
-  }
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/Drop", MakeCallback(&PacketDropCallback));
   
-  serverApps.Start (Seconds (0.20));
-  clientApps.Start (Seconds (0.2));
-  clientApps.Stop (Seconds (1.8));
-  serverApps.Stop (Seconds (2.0));
-  Simulator::Stop (Seconds (2.2));  
+  NS_LOG_UNCOND("\n=== Node Coordinates ===");
+  for (NodeList::Iterator it = NodeList::Begin (); it != NodeList::End (); ++it)
+  {
+    Ptr<Node> node = *it;
+    uint32_t nodeId = node->GetId();
+    Vector pos = node->GetObject<MobilityModel> () ? node->GetObject<MobilityModel> ()->GetPosition () : Vector (0,0,0);
+    bool printed = false;
+    int nDevs = node->GetNDevices ();
+    for (int j = 0; j < nDevs; j++)
+    {
+      Ptr<LteUeNetDevice> uedev = node->GetDevice (j)->GetObject <LteUeNetDevice> ();
+      Ptr<MmWaveUeNetDevice> mmuedev = node->GetDevice (j)->GetObject <MmWaveUeNetDevice> ();
+      Ptr<McUeNetDevice> mcuedev = node->GetDevice (j)->GetObject <McUeNetDevice> ();
+      Ptr<LteEnbNetDevice> enbdev = node->GetDevice (j)->GetObject <LteEnbNetDevice> ();
+      Ptr<MmWaveEnbNetDevice> mmdev = node->GetDevice (j)->GetObject <MmWaveEnbNetDevice> ();
+      Ptr<MmWaveIabNetDevice> mmIabdev = node->GetDevice (j)->GetObject <MmWaveIabNetDevice> ();
+      if (uedev || mmuedev || mcuedev)
+      {
+        NS_LOG_UNCOND("UE Node ID: " << nodeId << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")");
+        printed = true;
+        break;
+      }
+      else if (enbdev || mmdev)
+      {
+        NS_LOG_UNCOND("ENB Node ID: " << nodeId << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")");
+        printed = true;
+        break;
+      }
+      else if (mmIabdev)
+      {
+        NS_LOG_UNCOND("IAB Node ID: " << nodeId << ", Position=( " << pos.x << ", " << pos.y << ", " << pos.z << ")");
+        printed = true;
+        break;
+      }
+    }
+    if (!printed)
+    {
+      // Optionally print other nodes
+    }
+  }
+  NS_LOG_UNCOND("=======================\n");
   mmwaveHelper->EnableTraces ();
+  serverApps.Start (Seconds (0.3));
+  clientApps.Start (Seconds (0.3));
+  clientApps.Stop (Seconds (2.0));
+  serverApps.Stop (Seconds (2.0));
+  Simulator::Stop (Seconds (2.5));
+  
   Simulator::Run();
   /*GtkConfigStore config;
   config.ConfigureAttributes();*/

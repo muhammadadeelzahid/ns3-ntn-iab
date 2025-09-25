@@ -19,6 +19,12 @@ def build(bld):
         'helper/packet-sink-helper.cc',
         'helper/udp-client-server-helper.cc',
         'helper/udp-echo-helper.cc',
+        'model/quic-echo-client.cc',
+        'model/quic-echo-server.cc',
+        'model/quic-client.cc',
+        'model/quic-server.cc',
+        'helper/quic-echo-helper.cc',
+        'helper/quic-client-server-helper.cc',
         ]
 
     applications_test = bld.create_ns3_module_test_library('applications')
@@ -45,6 +51,12 @@ def build(bld):
         'helper/packet-sink-helper.h',
         'helper/udp-client-server-helper.h',
         'helper/udp-echo-helper.h',
+        'model/quic-echo-client.h',
+        'model/quic-echo-server.h',
+        'model/quic-client.h',
+        'model/quic-server.h',
+        'helper/quic-echo-helper.h',
+        'helper/quic-client-server-helper.h',
         ]
 
     bld.ns3_python_bindings()

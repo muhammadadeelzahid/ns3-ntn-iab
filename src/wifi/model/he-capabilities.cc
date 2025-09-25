@@ -42,7 +42,7 @@ HeCapabilities::HeCapabilities ()
     m_groupAddressedMultiStaBlockAckInDlMuSupport (0),
     m_omiAcontrolSupport (0),
     m_ofdmaRaSupport (0),
-    m_maximumAmpduLengthExponent (0),
+    m_maxAmpduLengthExponent (0),
     m_amsduFragmentationSupport (0),
     m_flexibleTwtScheduleSupport (0),
     m_rxControlFrameToMultiBss (0),
@@ -93,7 +93,13 @@ HeCapabilities::HeCapabilities ()
 WifiInformationElementId
 HeCapabilities::ElementId () const
 {
-  return IE_HE_CAPABILITIES;
+  return IE_EXTENSION;
+}
+
+WifiInformationElementId
+HeCapabilities::ElementIdExt () const
+{
+  return IE_EXT_HE_CAPABILITIES;
 }
 
 void
@@ -107,7 +113,7 @@ HeCapabilities::GetInformationFieldSize () const
 {
   //we should not be here if ht is not supported
   NS_ASSERT (m_heSupported > 0);
-  return 16; //todo: variable length!
+  return 19; //todo: variable length!
 }
 
 Buffer::Iterator
@@ -140,8 +146,9 @@ HeCapabilities::SerializeInformationField (Buffer::Iterator start) const
       start.WriteU8 (GetHeMacCapabilitiesInfo2 ());
       start.WriteHtolsbU64 (GetHePhyCapabilitiesInfo1 ());
       start.WriteU8 (GetHePhyCapabilitiesInfo2 ());
-      start.WriteU16 (GetSupportedMcsAndNss ()); //todo: variable length
-      //todo: optional PPE Threshold field
+      start.WriteHtolsbU32 (GetSupportedMcsAndNss ());
+      //todo: add another 32-bits field if 160 MHz channel is supported (variable length)
+      //todo: optional PPE Threshold field (variable length)
     }
 }
 
@@ -153,11 +160,12 @@ HeCapabilities::DeserializeInformationField (Buffer::Iterator start, uint8_t len
   uint8_t macCapabilities2 = i.ReadU8 ();
   uint64_t phyCapabilities1 = i.ReadLsbtohU64 ();
   uint8_t phyCapabilities2 = i.ReadU8 ();
-  uint16_t mcsset = i.ReadU16 (); //todo: variable length
+  uint32_t mcsset = i.ReadU32 ();
   SetHeMacCapabilitiesInfo (macCapabilities1, macCapabilities2);
   SetHePhyCapabilitiesInfo (phyCapabilities1, phyCapabilities2);
   SetSupportedMcsAndNss (mcsset);
-  //todo: optional PPE Threshold field
+  //todo: add another 32-bits field if 160 MHz channel is supported (variable length)
+  //todo: optional PPE Threshold field (variable length)
   return length;
 }
 
@@ -183,7 +191,7 @@ HeCapabilities::SetHeMacCapabilitiesInfo (uint32_t ctrl1, uint8_t ctrl2)
   m_groupAddressedMultiStaBlockAckInDlMuSupport = (ctrl1 >> 24) & 0x01;
   m_omiAcontrolSupport = (ctrl1 >> 25) & 0x03;
   m_ofdmaRaSupport = (ctrl1 >> 26) & 0x01;
-  m_maximumAmpduLengthExponent = (ctrl1 >> 27) & 0x03;
+  m_maxAmpduLengthExponent = (ctrl1 >> 27) & 0x03;
   m_amsduFragmentationSupport = (ctrl1 >> 29) & 0x01;
   m_flexibleTwtScheduleSupport = (ctrl1 >> 30) & 0x01;
   m_rxControlFrameToMultiBss = (ctrl1 >> 31) & 0x01;
@@ -215,7 +223,7 @@ HeCapabilities::GetHeMacCapabilitiesInfo1 () const
   val |= (m_groupAddressedMultiStaBlockAckInDlMuSupport & 0x01) << 24;
   val |= (m_omiAcontrolSupport & 0x03) << 25;
   val |= (m_ofdmaRaSupport & 0x01) << 26;
-  val |= (m_maximumAmpduLengthExponent & 0x03) << 27;
+  val |= (m_maxAmpduLengthExponent & 0x03) << 27;
   val |= (m_amsduFragmentationSupport & 0x01) << 29;
   val |= (m_flexibleTwtScheduleSupport & 0x01) << 30;
   val |= (m_rxControlFrameToMultiBss & 0x01) << 31;
@@ -288,24 +296,24 @@ HeCapabilities::GetHePhyCapabilitiesInfo1 () const
   val |= (m_dcmEncodingRx & 0x0f) << 27;
   val |= (m_ulHeMuPpduPayloadSupport & 0x01) << 30;
   val |= (m_suBeamformer & 0x01) << 31;
-  val |= ((uint64_t)m_suBeamformee & 0x01) << 32;
-  val |= ((uint64_t)m_muBeamformer & 0x01) << 33;
-  val |= ((uint64_t)m_beamformeeStsForSmallerOrEqualThan80Mhz & 0x07) << 34;
-  val |= ((uint64_t)m_nstsTotalForSmallerOrEqualThan80Mhz & 0x07) << 37;
-  val |= ((uint64_t)m_beamformeeStsForLargerThan80Mhz & 0x07) << 40;
-  val |= ((uint64_t)m_nstsTotalForLargerThan80Mhz & 0x07) << 43;
-  val |= ((uint64_t)m_numberOfSoundingDimensionsForSmallerOrEqualThan80Mhz & 0x07) << 46;
-  val |= ((uint64_t)m_numberOfSoundingDimensionsForLargerThan80Mhz & 0x07) << 49;
-  val |= ((uint64_t)m_ngEqual16ForSuFeedbackSupport & 0x01) << 52;
-  val |= ((uint64_t)m_ngEqual16ForMuFeedbackSupport & 0x01) << 53;
-  val |= ((uint64_t)m_codebookSize42ForSuSupport & 0x01) << 54;
-  val |= ((uint64_t)m_codebookSize75ForSuSupport & 0x01) << 55;
-  val |= ((uint64_t)m_beamformingFeedbackWithTriggerFrame & 0x07) << 56;
-  val |= ((uint64_t)m_heErSuPpduPayload & 0x01) << 59;
-  val |= ((uint64_t)m_dlMuMimoOnPartialBandwidth & 0x01) << 60;
-  val |= ((uint64_t)m_ppeThresholdPresent & 0x01) << 61;
-  val |= ((uint64_t)m_srpBasedSrSupport & 0x01) << 62;
-  val |= ((uint64_t)m_powerBoostFactorAlphaSupport & 0x01) << 63;
+  val |= (static_cast<uint64_t> (m_suBeamformee) & 0x01) << 32;
+  val |= (static_cast<uint64_t> (m_muBeamformer) & 0x01) << 33;
+  val |= (static_cast<uint64_t> (m_beamformeeStsForSmallerOrEqualThan80Mhz) & 0x07) << 34;
+  val |= (static_cast<uint64_t> (m_nstsTotalForSmallerOrEqualThan80Mhz) & 0x07) << 37;
+  val |= (static_cast<uint64_t> (m_beamformeeStsForLargerThan80Mhz) & 0x07) << 40;
+  val |= (static_cast<uint64_t> (m_nstsTotalForLargerThan80Mhz) & 0x07) << 43;
+  val |= (static_cast<uint64_t> (m_numberOfSoundingDimensionsForSmallerOrEqualThan80Mhz) & 0x07) << 46;
+  val |= (static_cast<uint64_t> (m_numberOfSoundingDimensionsForLargerThan80Mhz) & 0x07) << 49;
+  val |= (static_cast<uint64_t> (m_ngEqual16ForSuFeedbackSupport) & 0x01) << 52;
+  val |= (static_cast<uint64_t> (m_ngEqual16ForMuFeedbackSupport) & 0x01) << 53;
+  val |= (static_cast<uint64_t> (m_codebookSize42ForSuSupport) & 0x01) << 54;
+  val |= (static_cast<uint64_t> (m_codebookSize75ForSuSupport) & 0x01) << 55;
+  val |= (static_cast<uint64_t> (m_beamformingFeedbackWithTriggerFrame) & 0x07) << 56;
+  val |= (static_cast<uint64_t> (m_heErSuPpduPayload) & 0x01) << 59;
+  val |= (static_cast<uint64_t> (m_dlMuMimoOnPartialBandwidth) & 0x01) << 60;
+  val |= (static_cast<uint64_t> (m_ppeThresholdPresent) & 0x01) << 61;
+  val |= (static_cast<uint64_t> (m_srpBasedSrSupport) & 0x01) << 62;
+  val |= (static_cast<uint64_t> (m_powerBoostFactorAlphaSupport) & 0x01) << 63;
   return val;
 }
 
@@ -425,10 +433,17 @@ HeCapabilities::SetHeLtfAndGiForHePpdus (uint8_t heLtfAndGiForHePpdus)
 }
 
 void
-HeCapabilities::SetMaxAmpduLengthExponent (uint8_t exponent)
+HeCapabilities::SetMaxAmpduLength (uint32_t maxampdulength)
 {
-  NS_ASSERT (exponent <= 7);
-  m_maximumAmpduLengthExponent = exponent;
+  for (uint8_t i = 0; i <= 3; i++)
+    {
+      if ((1ul << (20 + i)) - 1 == maxampdulength)
+        {
+          m_maxAmpduLengthExponent = i;
+          return;
+        }
+    }
+  NS_ABORT_MSG ("Invalid A-MPDU Max Length value");
 }
 
 void
@@ -458,7 +473,7 @@ HeCapabilities::GetHeLtfAndGiForHePpdus (void) const
 }
 
 uint8_t
-HeCapabilities::GetHighestMcsSupported (uint8_t mcs) const
+HeCapabilities::GetHighestMcsSupported (void) const
 {
   return m_highestMcsSupported + 7;
 }
@@ -469,7 +484,11 @@ HeCapabilities::GetHighestNssSupported (void) const
   return m_highestNssSupportedM1 + 1;
 }
 
-ATTRIBUTE_HELPER_CPP (HeCapabilities);
+uint32_t
+HeCapabilities::GetMaxAmpduLength (void) const
+{
+  return (1ul << (20 + m_maxAmpduLengthExponent)) - 1;
+}
 
 /**
  * output stream output operator
@@ -481,31 +500,11 @@ std::ostream &
 operator << (std::ostream &os, const HeCapabilities &HeCapabilities)
 {
   os << HeCapabilities.GetHeMacCapabilitiesInfo1 () << "|"
-     << (uint16_t) HeCapabilities.GetHeMacCapabilitiesInfo2 () << "|"
+     << +HeCapabilities.GetHeMacCapabilitiesInfo2 () << "|"
      << HeCapabilities.GetHePhyCapabilitiesInfo1 () << "|"
-     << (uint16_t) HeCapabilities.GetHePhyCapabilitiesInfo2 () << "|"
+     << +HeCapabilities.GetHePhyCapabilitiesInfo2 () << "|"
      << HeCapabilities.GetSupportedMcsAndNss ();
   return os;
-}
-
-/**
- * input stream input operator
- * \param is the output stream
- * \param HeCapabilities the HE capabilities
- * \returns the input stream
- */
-std::istream &operator >> (std::istream &is, HeCapabilities &HeCapabilities)
-{
-  uint32_t c1;
-  uint8_t c2;
-  uint64_t c3;
-  uint8_t c4;
-  uint16_t c5;
-  is >> c1 >> c2 >> c3 >> c4 >> c5;
-  HeCapabilities.SetHeMacCapabilitiesInfo (c1, c2);
-  HeCapabilities.SetHePhyCapabilitiesInfo (c3, c4);
-  HeCapabilities.SetSupportedMcsAndNss (c5);
-  return is;
 }
 
 } //namespace ns3

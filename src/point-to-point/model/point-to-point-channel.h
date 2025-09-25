@@ -147,10 +147,10 @@ protected:
                     
 private:
   /** Each point to point link has exactly two net devices. */
-  static const int N_DEVICES = 2;
+  static const std::size_t N_DEVICES = 2;
 
   Time          m_delay;    //!< Propagation delay
-  int32_t       m_nDevices; //!< Devices of this channel
+  std::size_t        m_nDevices; //!< Devices of this channel
 
   /**
    * The trace source for the packet transmission animation events that the 

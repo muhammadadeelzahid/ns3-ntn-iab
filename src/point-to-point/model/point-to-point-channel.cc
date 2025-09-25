@@ -106,7 +106,7 @@ PointToPointChannel::TransmitStart (
   return true;
 }
 
-uint32_t 
+uint32_t
 PointToPointChannel::GetNDevices (void) const
 {
   NS_LOG_FUNCTION_NOARGS ();

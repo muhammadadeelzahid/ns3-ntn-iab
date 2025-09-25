@@ -245,7 +245,7 @@ Ipv4L3Protocol::DeleteRawSocket (Ptr<Socket> socket)
   return;
 }
 /*
- * This method is called by AddAgregate and completes the aggregation
+ * This method is called by AggregateObject and completes the aggregation
  * by setting the node in the ipv4 stack
  */
 void
@@ -388,7 +388,6 @@ Ipv4L3Protocol::AddInterface (Ptr<NetDevice> device)
   interface->SetDevice (device);
   interface->SetTrafficControl (tc);
   interface->SetForwarding (m_ipForward);
-  tc->SetupDevice (device);
   return AddIpv4Interface (interface);
 }
 

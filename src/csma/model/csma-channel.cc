@@ -277,8 +277,7 @@ CsmaChannel::GetNDevices (void) const
 Ptr<CsmaNetDevice>
 CsmaChannel::GetCsmaDevice (uint32_t i) const
 {
-  Ptr<CsmaNetDevice> netDevice = m_deviceList[i].devicePtr;
-  return netDevice;
+  return m_deviceList[i].devicePtr;
 }
 
 int32_t

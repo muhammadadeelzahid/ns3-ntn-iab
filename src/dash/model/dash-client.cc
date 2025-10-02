@@ -223,17 +223,9 @@ DashClient::RequestSegment()
     packet->AddHeader(httpHeader);
 
     int res = 0;
-    res = m_socket->Send(packet);
-    if (res < 0)
+    if (((unsigned)(res = m_socket->Send(packet))) != packet->GetSize())
     {
-        NS_LOG_ERROR("Error sending packet! res=" << res << " size=" << packet->GetSize());
-    }
-    else if ((unsigned)res != packet->GetSize())
-    {
-        // QUIC sockets may send partial data, which is acceptable as the
-        // protocol will handle retransmission and ordering
-        NS_LOG_INFO("Partial send: res=" << res << " size=" << packet->GetSize() <<
-                    " - This is normal for QUIC sockets");
+        NS_FATAL_ERROR("Oh oh. Couldn't send packet! res=" << res << " size=" << packet->GetSize());
     }
 
     m_requestTime = Simulator::Now();

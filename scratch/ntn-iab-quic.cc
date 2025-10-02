@@ -27,7 +27,7 @@
  *
  *   Modified by:
  *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
- *                 Integrating NTNs & Multilayer support with IAB derived from ns3-mmwave-iab, ns3-ntn and ns3-mmwave-hbf
+ *                 Integrating NTNs & Multilayer support with IAB and Quic derived from ns3-mmwave-iab, ns3-ntn, ns3-mmwave-hbf and quic-ns-3
  *                  
  */
 #include <ns3/buildings-module.h>
@@ -37,7 +37,6 @@
 #include "ns3/epc-helper.h"
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
-#include "ns3/ipv4-global-routing-helper.h"
 #include "ns3/internet-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/applications-module.h"
@@ -45,10 +44,161 @@
 #include "ns3/config-store.h"
 #include "ns3/mmwave-point-to-point-epc-helper.h"
 #include "ns3/quic-module.h"
-//#include "ns3/gtk-config-store.h"
+#include "ns3/quic-socket-base.h"
+#include "ns3/quic-header.h"
+#include <iomanip>
 using namespace ns3;
 
-NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIab");
+NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuic");
+
+// Global file streams for each layer
+std::ofstream quicTxFile, quicRxFile;
+std::ofstream udpL4TxFile, udpL4RxFile;
+std::ofstream ipv4L3TxFile, ipv4L3RxFile;
+std::ofstream p2pTxFile, p2pRxFile;
+
+// Helper function to dump full packet in hex
+void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
+{
+  file << prefix << " Size=" << packet->GetSize() << " bytes" << std::endl;
+  
+  // Create a copy to avoid modifying the original packet
+  Ptr<Packet> copy = packet->Copy();
+  
+  file << "Full packet hex dump:" << std::endl;
+  
+  uint8_t buffer[16];
+  uint32_t offset = 0;
+  
+  while (copy->GetSize() > 0)
+  {
+    uint32_t bytesToRead = std::min(16u, (uint32_t)copy->GetSize());
+    copy->CopyData(buffer, bytesToRead);
+    
+    // Print offset
+    file << std::hex << std::setw(8) << std::setfill('0') << offset << ": ";
+    
+    // Print hex bytes
+    for (uint32_t i = 0; i < 16; i++)
+    {
+      if (i < bytesToRead)
+        file << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i] << " ";
+      else
+        file << "   ";
+    }
+    
+    // Print ASCII representation
+    file << " |";
+    for (uint32_t i = 0; i < bytesToRead; i++)
+    {
+      char c = buffer[i];
+      file << (isprint(c) ? c : '.');
+    }
+    file << "|" << std::endl;
+    
+    copy->RemoveAtStart(bytesToRead);
+    offset += bytesToRead;
+  }
+  file << std::endl;
+}
+
+// QUIC Socket Base Tx callback (using built-in trace source)
+void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
+{
+  std::cout << "QUIC SOCKET TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
+            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
+  if (!quicTxFile.is_open())
+  {
+    quicTxFile.open("quic_socket_tx.txt", std::ios::out);
+    std::cout << "QUIC SOCKET TX file opened" << std::endl;
+  }
+  DumpPacketHex(quicTxFile, packet, "QUIC_SOCKET_TX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
+  quicTxFile.flush();
+}
+
+// QUIC Socket Base Rx callback (using built-in trace source)
+void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
+{
+  std::cout << "QUIC SOCKET RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
+            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
+  if (!quicRxFile.is_open())
+  {
+    quicRxFile.open("quic_socket_rx.txt", std::ios::out);
+    std::cout << "QUIC SOCKET RX file opened" << std::endl;
+  }
+  DumpPacketHex(quicRxFile, packet, "QUIC_SOCKET_RX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
+  quicRxFile.flush();
+}
+
+// UDP L4 layer callbacks (using custom trace sources)
+void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
+{
+  std::cout << "UDP L4 TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
+  if (!udpL4TxFile.is_open())
+  {
+    udpL4TxFile.open("udp_l4_tx.txt", std::ios::out);
+    std::cout << "UDP L4 TX file opened" << std::endl;
+  }
+  DumpPacketHex(udpL4TxFile, packet, "UDP_L4_TX Interface=" + std::to_string(interface));
+  udpL4TxFile.flush();
+}
+
+void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
+{
+  std::cout << "UDP L4 RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
+  if (!udpL4RxFile.is_open())
+  {
+    udpL4RxFile.open("udp_l4_rx.txt", std::ios::out);
+    std::cout << "UDP L4 RX file opened" << std::endl;
+  }
+  DumpPacketHex(udpL4RxFile, packet, "UDP_L4_RX Interface=" + std::to_string(interface));
+  udpL4RxFile.flush();
+}
+
+// IPv4 L3 layer callbacks
+void Ipv4L3TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
+{
+  if (!ipv4L3TxFile.is_open())
+  {
+    ipv4L3TxFile.open("ipv4_l3_tx.txt", std::ios::out);
+  }
+  DumpPacketHex(ipv4L3TxFile, packet, "IPV4_L3_TX Interface=" + std::to_string(interface));
+  ipv4L3TxFile.flush();
+}
+
+void Ipv4L3RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
+{
+  if (!ipv4L3RxFile.is_open())
+  {
+    ipv4L3RxFile.open("ipv4_l3_rx.txt", std::ios::out);
+  }
+  DumpPacketHex(ipv4L3RxFile, packet, "IPV4_L3_RX Interface=" + std::to_string(interface));
+  ipv4L3RxFile.flush();
+}
+
+// Traffic Control traces are not easily accessible in NS-3
+// We'll focus on the available traces: UDP, IPv4, and P2P
+
+// Point-to-Point NetDevice callbacks (using correct signature)
+void P2PTxCallback(Ptr<const Packet> packet)
+{
+  if (!p2pTxFile.is_open())
+  {
+    p2pTxFile.open("p2p_tx.txt", std::ios::out);
+  }
+  DumpPacketHex(p2pTxFile, packet, "P2P_TX");
+  p2pTxFile.flush();
+}
+
+void P2PRxCallback(Ptr<const Packet> packet)
+{
+  if (!p2pRxFile.is_open())
+  {
+    p2pRxFile.open("p2p_rx.txt", std::ios::out);
+  }
+  DumpPacketHex(p2pRxFile, packet, "P2P_RX");
+  p2pRxFile.flush();
+}
 
 void
 ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
@@ -86,9 +236,9 @@ main (int argc, char *argv[])
   // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_FUNCTION);
   // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_FUNCTION);
   // LogComponentEnable("MmWaveHelper", LOG_LEVEL_FUNCTION);  
-  // // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcMmeApplication", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
+  // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_LOGIC);
+  // LogComponentEnable("EpcMmeApplication", LOG_LEVEL_LOGIC);
+  // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
@@ -97,15 +247,28 @@ main (int argc, char *argv[])
   // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
   // LogComponentEnable("MmWaveUePhy", ns3::LOG_LEVEL_INFO);
   // LogComponentEnable("MmWavePointToPointEpcHelper", LOG_LEVEL_LOGIC);
-  // //LogComponentEnable("EpcS1ap", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcTftClassifier", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcGtpuHeader", LOG_LEVEL_INFO);
-  // // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
-  // // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
+  // LogComponentEnable("EpcS1ap", LOG_LEVEL_LOGIC);
+  // LogComponentEnable("EpcTftClassifier", LOG_LEVEL_LOGIC);
+  // LogComponentEnable("EpcGtpuHeader", LOG_LEVEL_INFO);
+  // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
+  // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
   // LogComponentEnable("UdpClient", LOG_ALL);
   // LogComponentEnable("UdpServer", LOG_ALL);
   // LogComponentEnable("QuicClient", LOG_ALL);
   // LogComponentEnable("QuicServer", LOG_ALL);
+  // LogComponentEnable("QuicSubheader", LOG_ALL);
+  // LogComponentEnable("QuicSocket", LOG_ALL);
+  // LogComponentEnable("QuicL4Protocol", LOG_ALL);
+  // LogComponentEnable("UdpSocket", LOG_ALL);
+  // LogComponentEnable("UdpL4Protocol", LOG_ALL);
+  // LogComponentEnable("Ipv4L3Protocol", LOG_ALL);
+  // LogComponentEnable("Ipv4RoutingProtocol", LOG_ALL);
+  // LogComponentEnable("MmWaveEnbNetDevice", LOG_ALL);
+  // LogComponentEnable("MmWaveUeNetDevice", LOG_ALL);
+  // LogComponentEnable("MmWaveEnbPhy", LOG_ALL);
+  // LogComponentEnable("MmWaveUePhy", LOG_ALL);
+  // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
+  // LogComponentEnable("MmWaveUeMac", LOG_ALL);
   // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_DEBUG);
   // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
   // LogComponentEnable("mmWaveInterference", LOG_LEVEL_FUNCTION);
@@ -141,6 +304,73 @@ main (int argc, char *argv[])
   // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_ALL);
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_ALL);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_ALL);
+
+  // LogComponentDisableAll(LOG_LEVEL_ALL);
+  
+  // QUIC Layer
+  // LogComponentEnable("QuicClient", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // //LogComponentEnable("Packet", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicServer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocket", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL4Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSubheader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicHeader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+    
+  // Enable additional QUIC classes that might be missing
+  // LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicTransportParameters", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  
+  // Enable UDP and IP layers for complete packet flow
+  // LogComponentEnable("UdpSocket", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_FUNCTION);
+  
+  // UDP Layer
+  // LogComponentEnable("UdpSocket", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("UdpSocketImpl", LOG_LEVEL_FUNCTION);
+  
+  // IP Layer
+  // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("Ipv4Interface", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("Ipv4RoutingProtocol", LOG_LEVEL_FUNCTION);
+  
+  // Traffic Control Layer
+  // LogComponentEnable("TrafficControlLayer", LOG_LEVEL_FUNCTION);
+  
+  // LTE/EPC Layer
+  // LogComponentEnable("EpcUeNas", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LteUeRrc", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LtePdcp", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LteRlc", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LteRlcAm", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LteRlcUm", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LteRlcUmLowLat", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LteUeMac", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_FUNCTION);
+  
+  // Physical Layer
+  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_FUNCTION);
+  // //LogComponentEnable("MmWaveUePhy", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_FUNCTION);
+  // //LogComponentEnable("MmWaveUeMac", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("MmWaveEnbNetDevice", LOG_LEVEL_FUNCTION);
+  // //LogComponentEnable("MmWaveUeNetDevice", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_FUNCTION);
+  
+  // Network Devices
+  // LogComponentEnable("PointToPointNetDevice", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable("PointToPointChannel", LOG_LEVEL_FUNCTION);
 
   CommandLine cmd; 
   unsigned run = 0;
@@ -186,7 +416,7 @@ main (int argc, char *argv[])
   Config::SetDefault ("ns3::MmWavePhyMacCommon::CenterFreq", DoubleValue (6.0e9)); 
   // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
 
-// 	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
+	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
 // 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
 // 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
 // //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
@@ -256,6 +486,14 @@ main (int argc, char *argv[])
   
   // Install QUIC stack on remote host (instead of Internet stack)
   QuicHelper quicHelper;
+
+  // Increase socket buffer sizes to prevent buffer overflow
+  // 4 MB of buffer
+  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 21));
+  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 21));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 21));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 21));
+  
   quicHelper.InstallQuic (remoteHostContainer);
   // Create the Internet
   PointToPointHelper p2ph;
@@ -309,8 +547,9 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(20);
+  ueNodes.Create(2);
   // Install Mobility Model
+  
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
   enbPositionAlloc->Add (posWired);
   MobilityHelper enbmobility;
@@ -501,16 +740,52 @@ main (int argc, char *argv[])
     }
   }
   NS_LOG_UNCOND("=======================\n");
+    
+  // IPv4 L3 layer tracing (these are known to work)
+  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Tx",
+                               MakeCallback(&Ipv4L3TxCallback));
+  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Rx",
+                               MakeCallback(&Ipv4L3RxCallback));
+  
+  // Point-to-Point NetDevice tracing (using correct signatures)
+  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacTx",
+                               MakeCallback(&P2PTxCallback));
+  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacRx",
+                               MakeCallback(&P2PRxCallback));
+  
+  // Physical layer tracing (MmWave) - using correct signature
+  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveEnbNetDevice/Phy/RxPacketTrace",
+                               MakeCallback(&P2PRxCallback));
+  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveUeNetDevice/Phy/RxPacketTrace",
+                               MakeCallback(&P2PRxCallback));
+  
   mmwaveHelper->EnableTraces ();
-  serverApps.Start (Seconds (0.3));
-  clientApps.Start (Seconds (0.3));
-  clientApps.Stop (Seconds (2.0));
-  serverApps.Stop (Seconds (2.0));
-  Simulator::Stop (Seconds (2.5));
+  serverApps.Start (Seconds (0.5));
+  clientApps.Start (Seconds (1.0));
+  clientApps.Stop (Seconds (3.0));
+  serverApps.Stop (Seconds (3.0));
+  Simulator::Stop (Seconds (3.5));
   
   Simulator::Run();
   /*GtkConfigStore config;
   config.ConfigureAttributes();*/
   Simulator::Destroy();
+  
+  // Close all trace files
+  if (quicTxFile.is_open()) quicTxFile.close();
+  if (quicRxFile.is_open()) quicRxFile.close();
+  if (udpL4TxFile.is_open()) udpL4TxFile.close();
+  if (udpL4RxFile.is_open()) udpL4RxFile.close();
+  if (ipv4L3TxFile.is_open()) ipv4L3TxFile.close();
+  if (ipv4L3RxFile.is_open()) ipv4L3RxFile.close();
+  if (p2pTxFile.is_open()) p2pTxFile.close();
+  if (p2pRxFile.is_open()) p2pRxFile.close();
+  
+  NS_LOG_UNCOND("Packet trace files created:");
+  NS_LOG_UNCOND("- quic_socket_tx.txt, quic_socket_rx.txt");
+  NS_LOG_UNCOND("- udp_l4_tx.txt, udp_l4_rx.txt");
+  NS_LOG_UNCOND("- ipv4_l3_tx.txt, ipv4_l3_rx.txt");
+  NS_LOG_UNCOND("- p2p_tx.txt, p2p_rx.txt");
+  
   return 0;
 }

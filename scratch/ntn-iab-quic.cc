@@ -27,7 +27,7 @@
  *
  *   Modified by:
  *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
- *                 Integrating NTNs & Multilayer support with IAB derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn and signetlabdei/ns3-mmwave-hbf
+ *                 Integrating NTNs & Multilayer support with IAB and quic derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn and signetlabdei/ns3-mmwave-hbf and signetlabdei/quic-ns-3
  *                  
  */
 #include <ns3/buildings-module.h>

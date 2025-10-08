@@ -26,7 +26,7 @@
  *              Menglei Zhang <menglei@nyu.edu>
  *   
  *   Modified by: Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
- *                 Integrating NTNs & Multilayer support with IAB derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn and signetlabdei/ns3-mmwave-hbf
+ *                 Integrating NTNs & Multilayer support with IAB with MPEG-DASH video streaming with quic derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn, signetlabdei/ns3-mmwave-hbf, signetlabdei/quic-ns-3 and ssjShirley/mpquic-ns3
  *
  *                  
  */

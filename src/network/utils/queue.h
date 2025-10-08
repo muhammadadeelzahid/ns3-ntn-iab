@@ -302,46 +302,89 @@ protected:
 
   /// Const iterator.
   typedef typename std::list<Ptr<Item> >::const_iterator ConstIterator;
+  /// Iterator.
+  typedef typename std::list<Ptr<Item> >::iterator Iterator;
 
   /**
    * \brief Get a const iterator which refers to the first item in the queue.
    *
-   * Subclasses can browse the items in the queue by using an iterator
+   * Subclasses can browse the items in the queue by using a const iterator
    *
    * \code
-   *   for (auto i = Head (); i != Tail (); ++i)
+   *   for (auto i = begin (); i != end (); ++i)
    *     {
-   *       (*i)->method ();  // some method of the Item class
+   *       (*i)->method ();  // some const method of the Item class
    *     }
    * \endcode
    *
    * \returns a const iterator which refers to the first item in the queue.
    */
-  ConstIterator Head (void) const;
+  ConstIterator begin (void) const;
 
   /**
-   * \brief Get a const iterator which indicates past-the-last item in the queue.
+   * \brief Get an iterator which refers to the first item in the queue.
    *
    * Subclasses can browse the items in the queue by using an iterator
    *
    * \code
-   *   for (auto i = Head (); i != Tail (); ++i)
+   *   for (auto i = begin (); i != end (); ++i)
    *     {
    *       (*i)->method ();  // some method of the Item class
    *     }
    * \endcode
    *
+   * \returns an iterator which refers to the first item in the queue.
+   */
+  Iterator begin (void);
+
+  /**
+   * \brief Get a const iterator which indicates past-the-last item in the queue.
+   *
+   * Subclasses can browse the items in the queue by using a const iterator
+   *
+   * \code
+   *   for (auto i = begin (); i != end (); ++i)
+   *     {
+   *       (*i)->method ();  // some const method of the Item class
+   *     }
+   * \endcode
+   *
    * \returns a const iterator which indicates past-the-last item in the queue.
    */
-  ConstIterator Tail (void) const;
+  ConstIterator end (void) const;
+
+  /**
+   * \brief Get an iterator which indicates past-the-last item in the queue.
+   *
+   * Subclasses can browse the items in the queue by using an iterator
+   *
+   * \code
+   *   for (auto i = begin (); i != end (); ++i)
+   *     {
+   *       (*i)->method ();  // some method of the Item class
+   *     }
+   * \endcode
+   *
+   * \returns an iterator which indicates past-the-last item in the queue.
+   */
+  Iterator end (void);
 
   /**
    * Push an item in the queue
-   * \param pos the position where the item is inserted
+   * \param pos the position before which the item will be inserted
    * \param item the item to enqueue
    * \return true if success, false if the packet has been dropped.
    */
   bool DoEnqueue (ConstIterator pos, Ptr<Item> item);
+
+  /**
+   * Push an item in the queue
+   * \param pos the position before which the item will be inserted
+   * \param item the item to enqueue
+   * \param[out] ret an iterator pointing to the inserted value
+   * \return true if success, false if the packet has been dropped.
+   */
+  bool DoEnqueue (ConstIterator pos, Ptr<Item> item, Iterator& ret);
 
   /**
    * Pull the item to dequeue from the queue
@@ -447,6 +490,14 @@ template <typename Item>
 bool
 Queue<Item>::DoEnqueue (ConstIterator pos, Ptr<Item> item)
 {
+  Iterator ret;
+  return DoEnqueue (pos, item, ret);
+}
+
+template <typename Item>
+bool
+Queue<Item>::DoEnqueue (ConstIterator pos, Ptr<Item> item, Iterator& ret)
+{
   NS_LOG_FUNCTION (this << item);
 
   if (GetCurrentSize () + item > GetMaxSize ())
@@ -456,7 +507,7 @@ Queue<Item>::DoEnqueue (ConstIterator pos, Ptr<Item> item)
       return false;
     }
 
-  m_packets.insert (pos, item);
+  ret = m_packets.insert (pos, item);
 
   uint32_t size = item->GetSize ();
   m_nBytes += size;
@@ -559,15 +610,27 @@ Queue<Item>::DoPeek (ConstIterator pos) const
 }
 
 template <typename Item>
-typename Queue<Item>::ConstIterator Queue<Item>::Head (void) const
+typename Queue<Item>::ConstIterator Queue<Item>::begin (void) const
 {
   return m_packets.cbegin ();
 }
 
 template <typename Item>
-typename Queue<Item>::ConstIterator Queue<Item>::Tail (void) const
+typename Queue<Item>::Iterator Queue<Item>::begin (void)
+{
+  return m_packets.begin ();
+}
+
+template <typename Item>
+typename Queue<Item>::ConstIterator Queue<Item>::end (void) const
 {
   return m_packets.cend ();
+}
+
+template <typename Item>
+typename Queue<Item>::Iterator Queue<Item>::end (void)
+{
+  return m_packets.end ();
 }
 
 template <typename Item>

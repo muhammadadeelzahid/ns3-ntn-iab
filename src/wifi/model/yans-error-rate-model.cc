@@ -21,7 +21,6 @@
 
 #include "ns3/log.h"
 #include "yans-error-rate-model.h"
-#include "dsss-error-rate-model.h"
 #include "wifi-utils.h"
 #include "wifi-phy.h"
 
@@ -180,15 +179,24 @@ YansErrorRateModel::GetFecQamBer (double snr, uint64_t nbits,
 }
 
 double
-YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, double snr, uint64_t nbits) const
+YansErrorRateModel::DoGetChunkSuccessRate (WifiMode mode, const WifiTxVector& txVector, double snr, uint64_t nbits, uint16_t staId) const
 {
-  NS_LOG_FUNCTION (this << mode << txVector.GetMode () << snr << nbits);
+  NS_LOG_FUNCTION (this << mode << txVector.GetMode () << snr << nbits << staId);
   if (mode.GetModulationClass () == WIFI_MOD_CLASS_ERP_OFDM
       || mode.GetModulationClass () == WIFI_MOD_CLASS_OFDM
       || mode.GetModulationClass () == WIFI_MOD_CLASS_HT
       || mode.GetModulationClass () == WIFI_MOD_CLASS_VHT
       || mode.GetModulationClass () == WIFI_MOD_CLASS_HE)
     {
+      uint64_t phyRate;
+      if ((mode != txVector.GetMode ()) || (txVector.IsMu () && (staId == SU_STA_ID)))
+        {
+          phyRate = mode.GetPhyRate (txVector.GetChannelWidth () >= 40 ? 20 : txVector.GetChannelWidth ()); //This is the PHY header
+        }
+      else
+        {
+          phyRate = mode.GetPhyRate (txVector, staId);
+        }
       if (mode.GetConstellationSize () == 2)
         {
           if (mode.GetCodeRate () == WIFI_CODE_RATE_1_2)
@@ -196,7 +204,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecBpskBer (snr,
                                     nbits,
                                     txVector.GetChannelWidth () * 1000000, //signal spread
-                                    mode.GetPhyRate (txVector), //phy rate
+                                    phyRate, //PHY rate
                                     10, //dFree
                                     11); //adFree
             }
@@ -205,7 +213,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecBpskBer (snr,
                                     nbits,
                                     txVector.GetChannelWidth () * 1000000, //signal spread
-                                    mode.GetPhyRate (txVector), //phy rate
+                                    phyRate, //PHY rate
                                     5, //dFree
                                     8); //adFree
             }
@@ -217,7 +225,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, //signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    4, //m
                                    10, //dFree
                                    11, //adFree
@@ -228,7 +236,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, //signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    4, //m
                                    5, //dFree
                                    8, //adFree
@@ -242,7 +250,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, //signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    16, //m
                                    10, //dFree
                                    11, //adFree
@@ -253,7 +261,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, //signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    16, //m
                                    5, //dFree
                                    8, //adFree
@@ -267,7 +275,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, //signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    64, //m
                                    6, //dFree
                                    1, //adFree
@@ -279,7 +287,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, //signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    64, //m
                                    4, //dFree
                                    14, //adFree
@@ -290,7 +298,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, //signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    64, //m
                                    5, //dFree
                                    8, //adFree
@@ -304,7 +312,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, // signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    256, // m
                                    4,  // dFree
                                    14,  // adFree
@@ -316,7 +324,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, // signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    256, // m
                                    5,  // dFree
                                    8,  // adFree
@@ -331,7 +339,7 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, // signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    1024, // m
                                    4,  // dFree
                                    14,  // adFree
@@ -343,29 +351,13 @@ YansErrorRateModel::GetChunkSuccessRate (WifiMode mode, WifiTxVector txVector, d
               return GetFecQamBer (snr,
                                    nbits,
                                    txVector.GetChannelWidth () * 1000000, // signal spread
-                                   mode.GetPhyRate (txVector), //phy rate
+                                   phyRate, //PHY rate
                                    1024, // m
                                    5,  // dFree
                                    8,  // adFree
                                    31  // adFreePlusOne
                                    );
             }
-        }
-    }
-  else if (mode.GetModulationClass () == WIFI_MOD_CLASS_DSSS || mode.GetModulationClass () == WIFI_MOD_CLASS_HR_DSSS)
-    {
-      switch (mode.GetDataRate (20))
-        {
-        case 1000000:
-          return DsssErrorRateModel::GetDsssDbpskSuccessRate (snr, nbits);
-        case 2000000:
-          return DsssErrorRateModel::GetDsssDqpskSuccessRate (snr, nbits);
-        case 5500000:
-          return DsssErrorRateModel::GetDsssDqpskCck5_5SuccessRate (snr, nbits);
-        case 11000000:
-          return DsssErrorRateModel::GetDsssDqpskCck11SuccessRate (snr, nbits);
-        default:
-          NS_ASSERT ("undefined DSSS/HR-DSSS datarate");
         }
     }
   return 0;

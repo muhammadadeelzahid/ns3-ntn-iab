@@ -384,7 +384,7 @@ WaveHelper::Install (const WifiPhyHelper &phyHelper,  const WifiMacHelper &macHe
       for (uint32_t j = 0; j != m_physNumber; ++j)
         {
           Ptr<WifiPhy> phy = phyHelper.Create (node, device);
-          phy->ConfigureStandard (WIFI_PHY_STANDARD_80211_10MHZ);
+          phy->ConfigureStandardAndBand (WIFI_PHY_STANDARD_80211p, WIFI_PHY_BAND_5GHZ);
           phy->SetChannelNumber (ChannelManager::GetCch ());
           device->AddPhy (phy);
         }
@@ -392,12 +392,10 @@ WaveHelper::Install (const WifiPhyHelper &phyHelper,  const WifiMacHelper &macHe
       for (std::vector<uint32_t>::const_iterator k = m_macsForChannelNumber.begin ();
            k != m_macsForChannelNumber.end (); ++k)
         {
-          Ptr<WifiMac> wifiMac = macHelper.Create (device);
+          Ptr<WifiMac> wifiMac = macHelper.Create (device, WIFI_STANDARD_80211p);
           Ptr<OcbWifiMac> ocbMac = DynamicCast<OcbWifiMac> (wifiMac);
-          // we use WaveMacLow to replace original MacLow
+          ocbMac->SetWifiRemoteStationManager (m_stationManager.Create<WifiRemoteStationManager> ());
           ocbMac->EnableForWave (device);
-          ocbMac->SetWifiRemoteStationManager ( m_stationManager.Create<WifiRemoteStationManager> ());
-          ocbMac->ConfigureStandard (WIFI_PHY_STANDARD_80211_10MHZ);
           device->AddMac (*k, ocbMac);
         }
 

@@ -83,13 +83,13 @@ private:
    * Get number of devices on the channel
    * \returns the number of devices
    */
-  virtual uint32_t DoGetNDevices (void) const = 0;
+  virtual std::size_t DoGetNDevices (void) const = 0;
   /**
    * Get device corresponding to index
    * \param i the device index
    * \returns the device
    */
-  virtual Ptr<NetDevice> DoGetDevice (uint32_t i) const = 0;
+  virtual Ptr<NetDevice> DoGetDevice (std::size_t i) const = 0;
 };
 
 } // namespace ns3

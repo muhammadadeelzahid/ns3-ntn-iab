@@ -19,7 +19,8 @@
  *          Federico Chiariotti <chiariotti.federico@gmail.com>
  *          Michele Polese <michele.polese@gmail.com>
  *          Davide Marcato <davidemarcato@outlook.com>
- *          
+ *          Wenjun Yang <wenjunyang@uvic.ca>
+ *          Shengjie Shu <shengjies@uvic.ca>
  */
 
 #ifndef QUICSTREAMBASE_H_
@@ -45,25 +46,24 @@ namespace ns3 {
  * \brief A base class for implementation of a QUIC stream
  *
  * This class contains the essential components of Quic Streams, as well as streams
- * interfaces to call. This class provides credit-based flow control; congestion 
+ * interfaces to call. This class provides credit-based flow control; congestion
  * control is delegated to subclasses of QuicCongestionOps
  *
  */
 class QuicStreamBase : public QuicStream
 {
 public:
-
   /**
    * Get the type ID.
    * \brief Get the type ID.
    * \return the object TypeId
    */
   static TypeId GetTypeId (void);
- 
- /**
-  * \brief Get the instance TypeId
-  * \return the instance TypeId
-  */
+
+  /**
+   * \brief Get the instance TypeId
+   * \return the instance TypeId
+   */
   virtual TypeId GetInstanceTypeId () const;
 
   QuicStreamBase (void);
@@ -134,7 +134,7 @@ public:
    * \return the size of the frame sent
    */
   uint32_t SendDataFrame (SequenceNumber32 seq, uint32_t maxSize);
-  
+
   /**
      * \brief Calculate the maximum amount of data that can be received by this stream
      *
@@ -196,7 +196,7 @@ public:
   void SetStreamId (uint64_t streamId);
   uint64_t GetStreamId (void);
   uint32_t GetStreamTxAvailable (void) const;
-
+  void UpdateRxBuf (uint32_t oldValue, uint32_t newValue);
 
 protected:
   QuicStreamTypes_t m_streamType;                    //!< The stream type
@@ -210,6 +210,8 @@ protected:
 
   // Flow Control Parameters
   uint32_t m_maxStreamData;                          //!< Maximum amount of data that can be sent/received on the stream
+  uint32_t m_maxAdvertisedData;                                          //!< Last advertised MaxData
+  uint32_t m_maxDataInterval;                                            //!< Interval between MaxData frames
   uint64_t m_sentSize;                               //!< Amount of data sent in this stream
   uint64_t m_recvSize;                               //!< Amount of data received in this stream
   bool m_fin;                                        //!< A flag indicating if the FIN bit has already been received/sent
@@ -218,6 +220,8 @@ protected:
   uint32_t m_streamTxBufferSize;                     //!< Size of the stream TX buffer
   uint32_t m_streamRxBufferSize;                     //!< Size of the stream RX buffer
   EventId m_streamSendPendingDataEvent;              //!< Micro-delay event to send pending data
+
+  TracedCallback<uint32_t, uint32_t> m_rxbufTrace;
 
 };
 

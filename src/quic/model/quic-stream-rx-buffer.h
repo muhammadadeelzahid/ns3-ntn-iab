@@ -19,7 +19,7 @@
  *          Federico Chiariotti <chiariotti.federico@gmail.com>
  *          Michele Polese <michele.polese@gmail.com>
  *          Davide Marcato <davidemarcato@outlook.com>
- *          
+ *
  */
 
 #ifndef QUICSTREAMRXBUFFER_H
@@ -69,7 +69,7 @@ public:
    */
   bool operator== (const QuicStreamRxItem& other)
   {
-    return (this->m_offset == other.m_offset)and (this->m_fin == other.m_fin) and (this->m_packet == other.m_packet);
+    return (this->m_offset == other.m_offset) and (this->m_fin == other.m_fin) and (this->m_packet == other.m_packet);
   }
 
   Ptr<Packet> m_packet;  //!< Stream Frame
@@ -170,7 +170,7 @@ private:
   typedef std::vector<QuicStreamRxItem*> QuicStreamRxPacketList;  //!< container for data stored in the buffer
 
   QuicStreamRxPacketList m_streamRecvList;  //!< List of received packets with additional info
-  uint32_t m_numBytesInBuffer;              //!< Current buffer occupancy
+  TracedValue<uint32_t> m_numBytesInBuffer;              //!< Current buffer occupancy
   uint32_t m_finalSize;                     //!< Final buffer size
   uint32_t m_maxBuffer;                     //!< Maximum buffer size
   bool m_recvFin;                           //!< FIN bit reception flag

@@ -42,7 +42,9 @@
 #include "tcp-socket-factory-impl.h"
 #include "tcp-socket-base.h"
 #include "tcp-congestion-ops.h"
+#include "tcp-cubic.h"
 #include "tcp-recovery-ops.h"
+#include "tcp-prr-recovery.h"
 #include "rtt-estimator.h"
 
 #include <vector>
@@ -78,12 +80,12 @@ TcpL4Protocol::GetTypeId (void)
                    MakeTypeIdChecker ())
     .AddAttribute ("SocketType",
                    "Socket type of TCP objects.",
-                   TypeIdValue (TcpNewReno::GetTypeId ()),
+                   TypeIdValue (TcpCubic::GetTypeId ()),
                    MakeTypeIdAccessor (&TcpL4Protocol::m_congestionTypeId),
                    MakeTypeIdChecker ())
     .AddAttribute ("RecoveryType",
                    "Recovery type of TCP objects.",
-                   TypeIdValue (TcpClassicRecovery::GetTypeId ()),
+                   TypeIdValue (TcpPrrRecovery::GetTypeId ()),
                    MakeTypeIdAccessor (&TcpL4Protocol::m_recoveryTypeId),
                    MakeTypeIdChecker ())
     .AddAttribute ("SocketList", "The list of sockets associated to this protocol.",
@@ -97,8 +99,7 @@ TcpL4Protocol::GetTypeId (void)
 TcpL4Protocol::TcpL4Protocol ()
   : m_endPoints (new Ipv4EndPointDemux ()), m_endPoints6 (new Ipv6EndPointDemux ())
 {
-  NS_LOG_FUNCTION_NOARGS ();
-  NS_LOG_LOGIC ("Made a TcpL4Protocol " << this);
+  NS_LOG_FUNCTION (this);
 }
 
 TcpL4Protocol::~TcpL4Protocol ()

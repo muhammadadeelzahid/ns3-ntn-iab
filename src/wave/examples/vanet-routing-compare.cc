@@ -664,7 +664,7 @@ PrintReceivedRoutingPacket (Ptr<Socket> socket, Ptr<Packet> packet, Address srcA
 {
   std::ostringstream oss;
 
-  oss << Simulator::Now ().GetSeconds () << " " << socket->GetNode ()->GetId ();
+  oss << Simulator::Now ().As (Time::S) << " " << socket->GetNode ()->GetId ();
 
   if (InetSocketAddress::IsMatchingType (srcAddress))
     {
@@ -770,9 +770,10 @@ public:
    * \brief Callback signiture for Phy/RxDrop
    * \param context this object
    * \param packet the rx packet being dropped
+   * \param reason the reason for the drop
    * \return none
    */
-  void PhyRxDrop (std::string context, Ptr<const Packet> packet);
+  void PhyRxDrop (std::string context, Ptr<const Packet> packet, WifiPhyRxfailureReason reason);
 
 private:
   uint32_t m_phyTxPkts; ///< phy transmit packets
@@ -818,7 +819,7 @@ WifiPhyStats::PhyTxDrop (std::string context, Ptr<const Packet> packet)
 }
 
 void
-WifiPhyStats::PhyRxDrop (std::string context, Ptr<const Packet> packet)
+WifiPhyStats::PhyRxDrop (std::string context, Ptr<const Packet> packet, WifiPhyRxfailureReason reason)
 {
   NS_LOG_UNCOND ("PHY Rx Drop");
 }
@@ -1309,7 +1310,7 @@ private:
   double m_txSafetyRange10; ///< range 10
   std::vector <double> m_txSafetyRanges; ///< list of ranges
   std::string m_exp; ///< exp
-  int m_cumulativeBsmCaptureStart; ///< capture start
+  Time m_cumulativeBsmCaptureStart; ///< capture start
 };
 
 VanetRoutingExperiment::VanetRoutingExperiment ()
@@ -1451,9 +1452,9 @@ static ns3::GlobalValue g_pcap ("VRCpcap",
                                 ns3::UintegerValue (0),
                                 ns3::MakeUintegerChecker<uint32_t> ());
 static ns3::GlobalValue g_cumulativeBsmCaptureStart ("VRCcumulativeBsmCaptureStart",
-                                                     "Simulation starte time for capturing cumulative BSM",
-                                                     ns3::UintegerValue (0),
-                                                     ns3::MakeUintegerChecker<uint32_t> ());
+                                                     "Simulation start time for capturing cumulative BSM",
+                                                     ns3::TimeValue (Seconds (0)),
+                                                     ns3::MakeTimeChecker ());
 
 static ns3::GlobalValue g_txSafetyRange1 ("VRCtxSafetyRange1",
                                           "BSM range for PDR inclusion",
@@ -1605,15 +1606,24 @@ VanetRoutingExperiment::ConfigureDevices ()
   // devices are set up in SetupAdhocDevices(),
   // called by ConfigureChannels()
 
-  // every device will have PHY callback for tracing
-  // which is used to determine the total amount of
+  // use a PHY callback for tracing
+  // to determine the total amount of
   // data transmitted, and then used to calculate
   // the MAC/PHY overhead beyond the app-data
-  Config::Connect ("/NodeList/*/DeviceList/*/Phy/State/Tx", MakeCallback (&WifiPhyStats::PhyTxTrace, m_wifiPhyStats));
-  // TxDrop, RxDrop not working yet.  Not sure what I'm doing wrong.
-  Config::Connect ("/NodeList/*/DeviceList/*/ns3::WifiNetDevice/Phy/PhyTxDrop", MakeCallback (&WifiPhyStats::PhyTxDrop, m_wifiPhyStats));
-  Config::Connect ("/NodeList/*/DeviceList/*/ns3::WifiNetDevice/Phy/PhyRxDrop", MakeCallback (&WifiPhyStats::PhyRxDrop, m_wifiPhyStats));
+  if (m_80211mode == 3)
+    {
+      // WAVE
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WaveNetDevice/PhyEntities/*/State/Tx", MakeCallback (&WifiPhyStats::PhyTxTrace, m_wifiPhyStats));
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WaveNetDevice/PhyEntities/*/PhyTxDrop", MakeCallback (&WifiPhyStats::PhyTxDrop, m_wifiPhyStats));
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WaveNetDevice/PhyEntities/*/PhyRxDrop", MakeCallback (&WifiPhyStats::PhyRxDrop, m_wifiPhyStats)); 
+    }
+  else
+    {
+      Config::Connect ("/NodeList/*/DeviceList/*/Phy/State/Tx", MakeCallback (&WifiPhyStats::PhyTxTrace, m_wifiPhyStats));
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyTxDrop", MakeCallback (&WifiPhyStats::PhyTxDrop, m_wifiPhyStats));
+      Config::Connect ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyRxDrop", MakeCallback (&WifiPhyStats::PhyRxDrop, m_wifiPhyStats)); 
 }
+    }
 
 void
 VanetRoutingExperiment::ConfigureMobility ()
@@ -1797,10 +1807,10 @@ VanetRoutingExperiment::CheckThroughput ()
 
   if (m_log != 0 )
     {
-      NS_LOG_UNCOND ("At t=" << (Simulator::Now ()).GetSeconds () << "s BSM_PDR1=" << wavePDR1_2 << " BSM_PDR1=" << wavePDR2_2 << " BSM_PDR3=" << wavePDR3_2 << " BSM_PDR4=" << wavePDR4_2 << " BSM_PDR5=" << wavePDR5_2 << " BSM_PDR6=" << wavePDR6_2 << " BSM_PDR7=" << wavePDR7_2 << " BSM_PDR8=" << wavePDR8_2 << " BSM_PDR9=" << wavePDR9_2 << " BSM_PDR10=" << wavePDR10_2 << " Goodput=" << kbps << "Kbps" /*<< " MAC/PHY-OH=" << mac_phy_oh*/);
+      NS_LOG_UNCOND ("At t=" << (Simulator::Now ()).As (Time::S) << " BSM_PDR1=" << wavePDR1_2 << " BSM_PDR1=" << wavePDR2_2 << " BSM_PDR3=" << wavePDR3_2 << " BSM_PDR4=" << wavePDR4_2 << " BSM_PDR5=" << wavePDR5_2 << " BSM_PDR6=" << wavePDR6_2 << " BSM_PDR7=" << wavePDR7_2 << " BSM_PDR8=" << wavePDR8_2 << " BSM_PDR9=" << wavePDR9_2 << " BSM_PDR10=" << wavePDR10_2 << " Goodput=" << kbps << "Kbps" /*<< " MAC/PHY-OH=" << mac_phy_oh*/);
     }
 
-  out << (Simulator::Now ()).GetSeconds () << ","
+  out << (Simulator::Now ()).As (Time::S) << ","
       << kbps << ","
       << packetsReceived << ","
       << m_nSinks << ","
@@ -1836,8 +1846,8 @@ VanetRoutingExperiment::CheckThroughput ()
       m_waveBsmHelper.GetWaveBsmStats ()->SetRxPktInRangeCount (index, 0);
     }
 
-  double currentTime = (Simulator::Now ()).GetSeconds ();
-  if (currentTime <= (double) m_cumulativeBsmCaptureStart)
+  Time currentTime = Simulator::Now ();
+  if (currentTime <= m_cumulativeBsmCaptureStart)
     {
       for (int index = 1; index <= 10; index++)
         {
@@ -1855,6 +1865,7 @@ VanetRoutingExperiment::SetConfigFromGlobals ()
   UintegerValue uintegerValue;
   DoubleValue doubleValue;
   StringValue stringValue;
+  TimeValue timeValue;
 
   // This may not be the best way to manage program configuration
   // (directing them through global values), but management
@@ -1895,8 +1906,9 @@ VanetRoutingExperiment::SetConfigFromGlobals ()
   m_asciiTrace = uintegerValue.Get ();
   GlobalValue::GetValueByName ("VRCpcap", uintegerValue);
   m_pcap = uintegerValue.Get ();
-  GlobalValue::GetValueByName ("VRCcumulativeBsmCaptureStart", uintegerValue);
-  m_cumulativeBsmCaptureStart = uintegerValue.Get ();
+  GlobalValue::GetValueByName ("VRCcumulativeBsmCaptureStart", timeValue);
+  m_cumulativeBsmCaptureStart = timeValue.Get ();
+
 
   GlobalValue::GetValueByName ("VRCtxSafetyRange1", doubleValue);
   m_txSafetyRange1 = doubleValue.Get ();
@@ -1972,7 +1984,7 @@ VanetRoutingExperiment::SetGlobalsFromConfig ()
   g_routingTables.SetValue (UintegerValue (m_routingTables));
   g_asciiTrace.SetValue (UintegerValue (m_asciiTrace));
   g_pcap.SetValue (UintegerValue (m_pcap));
-  g_cumulativeBsmCaptureStart.SetValue (UintegerValue (m_cumulativeBsmCaptureStart));
+  g_cumulativeBsmCaptureStart.SetValue (TimeValue (m_cumulativeBsmCaptureStart));
 
   g_txSafetyRange1.SetValue (DoubleValue (m_txSafetyRange1));
   g_txSafetyRange2.SetValue (DoubleValue (m_txSafetyRange2));
@@ -2005,7 +2017,7 @@ VanetRoutingExperiment::SetGlobalsFromConfig ()
 void
 VanetRoutingExperiment::CommandSetup (int argc, char **argv)
 {
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   double txDist1 = 50.0;
   double txDist2 = 100.0;
   double txDist3 = 150.0;
@@ -2239,7 +2251,7 @@ VanetRoutingExperiment::SetupAdhocDevices ()
   Ptr<YansWifiChannel> channel = wifiChannel.Create ();
 
   // The below set of helpers will help us to put together the wifi NICs we want
-  YansWifiPhyHelper wifiPhy =  YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   wifiPhy.SetChannel (channel);
   // ns-3 supports generate a pcap trace
   wifiPhy.SetPcapDataLinkType (WifiPhyHelper::DLT_IEEE802_11);
@@ -2262,7 +2274,7 @@ VanetRoutingExperiment::SetupAdhocDevices ()
   WifiHelper wifi;
 
   // Setup 802.11b stuff
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+  wifi.SetStandard (WIFI_STANDARD_80211b);
 
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode",StringValue (m_phyModeB),

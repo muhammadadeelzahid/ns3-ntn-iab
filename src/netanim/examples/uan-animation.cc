@@ -68,7 +68,7 @@ NetAnimExperiment::NetAnimExperiment ()
 void
 NetAnimExperiment::ResetData ()
 {
-  NS_LOG_DEBUG (Simulator::Now ().GetSeconds () << "  Resetting data");
+  NS_LOG_DEBUG (Simulator::Now ().As (Time::S) << "  Resetting data");
   m_throughputs.push_back (m_bytesTotal * 8.0 / m_simTime.GetSeconds ());
   m_bytesTotal = 0;
 }
@@ -96,7 +96,7 @@ void
 NetAnimExperiment::UpdatePositions (NodeContainer &nodes)
 {
 
-  NS_LOG_DEBUG (Simulator::Now ().GetSeconds () << " Updating positions");
+  NS_LOG_DEBUG (Simulator::Now ().As (Time::S) << " Updating positions");
   NodeContainer::Iterator it = nodes.Begin ();
   Ptr<UniformRandomVariable> uv = CreateObject<UniformRandomVariable> ();
   uv->SetAttribute ("Min", DoubleValue (0.0));
@@ -261,7 +261,7 @@ main (int argc, char **argv)
   std::string perModel = "ns3::UanPhyPerGenDefault";
   std::string sinrModel = "ns3::UanPhyCalcSinrDefault";
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("NumNodes", "Number of transmitting nodes", exp.m_numNodes);
   cmd.AddValue ("Depth", "Depth of transmitting and sink nodes", exp.m_depth);
   cmd.AddValue ("RegionSize", "Size of boundary in meters", exp.m_boundary);

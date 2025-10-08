@@ -282,24 +282,28 @@ Ipv6Address::Ipv6Address ()
 {
   NS_LOG_FUNCTION (this);
   memset (m_address, 0x00, 16);
+  m_initialized = false;
 }
 
 Ipv6Address::Ipv6Address (Ipv6Address const& addr)
 {
   // Do not add function logging here, to avoid stack overflow
   memcpy (m_address, addr.m_address, 16);
+  m_initialized = true;
 }
 
 Ipv6Address::Ipv6Address (Ipv6Address const* addr)
 {
   // Do not add function logging here, to avoid stack overflow
   memcpy (m_address, addr->m_address, 16);
+  m_initialized = true;
 }
 
 Ipv6Address::Ipv6Address (char const* address)
 {
   NS_LOG_FUNCTION (this << address);
   AsciiToIpv6Host (address, m_address);
+  m_initialized = true;
 }
 
 Ipv6Address::Ipv6Address (uint8_t address[16])
@@ -307,6 +311,7 @@ Ipv6Address::Ipv6Address (uint8_t address[16])
   NS_LOG_FUNCTION (this << &address);
   /* 128 bit => 16 bytes */
   memcpy (m_address, address, 16);
+  m_initialized = true;
 }
 
 Ipv6Address::~Ipv6Address ()
@@ -319,6 +324,7 @@ void Ipv6Address::Set (char const* address)
 {
   NS_LOG_FUNCTION (this << address);
   AsciiToIpv6Host (address, m_address);
+  m_initialized = true;
 }
 
 void Ipv6Address::Set (uint8_t address[16])
@@ -326,6 +332,7 @@ void Ipv6Address::Set (uint8_t address[16])
   /* 128 bit => 16 bytes */
   NS_LOG_FUNCTION (this << &address);
   memcpy (m_address, address, 16);
+  m_initialized = true;
 }
 
 void Ipv6Address::Serialize (uint8_t buf[16]) const
@@ -338,6 +345,7 @@ Ipv6Address Ipv6Address::Deserialize (const uint8_t buf[16])
 {
   NS_LOG_FUNCTION (&buf);
   Ipv6Address ipv6 ((uint8_t*)buf);
+  ipv6.m_initialized = true;
   return ipv6;
 }
 
@@ -353,12 +361,46 @@ Ipv6Address Ipv6Address::MakeIpv4MappedAddress(Ipv4Address addr)
 Ipv4Address Ipv6Address::GetIpv4MappedAddress() const
 {
   NS_LOG_FUNCTION (this);
-    uint8_t buf[16];
-    Ipv4Address v4Addr;
+  uint8_t buf[16];
+  Ipv4Address v4Addr;
 
-    Serialize (buf);
-    v4Addr = Ipv4Address::Deserialize (&buf[12]);
-    return (v4Addr);
+  Serialize (buf);
+  v4Addr = Ipv4Address::Deserialize (&buf[12]);
+  return (v4Addr);
+}
+
+Ipv6Address Ipv6Address::MakeAutoconfiguredAddress (Address addr, Ipv6Address prefix)
+{
+  Ipv6Address ipv6Addr = Ipv6Address::GetAny ();
+
+  if (Mac64Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredAddress (Mac64Address::ConvertFrom (addr), prefix);
+    }
+  else if (Mac48Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredAddress (Mac48Address::ConvertFrom (addr), prefix);
+    }
+  else if (Mac16Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredAddress (Mac16Address::ConvertFrom (addr), prefix);
+    }
+  else if (Mac8Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredAddress (Mac8Address::ConvertFrom (addr), prefix);
+    }
+
+  if (ipv6Addr.IsAny ())
+    {
+      NS_ABORT_MSG ("Unknown address type");
+    }
+  return ipv6Addr;
+}
+
+Ipv6Address Ipv6Address::MakeAutoconfiguredAddress (Address addr, Ipv6Prefix prefix)
+{
+  Ipv6Address ipv6PrefixAddr = Ipv6Address::GetOnes ().CombinePrefix(prefix);
+  return MakeAutoconfiguredAddress (addr, ipv6PrefixAddr);
 }
 
 Ipv6Address Ipv6Address::MakeAutoconfiguredAddress (Mac16Address addr, Ipv6Address prefix)
@@ -370,6 +412,7 @@ Ipv6Address Ipv6Address::MakeAutoconfiguredAddress (Mac16Address addr, Ipv6Addre
 
   addr.CopyTo (buf);
   prefix.GetBytes (buf2);
+  memset (buf2+8, 0, 8);
 
   memcpy (buf2 + 14, buf, 2);
   buf2[11] = 0xff;
@@ -393,7 +436,7 @@ Ipv6Address Ipv6Address::MakeAutoconfiguredAddress (Mac48Address addr, Ipv6Addre
   buf2[11] = 0xff;
   buf2[12] = 0xfe;
   memcpy (buf2 + 13, buf + 3, 3);
-  buf2[8] |= 0x02;
+  buf2[8] ^= 0x02;
 
   ret.Set (buf2);
   return ret;
@@ -425,6 +468,7 @@ Ipv6Address Ipv6Address::MakeAutoconfiguredAddress (Mac8Address addr, Ipv6Addres
   buf[0] = 0;
   addr.CopyTo (&buf[1]);
   prefix.GetBytes (buf2);
+  memset (buf2+8, 0, 8);
 
   memcpy (buf2 + 14, buf, 2);
   buf2[11] = 0xff;
@@ -432,6 +476,34 @@ Ipv6Address Ipv6Address::MakeAutoconfiguredAddress (Mac8Address addr, Ipv6Addres
 
   ret.Set (buf2);
   return ret;
+}
+
+Ipv6Address Ipv6Address::MakeAutoconfiguredLinkLocalAddress (Address addr)
+{
+  Ipv6Address ipv6Addr = Ipv6Address::GetAny ();
+
+  if (Mac64Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredLinkLocalAddress (Mac64Address::ConvertFrom (addr));
+    }
+  else if (Mac48Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredLinkLocalAddress (Mac48Address::ConvertFrom (addr));
+    }
+  else if (Mac16Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredLinkLocalAddress (Mac16Address::ConvertFrom (addr));
+    }
+  else if (Mac8Address::IsMatchingType (addr))
+    {
+      ipv6Addr = Ipv6Address::MakeAutoconfiguredLinkLocalAddress (Mac8Address::ConvertFrom (addr));
+    }
+
+  if (ipv6Addr.IsAny ())
+    {
+      NS_ABORT_MSG ("Unknown address type");
+    }
+  return ipv6Addr;
 }
 
 Ipv6Address Ipv6Address::MakeAutoconfiguredLinkLocalAddress (Mac16Address addr)
@@ -470,7 +542,7 @@ Ipv6Address Ipv6Address::MakeAutoconfiguredLinkLocalAddress (Mac48Address addr)
   buf2[11] = 0xff;
   buf2[12] = 0xfe;
   memcpy (buf2 + 13, buf + 3, 3);
-  buf2[8] |= 0x02;
+  buf2[8] ^= 0x02;
 
   ret.Set (buf2);
   return ret;
@@ -662,8 +734,8 @@ bool Ipv6Address::IsLinkLocalMulticast () const
 bool Ipv6Address::IsIpv4MappedAddress () const
 {
   NS_LOG_FUNCTION (this);
-  uint8_t v4MappedPrefix[12] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                 0x00, 0x00, 0xff, 0xff };
+  static uint8_t v4MappedPrefix[12] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                        0x00, 0x00, 0xff, 0xff };
   if (memcmp(m_address, v4MappedPrefix, sizeof(v4MappedPrefix)) == 0)
     {
       return (true);
@@ -671,7 +743,7 @@ bool Ipv6Address::IsIpv4MappedAddress () const
   return (false);
 }
 
-Ipv6Address Ipv6Address::CombinePrefix (Ipv6Prefix const& prefix)
+Ipv6Address Ipv6Address::CombinePrefix (Ipv6Prefix const& prefix) const
 {
   NS_LOG_FUNCTION (this << prefix);
   Ipv6Address ipv6;
@@ -694,14 +766,9 @@ Ipv6Address Ipv6Address::CombinePrefix (Ipv6Prefix const& prefix)
 bool Ipv6Address::IsSolicitedMulticast () const
 {
   NS_LOG_FUNCTION (this);
-  uint8_t buf[16];
 
-  Serialize (buf);
-
-  if (buf[0] == 0xff && 
-      buf[1] == 0x02 &&
-      buf[11] == 0x01 &&
-      buf[12] == 0xff)
+  static Ipv6Address documentation ("ff02::1:ff00:0");
+  if (CombinePrefix (Ipv6Prefix (104)) == documentation)
     {
       return true;
     }
@@ -727,13 +794,6 @@ bool Ipv6Address::IsAllRoutersMulticast () const
   return (*this == allroutersI || *this == allroutersL || *this == allroutersR || *this == allroutersS);
 }
 
-bool Ipv6Address::IsAllHostsMulticast () const
-{
-  NS_LOG_FUNCTION (this);
-  static Ipv6Address allhosts ("ff02::3");
-  return (*this == allhosts);
-}
-
 bool Ipv6Address::IsAny () const
 {
   NS_LOG_FUNCTION (this);
@@ -745,12 +805,22 @@ bool Ipv6Address::IsAny () const
 bool Ipv6Address::IsDocumentation () const
 {
   NS_LOG_FUNCTION (this);
-  Ipv6Address documentation ("2001:db8::0");
-  if (((Ipv6Address*)this)->CombinePrefix (Ipv6Prefix (32)) == documentation)
+  static Ipv6Address documentation ("2001:db8::0");
+  if (CombinePrefix (Ipv6Prefix (32)) == documentation)
     {
       return true;
     }
   return false;
+}
+
+bool Ipv6Address::HasPrefix (Ipv6Prefix const& prefix) const
+{
+  NS_LOG_FUNCTION (this << prefix);
+
+  Ipv6Address masked = CombinePrefix (prefix);
+  Ipv6Address reference = Ipv6Address::GetOnes ().CombinePrefix (prefix);
+
+  return (masked == reference);
 }
 
 
@@ -847,8 +917,8 @@ void Ipv6Address::GetBytes (uint8_t buf[16]) const
 bool Ipv6Address::IsLinkLocal () const
 {
   NS_LOG_FUNCTION (this);
-  Ipv6Address linkLocal ("fe80::0");
-  if (!IsMulticast () && ((Ipv6Address*)this)->CombinePrefix (Ipv6Prefix (64)) == linkLocal)
+  static Ipv6Address linkLocal ("fe80::0");
+  if (CombinePrefix (Ipv6Prefix (64)) == linkLocal)
     {
       return true;
     }
@@ -863,6 +933,12 @@ bool Ipv6Address::IsEqual (const Ipv6Address& other) const
       return true;
     }
   return false;
+}
+
+bool Ipv6Address::IsInitialized (void) const
+{
+  NS_LOG_FUNCTION (this);
+  return (m_initialized);
 }
 
 std::ostream& operator << (std::ostream& os, Ipv6Address const& address)
@@ -883,18 +959,43 @@ Ipv6Prefix::Ipv6Prefix ()
 {
   NS_LOG_FUNCTION (this);
   memset (m_prefix, 0x00, 16);
+  m_prefixLength = 64;
 }
 
 Ipv6Prefix::Ipv6Prefix (char const* prefix)
 {
   NS_LOG_FUNCTION (this << prefix);
   AsciiToIpv6Host (prefix, m_prefix);
+  m_prefixLength = GetMinimumPrefixLength ();
 }
 
 Ipv6Prefix::Ipv6Prefix (uint8_t prefix[16])
 {
   NS_LOG_FUNCTION (this << &prefix);
   memcpy (m_prefix, prefix, 16);
+  m_prefixLength = GetMinimumPrefixLength ();
+}
+
+Ipv6Prefix::Ipv6Prefix (char const* prefix, uint8_t prefixLength)
+{
+  NS_LOG_FUNCTION (this << prefix);
+  AsciiToIpv6Host (prefix, m_prefix);
+
+  uint8_t autoLength = GetMinimumPrefixLength ();
+  NS_ASSERT_MSG (autoLength <= prefixLength, "Ipv6Prefix: address and prefix are not compatible: " << Ipv6Address (prefix) << "/" << +prefixLength);
+
+  m_prefixLength = prefixLength;
+}
+
+Ipv6Prefix::Ipv6Prefix (uint8_t prefix[16], uint8_t prefixLength)
+{
+  NS_LOG_FUNCTION (this << &prefix);
+  memcpy (m_prefix, prefix, 16);
+
+  uint8_t autoLength = GetMinimumPrefixLength ();
+  NS_ASSERT_MSG (autoLength <= prefixLength, "Ipv6Prefix: address and prefix are not compatible: " << Ipv6Address (prefix) << "/" << +prefixLength);
+
+  m_prefixLength = prefixLength;
 }
 
 Ipv6Prefix::Ipv6Prefix (uint8_t prefix)
@@ -905,6 +1006,7 @@ Ipv6Prefix::Ipv6Prefix (uint8_t prefix)
   unsigned int i=0;
 
   memset (m_prefix, 0x00, 16);
+  m_prefixLength = prefix;
 
   NS_ASSERT (prefix <= 128);
 
@@ -935,11 +1037,13 @@ Ipv6Prefix::Ipv6Prefix (uint8_t prefix)
 Ipv6Prefix::Ipv6Prefix (Ipv6Prefix const& prefix)
 {
   memcpy (m_prefix, prefix.m_prefix, 16);
+  m_prefixLength = prefix.m_prefixLength;
 }
 
 Ipv6Prefix::Ipv6Prefix (Ipv6Prefix const* prefix)
 {
   memcpy (m_prefix, prefix->m_prefix, 16);
+  m_prefixLength = prefix->m_prefixLength;
 }
 
 Ipv6Prefix::~Ipv6Prefix ()
@@ -1006,21 +1110,41 @@ void Ipv6Prefix::GetBytes (uint8_t buf[16]) const
 uint8_t Ipv6Prefix::GetPrefixLength () const
 {
   NS_LOG_FUNCTION (this);
-  uint8_t i = 0;
-  uint8_t prefixLength = 0;
+  return m_prefixLength;
+}
 
-  for(i = 0; i < 16; i++)
+void Ipv6Prefix::SetPrefixLength (uint8_t prefixLength)
+{
+  NS_LOG_FUNCTION (this);
+  m_prefixLength = prefixLength;
+}
+
+uint8_t Ipv6Prefix::GetMinimumPrefixLength () const
+{
+  NS_LOG_FUNCTION (this);
+
+  uint8_t prefixLength = 0;
+  bool stop = false;
+
+  for(int8_t i=15; i>=0 && !stop; i--)
     {
       uint8_t mask = m_prefix[i];
 
-      while(mask != 0)
+      for(uint8_t j=0; j<8 && !stop; j++)
         {
-          mask = mask << 1;
-          prefixLength++;
+          if ((mask & 1) == 0)
+            {
+              mask = mask >> 1;
+              prefixLength++;
+            }
+          else
+            {
+              stop = true;
+            }
         }
     }
 
-  return prefixLength;
+  return 128 - prefixLength;
 }
 
 bool Ipv6Prefix::IsEqual (const Ipv6Prefix& other) const

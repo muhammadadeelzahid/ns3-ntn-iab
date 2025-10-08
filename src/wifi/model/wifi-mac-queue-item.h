@@ -26,11 +26,14 @@
 
 #include "ns3/nstime.h"
 #include "wifi-mac-header.h"
+#include "amsdu-subframe-header.h"
+#include <list>
 
 namespace ns3 {
 
 class QosBlockedDestinations;
 class Packet;
+class WifiMacQueue;
 
 /**
  * \ingroup wifi
@@ -44,14 +47,14 @@ public:
   /**
    * \brief Create a Wifi MAC queue item containing a packet and a Wifi MAC header.
    * \param p the const packet included in the created item.
-   * \param header the Wifi Mac header included in the created item.
+   * \param header the Wifi MAC header included in the created item.
    */
   WifiMacQueueItem (Ptr<const Packet> p, const WifiMacHeader & header);
 
   /**
    * \brief Create a Wifi MAC queue item containing a packet and a Wifi MAC header.
    * \param p the const packet included in the created item.
-   * \param header the Wifi Mac header included in the created item.
+   * \param header the Wifi MAC header included in the created item.
    * \param tstamp the timestamp associated with the created item.
    */
   WifiMacQueueItem (Ptr<const Packet> p, const WifiMacHeader & header, Time tstamp);
@@ -92,9 +95,82 @@ public:
    * \brief Return the size of the packet stored by this item, including header
    *        size and trailer size
    *
-   * \return the size of the packet stored by this item.
+   * \return the size of the packet stored by this item in bytes.
    */
   uint32_t GetSize (void) const;
+
+  /**
+   * \brief Return the size in bytes of the packet or control header or management
+   *        header stored by this item.
+   *
+   * \return the size in bytes of the packet or control header or management header
+   *         stored by this item
+   */
+  uint32_t GetPacketSize (void) const;
+
+  /**
+   * Return true if this item contains an MSDU fragment, false otherwise
+   * \return true if this item contains an MSDU fragment, false otherwise
+   */
+  bool IsFragment (void) const;
+
+  /**
+   * \brief Aggregate the MSDU contained in the given MPDU to this MPDU (thus
+   *        constituting an A-MSDU). Note that the given MPDU cannot contain
+   *        an A-MSDU.
+   * \param msdu the MPDU containing the MSDU to aggregate
+   */
+  void Aggregate (Ptr<const WifiMacQueueItem> msdu);
+
+  /// DeaggregatedMsdus typedef
+  typedef std::list<std::pair<Ptr<const Packet>, AmsduSubframeHeader> > DeaggregatedMsdus;
+  /// DeaggregatedMsdusCI typedef
+  typedef std::list<std::pair<Ptr<const Packet>, AmsduSubframeHeader> >::const_iterator DeaggregatedMsdusCI;
+
+  /**
+   * \brief Get a constant iterator pointing to the first MSDU in the list of aggregated MSDUs.
+   *
+   * \return a constant iterator pointing to the first MSDU in the list of aggregated MSDUs
+   */
+  DeaggregatedMsdusCI begin (void);
+  /**
+   * \brief Get a constant iterator indicating past-the-last MSDU in the list of aggregated MSDUs.
+   *
+   * \return a constant iterator indicating past-the-last MSDU in the list of aggregated MSDUs
+   */
+  DeaggregatedMsdusCI end (void);
+
+  /// Const iterator typedef
+  typedef std::list<Ptr<WifiMacQueueItem>>::const_iterator ConstIterator;
+  /// Information needed to remove an MSDU from the queue
+  struct QueueIteratorPair
+  {
+    WifiMacQueue* queue;  //!< pointer to the queue where the MSDU is enqueued
+    ConstIterator it;     //!< iterator pointing to the MSDU in the queue
+  };
+
+  /**
+   * Return true if this item is stored in some queue, false otherwise.
+   *
+   * \return true if this item is stored in some queue, false otherwise
+   */
+  bool IsQueued (void) const;
+
+  /**
+   * Get a const reference to the list of iterators pointing to the positions
+   * of the items in the queue. The list is empty if the item is not stored in
+   * a queue. The list contains multiple iterators in case of A-MSDU that is not
+   * stored in the Block Ack Manager retransmit queue.
+   */
+  const std::list<QueueIteratorPair>& GetQueueIteratorPairs (void) const;
+
+  /**
+   * \brief Get the MAC protocol data unit (MPDU) corresponding to this item
+   *        (i.e. a copy of the packet stored in this item wrapped with MAC
+   *        header and trailer)
+   * \return the MAC protocol data unit corresponding to this item.
+   */
+  Ptr<Packet> GetProtocolDataUnit (void) const;
 
   /**
    * \brief Print the item contents.
@@ -103,16 +179,28 @@ public:
   virtual void Print (std::ostream &os) const;
 
 private:
-  Ptr<const Packet> m_packet;  //!< The packet contained in this queue item
-  WifiMacHeader m_header;      //!< Wifi MAC header associated with the packet
-  Time m_tstamp;               //!< timestamp when the packet arrived at the queue
+  /**
+   * \brief Aggregate the MSDU contained in the given MPDU to this MPDU (thus
+   *        constituting an A-MSDU). Note that the given MPDU cannot contain
+   *        an A-MSDU.
+   * \param msdu the MPDU containing the MSDU to aggregate
+   */
+  void DoAggregate (Ptr<const WifiMacQueueItem> msdu);
+
+  friend class WifiMacQueue;  // to set QueueIteratorPair information
+
+  Ptr<const Packet> m_packet;                   //!< The packet (MSDU or A-MSDU) contained in this queue item
+  WifiMacHeader m_header;                       //!< Wifi MAC header associated with the packet
+  Time m_tstamp;                                //!< timestamp when the packet arrived at the queue
+  DeaggregatedMsdus m_msduList;                 //!< The list of aggregated MSDUs included in this MPDU
+  std::list<QueueIteratorPair> m_queueIts;      //!< Queue iterators pointing to this MSDU(s), if queued
 };
 
 /**
  * \brief Stream insertion operator.
  *
- * \param os the stream
- * \param item the item
+ * \param os the output stream
+ * \param item the WifiMacQueueItem
  * \returns a reference to the stream
  */
 std::ostream& operator<< (std::ostream& os, const WifiMacQueueItem &item);

@@ -22,7 +22,7 @@
 #define WIFI_UTILS_H
 
 #include "block-ack-type.h"
-#include "wifi-preamble.h"
+#include "wifi-phy-common.h"
 #include "wifi-mode.h"
 
 namespace ns3 {
@@ -44,9 +44,9 @@ double DbmToW (double dbm);
 /**
  * Convert from dB to ratio.
  *
- * \param db
+ * \param db the value in dB
  *
- * \return ratio
+ * \return ratio in linear scale
  */
 double DbToRatio (double db);
 /**
@@ -60,34 +60,24 @@ double WToDbm (double w);
 /**
  * Convert from ratio to dB.
  *
- * \param ratio
+ * \param ratio the ratio in linear scale
  *
- * \return dB
+ * \return the value in dB
  */
 double RatioToDb (double ratio);
 /**
- * \param frequency the frequency to check
- * \return whether frequency is in the 2.4 GHz band
- */
-bool Is2_4Ghz (double frequency);
-/**
- * \param frequency the frequency to check
- * \return whether frequency is in the 5 GHz band
- */
-bool Is5Ghz (double frequency);
-/**
- * Convert the guard interval to nanoseconds based on the wifimode.
+ * Convert the guard interval to nanoseconds based on the WifiMode.
  *
- * \param mode the wifimode
+ * \param mode the WifiMode
  * \param device pointer to the WifiNetDevice object
  *
  * \return the guard interval duration in nanoseconds
  */
 uint16_t ConvertGuardIntervalToNanoSeconds (WifiMode mode, const Ptr<WifiNetDevice> device);
 /**
- * Convert the guard interval to nanoseconds based on the wifimode.
+ * Convert the guard interval to nanoseconds based on the WifiMode.
  *
- * \param mode the wifimode
+ * \param mode the WifiMode
  * \param htShortGuardInterval whether HT/VHT short guard interval is enabled
  * \param heGuardInterval the HE guard interval duration
  *
@@ -99,11 +89,10 @@ uint16_t ConvertGuardIntervalToNanoSeconds (WifiMode mode, bool htShortGuardInte
  *
  * \param modulation the modulation selected for the transmission
  * \param useShortPreamble whether short preamble should be used
- * \param useGreenfield whether HT greenfield should be used
  *
  * \return the preamble to be used for the transmission
  */
-WifiPreamble GetPreambleForTransmission (WifiModulationClass modulation, bool useShortPreamble, bool useGreenfield);
+WifiPreamble GetPreambleForTransmission (WifiModulationClass modulation, bool useShortPreamble);
 /**
  * Return the channel width that corresponds to the selected mode (instead of
  * letting the PHY's default channel width). This is especially useful when using
@@ -126,28 +115,35 @@ uint16_t GetChannelWidthForTransmission (WifiMode mode, uint16_t maxSupportedCha
  */
 bool IsAllowedControlAnswerModulationClass (WifiModulationClass modClassReq, WifiModulationClass modClassAnswer);
 /**
- * Return the total ACK size (including FCS trailer).
+ * Return the total Ack size (including FCS trailer).
  *
- * \return the total ACK size
+ * \return the total Ack size in bytes
  */
 uint32_t GetAckSize (void);
 /**
- * Return the total Block ACK size (including FCS trailer).
+ * Return the total BlockAck size (including FCS trailer).
  *
- * \param type the Block ACK type
- * \return the total Block ACK size
+ * \param type the BlockAck type
+ * \return the total BlockAck size in bytes
  */
 uint32_t GetBlockAckSize (BlockAckType type);
 /**
+ * Return the total BlockAckRequest size (including FCS trailer).
+ *
+ * \param type the BlockAckRequest type
+ * \return the total BlockAckRequest size in bytes
+ */
+uint32_t GetBlockAckRequestSize (BlockAckReqType type);
+/**
  * Return the total RTS size (including FCS trailer).
  *
- * \return the total RTS size
+ * \return the total RTS size in bytes
  */
 uint32_t GetRtsSize (void);
 /**
  * Return the total CTS size (including FCS trailer).
  *
- * \return the total CTS size
+ * \return the total CTS size in bytes
  */
 uint32_t GetCtsSize (void);
 /**
@@ -162,7 +158,7 @@ bool IsInWindow (uint16_t seq, uint16_t winstart, uint16_t winsize);
 /**
  * Add FCS trailer to a packet.
  *
- * \param packet
+ * \param packet the packet to add a trailer to
  */
 void AddWifiMacTrailer (Ptr<Packet> packet);
 /**
@@ -175,18 +171,50 @@ void AddWifiMacTrailer (Ptr<Packet> packet);
  * \return the total packet size
  */
 uint32_t GetSize (Ptr<const Packet> packet, const WifiMacHeader *hdr, bool isAmpdu);
+/**
+ * Get the maximum PPDU duration (see Section 10.14 of 802.11-2016) for
+ * the PHY layers defining the aPPDUMaxTime characteristic (HT, VHT and HE).
+ * Return zero otherwise.
+ *
+ * \param preamble the preamble type
+ *
+ * \return the maximum PPDU duration, if defined, and zero otherwise
+ */
+Time GetPpduMaxTime (WifiPreamble preamble);
 
-  /**
-   * Get the maximum PPDU duration (see Section 10.14 of 802.11-2016) for
-   * the PHY layers defining the aPPDUMaxTime characteristic (HT, VHT and HE).
-   * Return zero otherwise.
-   *
-   * \param preamble the preamble type
-   *
-   * \return the maximum PPDU duration, if defined, and zero otherwise
-   */
-  Time GetPpduMaxTime (WifiPreamble preamble);
+/**
+ * Return whether the preamble is a HT format preamble.
+ *
+ * \param preamble the preamble type
+ *
+ * \return true if the preamble is a HT format preamble,
+ *         false otherwise
+ */
+bool IsHt (WifiPreamble preamble);
+/**
+ * Return whether the preamble is a VHT format preamble.
+ *
+ * \param preamble the preamble type
+ *
+ * \return true if the preamble is a VHT format preamble,
+ *         false otherwise
+ */
+bool IsVht (WifiPreamble preamble);
+/**
+ * Return whether the preamble is a HE format preamble.
+ *
+ * \param preamble the preamble type
+ *
+ * \return true if the preamble is a HE format preamble,
+ *         false otherwise
+ */
+bool IsHe (WifiPreamble preamble);
 
+/// Size of the space of sequence numbers
+const uint16_t SEQNO_SPACE_SIZE = 4096;
+
+/// Size of the half the space of sequence numbers (used to determine old packets)
+const uint16_t SEQNO_SPACE_HALF_SIZE = SEQNO_SPACE_SIZE / 2;
 } // namespace ns3
 
 #endif /* WIFI_UTILS_H */

@@ -34,7 +34,6 @@
 #include "ns3/ipv4.h"
 #include "ns3/ipv4-routing-protocol.h"
 #include "ns3/ipv4-list-routing.h"
-#include "ns3/mpi-interface.h"
 #include "global-router-interface.h"
 #include "global-route-manager-impl.h"
 #include "candidate-queue.h"
@@ -313,7 +312,7 @@ SPFVertex::GetRootExitDirection () const
 {
   NS_LOG_FUNCTION (this);
 
-  NS_ASSERT_MSG (m_ecmpRootExits.size () <= 1, "Assumed there is at most one exit from the root to this vertex");
+  //NS_ASSERT_MSG (m_ecmpRootExits.size () <= 1, "Assumed there is at most one exit from the root to this vertex");
   return GetRootExitDirection (0);
 }
 
@@ -711,7 +710,7 @@ GlobalRouteManagerImpl::InitializeRoutes ()
       Ptr<GlobalRouter> rtr = 
         node->GetObject<GlobalRouter> ();
 
-      uint32_t systemId = MpiInterface::GetSystemId ();
+      uint32_t systemId = Simulator::GetSystemId ();
       // Ignore nodes that are not assigned to our systemId (distributed sim)
       if (node->GetSystemId () != systemId) 
         {

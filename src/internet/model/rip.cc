@@ -147,8 +147,12 @@ void Rip::DoInitialize ()
               socket->BindToNetDevice (m_ipv4->GetNetDevice (i));
               int ret = socket->Bind (local);
               NS_ASSERT_MSG (ret == 0, "Bind unsuccessful");
+
+              socket->SetRecvCallback (MakeCallback (&Rip::Receive, this));
               socket->SetIpRecvTtl (true);
-              m_sendSocketList[socket] = i;
+              socket->SetRecvPktInfo (true);
+
+              m_unicastSocketList[socket] = i;
             }
           else if (m_ipv4->GetAddress (i, j).GetScope() == Ipv4InterfaceAddress::GLOBAL)
             {
@@ -157,17 +161,17 @@ void Rip::DoInitialize ()
         }
     }
 
-  if (!m_recvSocket)
+  if (!m_multicastRecvSocket)
     {
       NS_LOG_LOGIC ("RIP: adding receiving socket");
       TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
       Ptr<Node> theNode = GetObject<Node> ();
-      m_recvSocket = Socket::CreateSocket (theNode, tid);
+      m_multicastRecvSocket = Socket::CreateSocket (theNode, tid);
       InetSocketAddress local = InetSocketAddress (RIP_ALL_NODE, RIP_PORT);
-      m_recvSocket->Bind (local);
-      m_recvSocket->SetRecvCallback (MakeCallback (&Rip::Receive, this));
-      m_recvSocket->SetIpRecvTtl (true);
-      m_recvSocket->SetRecvPktInfo (true);
+      m_multicastRecvSocket->Bind (local);
+      m_multicastRecvSocket->SetRecvCallback (MakeCallback (&Rip::Receive, this));
+      m_multicastRecvSocket->SetIpRecvTtl (true);
+      m_multicastRecvSocket->SetRecvPktInfo (true);
     }
 
 
@@ -316,7 +320,7 @@ void Rip::NotifyInterfaceUp (uint32_t i)
 
 
   bool sendSocketFound = false;
-  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
+  for (SocketListI iter = m_unicastSocketList.begin (); iter != m_unicastSocketList.end (); iter++ )
     {
       if (iter->second == i)
         {
@@ -345,26 +349,28 @@ void Rip::NotifyInterfaceUp (uint32_t i)
           InetSocketAddress local = InetSocketAddress (address.GetLocal (), RIP_PORT);
           socket->BindToNetDevice (m_ipv4->GetNetDevice (i));
           socket->Bind (local);
+          socket->SetRecvCallback (MakeCallback (&Rip::Receive, this));
           socket->SetIpRecvTtl (true);
-          m_sendSocketList[socket] = i;
-        }
+          socket->SetRecvPktInfo (true);
+          m_unicastSocketList[socket] = i;
+       }
       if (address.GetScope () == Ipv4InterfaceAddress::GLOBAL)
         {
           SendTriggeredRouteUpdate ();
         }
     }
 
-  if (!m_recvSocket)
+  if (!m_multicastRecvSocket)
     {
       NS_LOG_LOGIC ("RIP: adding receiving socket");
       TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
       Ptr<Node> theNode = GetObject<Node> ();
-      m_recvSocket = Socket::CreateSocket (theNode, tid);
+      m_multicastRecvSocket = Socket::CreateSocket (theNode, tid);
       InetSocketAddress local = InetSocketAddress (RIP_ALL_NODE, RIP_PORT);
-      m_recvSocket->Bind (local);
-      m_recvSocket->SetRecvCallback (MakeCallback (&Rip::Receive, this));
-      m_recvSocket->SetIpRecvTtl (true);
-      m_recvSocket->SetRecvPktInfo (true);
+      m_multicastRecvSocket->Bind (local);
+      m_multicastRecvSocket->SetRecvCallback (MakeCallback (&Rip::Receive, this));
+      m_multicastRecvSocket->SetIpRecvTtl (true);
+      m_multicastRecvSocket->SetRecvPktInfo (true);
     }
 }
 
@@ -381,14 +387,14 @@ void Rip::NotifyInterfaceDown (uint32_t interface)
         }
     }
 
-  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
+  for (SocketListI iter = m_unicastSocketList.begin (); iter != m_unicastSocketList.end (); iter++ )
     {
       NS_LOG_INFO ("Checking socket for interface " << interface);
       if (iter->second == interface)
         {
           NS_LOG_INFO ("Removed socket for interface " << interface);
           iter->first->Close ();
-          m_sendSocketList.erase (iter);
+          m_unicastSocketList.erase (iter);
           break;
         }
     }
@@ -487,10 +493,15 @@ void Rip::PrintRoutingTable (Ptr<OutputStreamWrapper> stream, Time::Unit unit) c
   NS_LOG_FUNCTION (this << stream);
 
   std::ostream* os = stream->GetStream ();
+  // Copy the current ostream state
+  std::ios oldState (nullptr);
+  oldState.copyfmt (*os);
+
+  *os << std::resetiosflags (std::ios::adjustfield) << std::setiosflags (std::ios::left);
 
   *os << "Node: " << m_ipv4->GetObject<Node> ()->GetId ()
       << ", Time: " << Now().As (unit)
-      << ", Local time: " << GetObject<Node> ()->GetLocalTime ().As (unit)
+      << ", Local time: " << m_ipv4->GetObject<Node> ()->GetLocalTime ().As (unit)
       << ", IPv4 RIP table" << std::endl;
 
   if (!m_routes.empty ())
@@ -505,11 +516,11 @@ void Rip::PrintRoutingTable (Ptr<OutputStreamWrapper> stream, Time::Unit unit) c
             {
               std::ostringstream dest, gw, mask, flags;
               dest << route->GetDest ();
-              *os << std::setiosflags (std::ios::left) << std::setw (16) << dest.str ();
+              *os << std::setw (16) << dest.str ();
               gw << route->GetGateway ();
-              *os << std::setiosflags (std::ios::left) << std::setw (16) << gw.str ();
+              *os << std::setw (16) << gw.str ();
               mask << route->GetDestNetworkMask ();
-              *os << std::setiosflags (std::ios::left) << std::setw (16) << mask.str ();
+              *os << std::setw (16) << mask.str ();
               flags << "U";
               if (route->IsHost ())
                 {
@@ -519,8 +530,8 @@ void Rip::PrintRoutingTable (Ptr<OutputStreamWrapper> stream, Time::Unit unit) c
                 {
                   flags << "GS";
                 }
-              *os << std::setiosflags (std::ios::left) << std::setw (6) << flags.str ();
-              *os << std::setiosflags (std::ios::left) << std::setw (7) << int(route->GetRouteMetric ());
+              *os << std::setw (6) << flags.str ();
+              *os << std::setw (7) << int(route->GetRouteMetric ());
               // Ref ct not implemented
               *os << "-" << "      ";
               // Use not implemented
@@ -538,6 +549,8 @@ void Rip::PrintRoutingTable (Ptr<OutputStreamWrapper> stream, Time::Unit unit) c
         }
     }
   *os << std::endl;
+  // Restore the previous ostream state
+  (*os).copyfmt (oldState);
 }
 
 void Rip::DoDispose ()
@@ -555,14 +568,14 @@ void Rip::DoDispose ()
   m_nextTriggeredUpdate = EventId ();
   m_nextUnsolicitedUpdate = EventId ();
 
-  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
+  for (SocketListI iter = m_unicastSocketList.begin (); iter != m_unicastSocketList.end (); iter++ )
     {
       iter->first->Close ();
     }
-  m_sendSocketList.clear ();
+  m_unicastSocketList.clear ();
 
-  m_recvSocket->Close ();
-  m_recvSocket = 0;
+  m_multicastRecvSocket->Close ();
+  m_multicastRecvSocket = 0;
 
   m_ipv4 = 0;
 
@@ -714,10 +727,19 @@ void Rip::Receive (Ptr<Socket> socket)
   Address sender;
   Ptr<Packet> packet = socket->RecvFrom (sender);
   InetSocketAddress senderAddr = InetSocketAddress::ConvertFrom (sender);
-  NS_LOG_INFO ("Received " << *packet << " from " << senderAddr);
+  NS_LOG_INFO ("Received " << *packet << " from " << senderAddr.GetIpv4 () << ":" << senderAddr.GetPort ());
 
   Ipv4Address senderAddress = senderAddr.GetIpv4 ();
   uint16_t senderPort = senderAddr.GetPort ();
+
+  if (socket == m_multicastRecvSocket)
+    {
+      NS_LOG_LOGIC ("Received a packet from the multicast socket");
+    }
+  else
+    {
+      NS_LOG_LOGIC ("Received a packet from one of the unicast sockets");
+    }
 
   Ipv4PacketInfoTag interfaceInfo;
   if (!packet->RemovePacketTag (interfaceInfo))
@@ -748,10 +770,12 @@ void Rip::Receive (Ptr<Socket> socket)
 
   if (hdr.GetCommand () == RipHeader::RESPONSE)
     {
+      NS_LOG_LOGIC ("The message is a Response from " << senderAddr.GetIpv4 () << ":" << senderAddr.GetPort ());
       HandleResponses (hdr, senderAddress, ipInterfaceIndex, hopLimit);
     }
   else if (hdr.GetCommand () == RipHeader::REQUEST)
     {
+      NS_LOG_LOGIC ("The message is a Request from " << senderAddr.GetIpv4 () << ":" << senderAddr.GetPort ());
       HandleRequests (hdr, senderAddress, senderPort, ipInterfaceIndex, hopLimit);
     }
   else
@@ -785,7 +809,7 @@ void Rip::HandleRequests (RipHeader requestHdr, Ipv4Address senderAddress, uint1
               // we use one of the sending sockets, as they're bound to the right interface
               // and the local address might be used on different interfaces.
               Ptr<Socket> sendingSocket;
-              for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
+              for (SocketListI iter = m_unicastSocketList.begin (); iter != m_unicastSocketList.end (); iter++ )
                 {
                   if (iter->second == incomingInterface)
                     {
@@ -918,7 +942,7 @@ void Rip::HandleRequests (RipHeader requestHdr, Ipv4Address senderAddress, uint1
         }
       p->AddHeader (hdr);
       NS_LOG_DEBUG ("SendTo: " << *p);
-      m_recvSocket->SendTo (p, 0, InetSocketAddress (senderAddress, senderPort));
+      m_multicastRecvSocket->SendTo (p, 0, InetSocketAddress (senderAddress, senderPort));
     }
 
 }
@@ -1067,7 +1091,7 @@ void Rip::DoSendRouteUpdate (bool periodic)
 {
   NS_LOG_FUNCTION (this << (periodic ? " periodic" : " triggered"));
 
-  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
+  for (SocketListI iter = m_unicastSocketList.begin (); iter != m_unicastSocketList.end (); iter++ )
     {
       uint32_t interface = iter->second;
 
@@ -1254,7 +1278,7 @@ void Rip::SendRouteRequest ()
   hdr.AddRte (rte);
   p->AddHeader (hdr);
 
-  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
+  for (SocketListI iter = m_unicastSocketList.begin (); iter != m_unicastSocketList.end (); iter++ )
     {
       uint32_t interface = iter->second;
 

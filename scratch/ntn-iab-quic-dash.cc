@@ -27,8 +27,8 @@
  *
  *   Modified by:
  *              Muhammad Adeel Zahid <zahidma@myumanitoba.ca>
- *                 Integrating NTNs & Multilayer support with IAB and quic derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn, signetlabdei/ns3-mmwave-hbf and signetlabdei/quic-ns-3
- *
+ *                 Integrating NTNs & Multilayer support with IAB with MPEG-DASH video streaming with quic derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn, signetlabdei/ns3-mmwave-hbf, signetlabdei/quic-ns-3 and djvergadd/dash
+ *                  
  */
 #include <ns3/buildings-module.h>
 #include "ns3/log.h"
@@ -46,16 +46,30 @@
 #include "ns3/quic-module.h"
 #include "ns3/quic-socket-base.h"
 #include "ns3/quic-header.h"
+#include "ns3/dash-module.h"
 #include <iomanip>
 using namespace ns3;
 
-NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuic");
+NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuicDash");
 
 // Global file streams for each layer
 std::ofstream quicTxFile, quicRxFile;
 std::ofstream udpL4TxFile, udpL4RxFile;
 std::ofstream ipv4L3TxFile, ipv4L3RxFile;
 std::ofstream p2pTxFile, p2pRxFile;
+
+// DASH trace files (similar to QuicServerRx.txt)
+std::map<uint32_t, std::ofstream*> g_dashClientTxFiles;  // DASH client requests (Tx)
+std::map<uint32_t, std::ofstream*> g_dashClientRxFiles;  // DASH client video received via socket
+std::ofstream g_dashServerRxFile;  // DASH server requests received
+
+// Counters for DASH
+std::map<uint32_t, uint32_t> g_dashClientTxPackets;
+std::map<uint32_t, uint64_t> g_dashClientTxBytes;
+std::map<uint32_t, uint32_t> g_dashClientRxPackets;
+std::map<uint32_t, uint64_t> g_dashClientRxBytes;
+uint32_t g_dashServerRxPackets = 0;
+uint64_t g_dashServerRxBytes = 0;
 
 // Helper function to dump full packet in hex
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -102,7 +116,76 @@ void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::str
   file << std::endl;
 }
 
-// QUIC Socket Base Tx callback (using built-in trace source)
+// DASH Client Tx Trace (when client sends segment request)
+void DashClientTxTrace(uint32_t ueId, Ptr<const Packet> packet)
+{
+  if (g_dashClientTxFiles.find(ueId) == g_dashClientTxFiles.end())
+  {
+    std::string filename = "DashClientTx_UE_" + std::to_string(ueId) + ".txt";
+    g_dashClientTxFiles[ueId] = new std::ofstream(filename.c_str());
+    *g_dashClientTxFiles[ueId] << "# DASH Client " << ueId << " - Segment Requests Transmitted" << std::endl;
+    *g_dashClientTxFiles[ueId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
+    g_dashClientTxPackets[ueId] = 0;
+    g_dashClientTxBytes[ueId] = 0;
+  }
+  
+  g_dashClientTxPackets[ueId]++;
+  g_dashClientTxBytes[ueId] += packet->GetSize();
+  
+  *g_dashClientTxFiles[ueId] << Simulator::Now().GetSeconds() << "\t"
+                             << packet->GetSize() << "\t"
+                             << g_dashClientTxPackets[ueId] << "\t"
+                             << g_dashClientTxBytes[ueId] << std::endl;
+}
+
+// DASH Client Socket Rx Trace (when client receives video data on socket)
+void DashClientSocketRxTrace(uint32_t ueId, Ptr<const Packet> packet, const Address& from)
+{
+  if (g_dashClientRxFiles.find(ueId) == g_dashClientRxFiles.end())
+  {
+    std::string filename = "DashClientRx_UE_" + std::to_string(ueId) + ".txt";
+    g_dashClientRxFiles[ueId] = new std::ofstream(filename.c_str());
+    *g_dashClientRxFiles[ueId] << "# DASH Client " << ueId << " - Video Segments Received (Similar to QuicServerRx)" << std::endl;
+    *g_dashClientRxFiles[ueId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes\tFromIP\tFromPort" << std::endl;
+    g_dashClientRxPackets[ueId] = 0;
+    g_dashClientRxBytes[ueId] = 0;
+  }
+  
+  g_dashClientRxPackets[ueId]++;
+  g_dashClientRxBytes[ueId] += packet->GetSize();
+  
+  InetSocketAddress addr = InetSocketAddress::ConvertFrom(from);
+  *g_dashClientRxFiles[ueId] << Simulator::Now().GetSeconds() << "\t"
+                             << packet->GetSize() << "\t"
+                             << g_dashClientRxPackets[ueId] << "\t"
+                             << g_dashClientRxBytes[ueId] << "\t"
+                             << addr.GetIpv4() << "\t"
+                             << addr.GetPort() << std::endl;
+}
+
+// DASH Server Rx Trace (when server receives segment request)
+void DashServerRxTrace(Ptr<const Packet> packet, const Address& from)
+{
+  if (!g_dashServerRxFile.is_open())
+  {
+    g_dashServerRxFile.open("DashServerRx.txt");
+    g_dashServerRxFile << "# DASH Server - Segment Requests Received from All Clients" << std::endl;
+    g_dashServerRxFile << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes\tFromIP\tFromPort" << std::endl;
+  }
+  
+  g_dashServerRxPackets++;
+  g_dashServerRxBytes += packet->GetSize();
+  
+  InetSocketAddress addr = InetSocketAddress::ConvertFrom(from);
+  g_dashServerRxFile << Simulator::Now().GetSeconds() << "\t"
+                     << packet->GetSize() << "\t"
+                     << g_dashServerRxPackets << "\t"
+                     << g_dashServerRxBytes << "\t"
+                     << addr.GetIpv4() << "\t"
+                     << addr.GetPort() << std::endl;
+}
+
+// QUIC Socket Base Tx callback
 void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
   std::cout << "QUIC SOCKET TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
@@ -116,7 +199,7 @@ void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Pt
   quicTxFile.flush();
 }
 
-// QUIC Socket Base Rx callback (using built-in trace source)
+// QUIC Socket Base Rx callback
 void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
   std::cout << "QUIC SOCKET RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
@@ -130,7 +213,67 @@ void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Pt
   quicRxFile.flush();
 }
 
-// UDP L4 layer callbacks (using custom trace sources)
+static void
+CwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
+}
+
+static void
+RttChange (Ptr<OutputStreamWrapper> stream, Time oldRtt, Time newRtt)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldRtt.GetSeconds () << "\t" << newRtt.GetSeconds () << std::endl;
+}
+
+static void
+Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, Ptr<const QuicSocketBase> qsb)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() << std::endl;
+}
+
+static void
+Traces(uint32_t serverId, std::string pathVersion, std::string finalPart)
+{
+  AsciiTraceHelper asciiTraceHelper;
+
+  std::ostringstream pathCW;
+  pathCW << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/CongestionWindow";
+  NS_LOG_INFO("Matches cw " << Config::LookupMatches(pathCW.str().c_str()).GetN());
+
+  std::ostringstream fileCW;
+  fileCW << pathVersion << "QUIC-cwnd-change"  << serverId << "" << finalPart;
+
+  std::ostringstream pathRTT;
+  pathRTT << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RTT";
+
+  std::ostringstream fileRTT;
+  fileRTT << pathVersion << "QUIC-rtt"  << serverId << "" << finalPart;
+
+  std::ostringstream pathRCWnd;
+  pathRCWnd<< "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RWND";
+
+  std::ostringstream fileRCWnd;
+  fileRCWnd<<pathVersion << "QUIC-rwnd-change"  << serverId << "" << finalPart;
+
+  std::ostringstream fileName;
+  fileName << pathVersion << "QUIC-rx-data" << serverId << "" << finalPart;
+  std::ostringstream pathRx;
+  pathRx << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
+  NS_LOG_INFO("Matches rx " << Config::LookupMatches(pathRx.str().c_str()).GetN());
+
+  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
+  Config::ConnectWithoutContextFailSafe (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
+
+  Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
+  Config::ConnectWithoutContextFailSafe (pathCW.str ().c_str (), MakeBoundCallback(&CwndChange, stream1));
+
+  Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
+  Config::ConnectWithoutContextFailSafe (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
+
+  Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileRCWnd.str ().c_str ());
+  Config::ConnectWithoutContextFailSafe (pathRCWnd.str ().c_str (), MakeBoundCallback(&CwndChange, stream4));
+}
+
 void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
   std::cout << "UDP L4 TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
@@ -176,10 +319,7 @@ void Ipv4L3RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interfa
   ipv4L3RxFile.flush();
 }
 
-// Traffic Control traces are not easily accessible in NS-3
-// We'll focus on the available traces: UDP, IPv4, and P2P
-
-// Point-to-Point NetDevice callbacks (using correct signature)
+// Point-to-Point NetDevice callbacks
 void P2PTxCallback(Ptr<const Packet> packet)
 {
   if (!p2pTxFile.is_open())
@@ -219,12 +359,25 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
     // Close the file
     outFile.close();
 }
+
 void PacketDropCallback(Ptr<const Packet> packet) {
   std::cout << "Packet dropped at " << Simulator::Now().GetSeconds() << "s" << std::endl;
 }
+
 int
 main (int argc, char *argv[])
 {
+  // Enable DASH logging for debugging
+  LogComponentEnable("DashClient", LOG_LEVEL_INFO);
+  LogComponentEnable("DashServer", LOG_LEVEL_INFO);
+  LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
+  LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
+  
+  // Enable QUIC logging (safe - no wildcard traces that cause crash)
+  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
+  // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_INFO);
+  // LogComponentEnable("QuicStreamBase", LOG_LEVEL_INFO);
+  
   // LogComponentEnableAll (LOG_PREFIX_TIME);
   // LogComponentEnableAll (LOG_PREFIX_FUNC);
   // LogComponentEnableAll (LOG_PREFIX_NODE);
@@ -376,6 +529,7 @@ main (int argc, char *argv[])
   unsigned run = 0;
   bool rlcAm = false;
   uint32_t numRelays = 0;
+  uint32_t numUes = 1;  // Number of UE nodes/users
   uint32_t rlcBufSize = 10;
   uint32_t interPacketInterval = 5;
   uint32_t throughput = 200;
@@ -383,6 +537,7 @@ main (int argc, char *argv[])
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
+  cmd.AddValue("numUes", "Number of UE nodes/users", numUes);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
   cmd.AddValue("throughput", "throughput [mbps]", throughput);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
@@ -487,13 +642,11 @@ main (int argc, char *argv[])
   // Install QUIC stack on remote host (instead of Internet stack)
   QuicHelper quicHelper;
 
-  // Increase socket buffer sizes to prevent buffer overflow
-  // 4 MB of buffer
-  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 21));
-  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 21));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 21));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 21));
-  
+  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 25));  // 32 MB
+  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 25));  // 32 MB
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 25));  // 32 MB
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 25));  // 32 MB
+ 
   quicHelper.InstallQuic (remoteHostContainer);
   // Create the Internet
   PointToPointHelper p2ph;
@@ -505,7 +658,7 @@ main (int argc, char *argv[])
   ipv4h.SetBase ("1.0.0.0", "255.0.0.0");
   Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign (internetDevices);
   // interface 0 is localhost, 1 is the p2p device
-  // Ipv4Address remoteHostAddr = internetIpIfaces.GetAddress (1);
+  Ipv4Address remoteHostAddr = internetIpIfaces.GetAddress (1);  // Needed for DASH clients
   Ipv4StaticRoutingHelper ipv4RoutingHelper;
   Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
   remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
@@ -541,13 +694,23 @@ main (int argc, char *argv[])
               " iab5 "  << posIab5<<
               " iab6 "<<posIab6
               );
+  
+  NS_LOG_UNCOND("\n=== Creating Network Nodes ===");
+  NS_LOG_UNCOND("Number of UEs to create: " << numUes);
+  NS_LOG_UNCOND("Number of Relays to create: " << numRelays);
+  
   NodeContainer ueNodes;
   NodeContainer enbNodes;
   NodeContainer iabNodes;
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(2);
+  ueNodes.Create(numUes);
+  
+  NS_LOG_UNCOND("Actually created " << ueNodes.GetN() << " UE nodes");
+  NS_LOG_UNCOND("Actually created " << iabNodes.GetN() << " IAB nodes");
+  NS_LOG_UNCOND("Actually created " << enbNodes.GetN() << " eNB nodes");
+  NS_LOG_UNCOND("================================\n");
   // Install Mobility Model
   
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
@@ -677,26 +840,72 @@ main (int argc, char *argv[])
   mmwaveHelper->AttachToClosestEnb (uemmWaveDevs, possibleBaseStations);
 
   // Install and start applications on UEs and remote host
-  uint16_t dlPort = 1234;
   // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_INFO);
   // LogComponentEnable("OnOffApplication", LOG_LEVEL_INFO);
   // LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
-  // uint16_t ulPort = 2000;
-  // uint16_t otherPort = 3000;
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
+  
+  // DASH over QUIC configuration
+  double target_dt = 35.0;  // Target buffering time
+  uint32_t bufferSpace = 30000000;  // 30 MB buffer
+  std::string window = "10s";  // Throughput measurement window
+  std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
+  
+  // Create ONE DASH server on remote host to serve all UEs (on port 80)
+  DashServerHelper dashServer ("ns3::QuicSocketFactory",
+                                InetSocketAddress(Ipv4Address::GetAny(), 80));
+  serverApps.Add (dashServer.Install (remoteHost));
+  NS_LOG_UNCOND("DASH Server installed on remoteHost (IP=" << remoteHostAddr << ") port 80");
+  
+  // Create DASH clients on each UE
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
-    // DL QUIC
-    QuicServerHelper dlPacketSinkHelper (dlPort);
-    dlPacketSinkHelper.SetAttribute ("OutputFilename", StringValue ("QuicServerRx_" + std::to_string(u) + ".txt"));
-    serverApps.Add (dlPacketSinkHelper.Install (ueNodes.Get(u)));
-    QuicClientHelper dlClient (ueIpIface.GetAddress (u), dlPort);
-    dlClient.SetAttribute ("Interval", TimeValue (MicroSeconds(interPacketInterval)));
-    dlClient.SetAttribute ("PacketSize", UintegerValue(packetSize));
-    dlClient.SetAttribute ("MaxPackets", UintegerValue(500));
-    clientApps.Add (dlClient.Install (remoteHost));
-    dlPort++;
+    // Client (on UE) - requests and receives video segments
+    DashClientHelper dashClient ("ns3::QuicSocketFactory",
+                                  InetSocketAddress(remoteHostAddr, 80),
+                                  algorithm);
+    dashClient.SetAttribute ("VideoId", UintegerValue(u + 1));  // Each UE gets different video ID
+    dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
+    dashClient.SetAttribute ("window", TimeValue(Time(window)));
+    dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
+    
+    clientApps.Add (dashClient.Install (ueNodes.Get(u)));
+    
+    NS_LOG_UNCOND("DASH Client " << u << " installed on UE (IP=" << ueIpIface.GetAddress(u) 
+                  << ") -> server IP=" << remoteHostAddr << ":80");
+  }
+  
+   // Connect DASH trace sources
+   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
+   {
+     Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
+     if (dashClient)
+     {
+       // Connect Tx trace (segment requests sent by client)
+       dashClient->TraceConnectWithoutContext("Tx", MakeBoundCallback(&DashClientTxTrace, u));
+       
+       // Connect Rx trace (video segments received by client)
+       dashClient->TraceConnectWithoutContext("Rx", MakeBoundCallback(&DashClientSocketRxTrace, u));
+       
+       NS_LOG_UNCOND("Connected DASH Client Tx and Rx traces for Client " << u);
+     }
+   }
+  
+  // Connect server Rx trace - get the actual DashServer application
+  if (serverApps.GetN() > 0)
+  {
+    Ptr<Application> app = serverApps.Get(0);
+    Ptr<DashServer> dashServer = DynamicCast<DashServer>(app);
+    if (dashServer)
+    {
+      dashServer->TraceConnectWithoutContext("Rx", MakeCallback(&DashServerRxTrace));
+      NS_LOG_UNCOND("Connected DASH Server Rx trace");
+    }
+    else
+    {
+      NS_LOG_WARN("Could not cast application to DashServer");
+    }
   }
   
   NS_LOG_UNCOND("\n=== Node Coordinates ===");
@@ -741,32 +950,92 @@ main (int argc, char *argv[])
   }
   NS_LOG_UNCOND("=======================\n");
     
-  // IPv4 L3 layer tracing (these are known to work)
-  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Tx",
-                               MakeCallback(&Ipv4L3TxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Rx",
-                               MakeCallback(&Ipv4L3RxCallback));
+  mmwaveHelper->EnableTraces ();  // Enables RLC/MAC/PHY traces (DlRlcStats.txt, RxPacketTrace.txt, etc.)
   
-  // Point-to-Point NetDevice tracing (using correct signatures)
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacTx",
-                               MakeCallback(&P2PTxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacRx",
-                               MakeCallback(&P2PRxCallback));
+  // DASH timing: servers start first with staggered delays, clients need delay for QUIC handshake
+  // Stagger server starts to avoid QUIC socket conflicts
+  for (uint32_t i = 0; i < serverApps.GetN(); ++i)
+  {
+    serverApps.Get(i)->SetStartTime(Seconds(0.0 + i * 0.1));
+  }
   
-  // Physical layer tracing (MmWave) - using correct signature
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveEnbNetDevice/Phy/RxPacketTrace",
-                               MakeCallback(&P2PRxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveUeNetDevice/Phy/RxPacketTrace",
-                               MakeCallback(&P2PRxCallback));
+  // Clients start after servers with additional delay for QUIC handshake
+  for (uint32_t i = 0; i < clientApps.GetN(); ++i)
+  {
+    clientApps.Get(i)->SetStartTime(Seconds(1.0 + i * 0.1));
+  }
   
-  mmwaveHelper->EnableTraces ();
-  serverApps.Start (Seconds (0.5));
-  clientApps.Start (Seconds (1.0));
-  clientApps.Stop (Seconds (3.0));
-  serverApps.Stop (Seconds (3.0));
-  Simulator::Stop (Seconds (3.5));
+  double stopTime = 3.0;  // Minimal time for testing
+  clientApps.Stop (Seconds (stopTime));
+  serverApps.Stop (Seconds (stopTime + 1.0));
+  Simulator::Stop (Seconds (stopTime + 2.0));
+
+  NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections ===");
+  Time traceTime = Seconds(0.1);
+  
+  // Connect traces for each UE node (QUIC client)
+  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
+  {
+    uint32_t nodeId = ueNodes.Get(u)->GetId();
+    Simulator::Schedule(traceTime, &Traces, nodeId, "./client", ".txt");
+    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (client)");
+  }
+  
+  // Connect traces for remote host (QUIC server)
+  uint32_t serverNodeId = remoteHost->GetId();
+  Simulator::Schedule(traceTime, &Traces, serverNodeId, "./server", ".txt");
+  NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId);
+  NS_LOG_UNCOND("  Traces will connect at t=" << traceTime.GetSeconds() << "s");
+  NS_LOG_UNCOND("========================================\n");
+  
+  std::string tracePrefix = "ntn_iab_quic_dash";  // Keep variable for log statements
+  NS_LOG_UNCOND("\n=== Trace Configuration ===");
+  NS_LOG_UNCOND("QUIC traces: Using quic-variants-comparison example approach");
+  NS_LOG_UNCOND("DASH application traces: ENABLED");
+  NS_LOG_UNCOND("RLC/MAC/PHY layer traces: ENABLED");
+  NS_LOG_UNCOND("============================\n");
+  
+  NS_LOG_UNCOND("\n=== DASH over QUIC Simulation Parameters ===");
+  NS_LOG_UNCOND("Number of UEs: " << ueNodes.GetN());
+  NS_LOG_UNCOND("Simulation time: " << stopTime << " seconds");
+  NS_LOG_UNCOND("DASH algorithm: " << algorithm);
+  NS_LOG_UNCOND("Target buffering time: " << target_dt << " seconds");
+  NS_LOG_UNCOND("Expected video segments: ~" << (int)(stopTime/2) << " (2s per segment)");
+  NS_LOG_UNCOND("Expected video frames: ~" << (int)(stopTime * 50) << " (50 fps)");
   
   Simulator::Run();
+  
+  // Print DASH statistics for each UE
+  NS_LOG_UNCOND("\n========== DASH over QUIC Results ==========");
+  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
+  {
+    Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
+    if (dashClient)
+    {
+      NS_LOG_UNCOND("\nUE " << u << " (VideoId=" << (u+1) << "):");
+      dashClient->GetStats();
+      
+      // Print DASH trace statistics
+      if (g_dashClientTxPackets.find(u) != g_dashClientTxPackets.end())
+      {
+        NS_LOG_UNCOND("  DASH Requests sent: " << g_dashClientTxPackets[u] 
+                     << " packets (" << g_dashClientTxBytes[u] << " bytes)");
+      }
+      if (g_dashClientRxPackets.find(u) != g_dashClientRxPackets.end())
+      {
+        NS_LOG_UNCOND("  DASH Video received: " << g_dashClientRxPackets[u] 
+                     << " packets (" << g_dashClientRxBytes[u] << " bytes)");
+        double avgThroughput = (g_dashClientRxBytes[u] * 8.0) / (stopTime * 1000000.0);
+        NS_LOG_UNCOND("  Average throughput: " << avgThroughput << " Mbps");
+      }
+    }
+  }
+  
+  NS_LOG_UNCOND("\nDASH Server Statistics:");
+  NS_LOG_UNCOND("  Total requests received: " << g_dashServerRxPackets 
+               << " packets (" << g_dashServerRxBytes << " bytes)");
+  
+  
   /*GtkConfigStore config;
   config.ConfigureAttributes();*/
   Simulator::Destroy();
@@ -781,11 +1050,27 @@ main (int argc, char *argv[])
   if (p2pTxFile.is_open()) p2pTxFile.close();
   if (p2pRxFile.is_open()) p2pRxFile.close();
   
-  NS_LOG_UNCOND("Packet trace files created:");
-  NS_LOG_UNCOND("- quic_socket_tx.txt, quic_socket_rx.txt");
-  NS_LOG_UNCOND("- udp_l4_tx.txt, udp_l4_rx.txt");
-  NS_LOG_UNCOND("- ipv4_l3_tx.txt, ipv4_l3_rx.txt");
-  NS_LOG_UNCOND("- p2p_tx.txt, p2p_rx.txt");
-  
+  // Close DASH trace files
+  for (auto& pair : g_dashClientTxFiles)
+  {
+    if (pair.second && pair.second->is_open())
+    {
+      pair.second->close();
+      delete pair.second;
+    }
+  }
+  for (auto& pair : g_dashClientRxFiles)
+  {
+    if (pair.second && pair.second->is_open())
+    {
+      pair.second->close();
+      delete pair.second;
+    }
+  }
+  if (g_dashServerRxFile.is_open())
+  {
+    g_dashServerRxFile.close();
+  }
+    
   return 0;
 }

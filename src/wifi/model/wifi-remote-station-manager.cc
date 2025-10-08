@@ -26,14 +26,14 @@
 #include "wifi-remote-station-manager.h"
 #include "wifi-phy.h"
 #include "wifi-mac.h"
-#include "wifi-utils.h"
 #include "wifi-mac-header.h"
+#include "wifi-mac-queue-item.h"
 #include "wifi-mac-trailer.h"
-#include "ht-configuration.h"
-#include "vht-configuration.h"
-#include "he-configuration.h"
+#include "ns3/ht-configuration.h"
+#include "ns3/ht-phy.h"
+#include "ns3/vht-configuration.h"
+#include "ns3/he-configuration.h"
 #include "wifi-net-device.h"
-#include "tx-vector-tag.h"
 
 namespace ns3 {
 
@@ -47,16 +47,6 @@ WifiRemoteStationManager::GetTypeId (void)
   static TypeId tid = TypeId ("ns3::WifiRemoteStationManager")
     .SetParent<Object> ()
     .SetGroupName ("Wifi")
-    .AddAttribute ("IsLowLatency",
-                   "If true, we attempt to modelize a so-called low-latency device: "
-                   "a device where decisions about tx parameters can be made on a per-packet basis and "
-                   "feedback about the transmission of each packet is obtained before sending the next. "
-                   "Otherwise, we modelize a high-latency device, that is a device where we cannot update "
-                   "our decision about tx parameters after every packet transmission.",
-                   TypeId::ATTR_GET,
-                   BooleanValue (true), //this value is ignored because there is no setter
-                   MakeBooleanAccessor (&WifiRemoteStationManager::IsLowLatency),
-                   MakeBooleanChecker ())
     .AddAttribute ("MaxSsrc",
                    "The maximum number of retransmission attempts for any packet with size <= RtsCtsThreshold. "
                    "This value will not have any effect on some rate control algorithms.",
@@ -127,13 +117,10 @@ WifiRemoteStationManager::GetTypeId (void)
 }
 
 WifiRemoteStationManager::WifiRemoteStationManager ()
-  : m_pcfSupported (false),
-    m_useNonErpProtection (false),
+  : m_useNonErpProtection (false),
     m_useNonHtProtection (false),
-    m_useGreenfieldProtection (false),
     m_shortPreambleEnabled (false),
-    m_shortSlotTimeEnabled (false),
-    m_rifsPermitted (false)
+    m_shortSlotTimeEnabled (false)
 {
   NS_LOG_FUNCTION (this);
 }
@@ -158,13 +145,13 @@ WifiRemoteStationManager::SetupPhy (const Ptr<WifiPhy> phy)
   //full set of transmit rates that are supported. We need to know
   //this in order to find the relevant mandatory rates when choosing a
   //transmit rate for automatic control responses like
-  //acknowledgements.
+  //acknowledgments.
   m_wifiPhy = phy;
-  m_defaultTxMode = phy->GetMode (0);
+  m_defaultTxMode = phy->GetDefaultMode ();
   NS_ASSERT (m_defaultTxMode.IsMandatory ());
-  if (GetHtSupported () || GetVhtSupported () || GetHeSupported ())
+  if (GetHtSupported ())
     {
-      m_defaultTxMcs = phy->GetMcs (0);
+      m_defaultTxMcs = HtPhy::GetHtMcs (0);
     }
   Reset ();
 }
@@ -221,13 +208,6 @@ WifiRemoteStationManager::SetShortSlotTimeEnabled (bool enable)
   m_shortSlotTimeEnabled = enable;
 }
 
-void
-WifiRemoteStationManager::SetRifsPermitted (bool allow)
-{
-  NS_LOG_FUNCTION (this << allow);
-  m_rifsPermitted = allow;
-}
-
 bool
 WifiRemoteStationManager::GetShortSlotTimeEnabled (void) const
 {
@@ -238,12 +218,6 @@ bool
 WifiRemoteStationManager::GetShortPreambleEnabled (void) const
 {
   return m_shortPreambleEnabled;
-}
-
-bool
-WifiRemoteStationManager::GetRifsPermitted (void) const
-{
-  return m_rifsPermitted;
 }
 
 bool
@@ -282,30 +256,15 @@ WifiRemoteStationManager::GetHeSupported (void) const
   return false;
 }
 
-void
-WifiRemoteStationManager::SetPcfSupported (bool enable)
-{
-  m_pcfSupported = enable;
-}
-
 bool
-WifiRemoteStationManager::GetPcfSupported (void) const
-{
-  return m_pcfSupported;
-}
-
-bool
-WifiRemoteStationManager::GetGreenfieldSupported (void) const
+WifiRemoteStationManager::GetLdpcSupported (void) const
 {
   if (GetHtSupported ())
     {
       Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ());
       Ptr<HtConfiguration> htConfiguration = device->GetHtConfiguration ();
       NS_ASSERT (htConfiguration); //If HT is supported, we should have a HT configuration attached
-      if (htConfiguration->GetGreenfieldSupported ())
-        {
-          return true;
-        }
+      return htConfiguration->GetLdpcSupported ();
     }
   return false;
 }
@@ -347,7 +306,7 @@ WifiRemoteStationManager::GetFragmentationThreshold (void) const
 }
 
 void
-WifiRemoteStationManager::AddSupportedPlcpPreamble (Mac48Address address, bool isShortPreambleSupported)
+WifiRemoteStationManager::AddSupportedPhyPreamble (Mac48Address address, bool isShortPreambleSupported)
 {
   NS_LOG_FUNCTION (this << address << isShortPreambleSupported);
   NS_ASSERT (!address.IsGroup ());
@@ -388,12 +347,12 @@ WifiRemoteStationManager::AddAllSupportedModes (Mac48Address address)
   NS_ASSERT (!address.IsGroup ());
   WifiRemoteStationState *state = LookupState (address);
   state->m_operationalRateSet.clear ();
-  for (uint8_t i = 0; i < m_wifiPhy->GetNModes (); i++)
+  for (const auto & mode : m_wifiPhy->GetModeList ())
     {
-      state->m_operationalRateSet.push_back (m_wifiPhy->GetMode (i));
-      if (m_wifiPhy->GetMode (i).IsMandatory ())
+      state->m_operationalRateSet.push_back (mode);
+      if (mode.IsMandatory ())
         {
-          AddBasicMode (m_wifiPhy->GetMode (i));
+          AddBasicMode (mode);
         }
     }
 }
@@ -405,9 +364,9 @@ WifiRemoteStationManager::AddAllSupportedMcs (Mac48Address address)
   NS_ASSERT (!address.IsGroup ());
   WifiRemoteStationState *state = LookupState (address);
   state->m_operationalMcsSet.clear ();
-  for (uint8_t i = 0; i < m_wifiPhy->GetNMcs (); i++)
+  for (const auto & mcs : m_wifiPhy->GetMcsList ())
     {
-      state->m_operationalMcsSet.push_back (m_wifiPhy->GetMcs (i));
+      state->m_operationalMcsSet.push_back (mcs);
     }
 }
 
@@ -513,62 +472,27 @@ WifiRemoteStationManager::RecordDisassociated (Mac48Address address)
   LookupState (address)->m_state = WifiRemoteStationState::DISASSOC;
 }
 
-void
-WifiRemoteStationManager::PrepareForQueue (Mac48Address address, const WifiMacHeader *header, Ptr<const Packet> packet)
-{
-  NS_LOG_FUNCTION (this << address << *header << packet);
-  if (IsLowLatency () || address.IsGroup ())
-    {
-      return;
-    }
-  WifiRemoteStation *station = Lookup (address, header);
-  WifiTxVector rts = DoGetRtsTxVector (station);
-  WifiTxVector data = DoGetDataTxVector (station);
-  WifiTxVector ctstoself = DoGetCtsToSelfTxVector ();
-  HighLatencyDataTxVectorTag datatag;
-  HighLatencyRtsTxVectorTag rtstag;
-  HighLatencyCtsToSelfTxVectorTag ctstoselftag;
-  //first, make sure that the tag is not here anymore.
-  ConstCast<Packet> (packet)->RemovePacketTag (datatag);
-  ConstCast<Packet> (packet)->RemovePacketTag (rtstag);
-  ConstCast<Packet> (packet)->RemovePacketTag (ctstoselftag);
-  datatag = HighLatencyDataTxVectorTag (data);
-  rtstag = HighLatencyRtsTxVectorTag (rts);
-  ctstoselftag = HighLatencyCtsToSelfTxVectorTag (ctstoself);
-  //and then, add it back
-  packet->AddPacketTag (datatag);
-  packet->AddPacketTag (rtstag);
-  packet->AddPacketTag (ctstoselftag);
-}
-
 WifiTxVector
-WifiRemoteStationManager::GetDataTxVector (Mac48Address address, const WifiMacHeader *header, Ptr<const Packet> packet)
+WifiRemoteStationManager::GetDataTxVector (const WifiMacHeader &header)
 {
-  NS_LOG_FUNCTION (this << address << *header << packet);
-  if (!header->IsMgt () && address.IsGroup ())
+  NS_LOG_FUNCTION (this << header);
+  Mac48Address address = header.GetAddr1 ();
+  if (!header.IsMgt () && address.IsGroup ())
     {
       WifiMode mode = GetNonUnicastMode ();
       WifiTxVector v;
       v.SetMode (mode);
-      v.SetPreambleType (GetPreambleForTransmission (mode.GetModulationClass (), GetShortPreambleEnabled (), UseGreenfieldForDestination (address)));
+      v.SetPreambleType (GetPreambleForTransmission (mode.GetModulationClass (), GetShortPreambleEnabled ()));
       v.SetTxPowerLevel (m_defaultTxPowerLevel);
       v.SetChannelWidth (GetChannelWidthForTransmission (mode, m_wifiPhy->GetChannelWidth ()));
       v.SetGuardInterval (ConvertGuardIntervalToNanoSeconds (mode, DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ())));
-      v.SetNTx (1);
+      v.SetNTx (GetNumberOfAntennas ());
       v.SetNss (1);
       v.SetNess (0);
-      v.SetStbc (0);
       return v;
     }
-  if (!IsLowLatency ())
-    {
-      HighLatencyDataTxVectorTag datatag;
-      bool found = ConstCast<Packet> (packet)->PeekPacketTag (datatag);
-      NS_ASSERT (found);
-      return datatag.GetDataTxVector ();
-    }
-  WifiTxVector txVector = DoGetDataTxVector (Lookup (address, header));
-  if (header->IsMgt ())
+  WifiTxVector txVector;
+  if (header.IsMgt ())
     {
       //Use the lowest basic rate for management frames
       WifiMode mgtMode;
@@ -581,9 +505,15 @@ WifiRemoteStationManager::GetDataTxVector (Mac48Address address, const WifiMacHe
           mgtMode = GetDefaultMode ();
         }
       txVector.SetMode (mgtMode);
-      txVector.SetPreambleType (GetPreambleForTransmission (mgtMode.GetModulationClass (), GetShortPreambleEnabled (), UseGreenfieldForDestination (address)));
+      txVector.SetPreambleType (GetPreambleForTransmission (mgtMode.GetModulationClass (), GetShortPreambleEnabled ()));
+      txVector.SetTxPowerLevel (m_defaultTxPowerLevel);
       txVector.SetChannelWidth (GetChannelWidthForTransmission (mgtMode, m_wifiPhy->GetChannelWidth ()));
       txVector.SetGuardInterval (ConvertGuardIntervalToNanoSeconds (mgtMode, DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ())));
+    }
+  else
+    {
+      txVector = DoGetDataTxVector (Lookup (address));
+      txVector.SetLdpc (txVector.GetMode ().GetModulationClass () < WIFI_MOD_CLASS_HT ? 0 : UseLdpcForDestination (address));
     }
   Ptr<WifiNetDevice> device = DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ());
   Ptr<HeConfiguration> heConfiguration = device->GetHeConfiguration ();
@@ -597,22 +527,7 @@ WifiRemoteStationManager::GetDataTxVector (Mac48Address address, const WifiMacHe
 }
 
 WifiTxVector
-WifiRemoteStationManager::GetCtsToSelfTxVector (const WifiMacHeader *header,
-                                                Ptr<const Packet> packet)
-{
-  NS_LOG_FUNCTION (this << *header << packet);
-  if (!IsLowLatency ())
-    {
-      HighLatencyCtsToSelfTxVectorTag ctstoselftag;
-      bool found = ConstCast<Packet> (packet)->PeekPacketTag (ctstoselftag);
-      NS_ASSERT (found);
-      return ctstoselftag.GetCtsToSelfTxVector ();
-    }
-  return DoGetCtsToSelfTxVector ();
-}
-
-WifiTxVector
-WifiRemoteStationManager::DoGetCtsToSelfTxVector (void)
+WifiRemoteStationManager::GetCtsToSelfTxVector (void)
 {
   WifiMode defaultMode = GetDefaultMode ();
   WifiPreamble defaultPreamble;
@@ -622,7 +537,7 @@ WifiRemoteStationManager::DoGetCtsToSelfTxVector (void)
     }
   else if (defaultMode.GetModulationClass () == WIFI_MOD_CLASS_VHT)
     {
-      defaultPreamble = WIFI_PREAMBLE_VHT;
+      defaultPreamble = WIFI_PREAMBLE_VHT_SU;
     }
   else if (defaultMode.GetModulationClass () == WIFI_MOD_CLASS_HT)
     {
@@ -638,175 +553,355 @@ WifiRemoteStationManager::DoGetCtsToSelfTxVector (void)
                        defaultPreamble,
                        ConvertGuardIntervalToNanoSeconds (defaultMode, DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ())),
                        GetNumberOfAntennas (),
-                       GetMaxNumberOfTransmitStreams (),
+                       1,
                        0,
                        GetChannelWidthForTransmission (defaultMode, m_wifiPhy->GetChannelWidth ()),
-                       false,
                        false);
 }
 
 WifiTxVector
-WifiRemoteStationManager::GetRtsTxVector (Mac48Address address, const WifiMacHeader *header,
-                                          Ptr<const Packet> packet)
+WifiRemoteStationManager::GetRtsTxVector (Mac48Address address)
 {
-  NS_LOG_FUNCTION (this << address << *header << packet);
+  NS_LOG_FUNCTION (this << address);
   if (address.IsGroup ())
     {
         WifiMode mode = GetNonUnicastMode ();
         WifiTxVector v;
         v.SetMode (mode);
-        v.SetPreambleType (GetPreambleForTransmission (mode.GetModulationClass (), GetShortPreambleEnabled (), UseGreenfieldForDestination (address)));
+        v.SetPreambleType (GetPreambleForTransmission (mode.GetModulationClass (), GetShortPreambleEnabled ()));
         v.SetTxPowerLevel (m_defaultTxPowerLevel);
         v.SetChannelWidth (GetChannelWidthForTransmission (mode, m_wifiPhy->GetChannelWidth ()));
         v.SetGuardInterval (ConvertGuardIntervalToNanoSeconds (mode, DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ())));
-        v.SetNTx (1);
+        v.SetNTx (GetNumberOfAntennas ());
         v.SetNss (1);
         v.SetNess (0);
-        v.SetStbc (0);
         return v;
     }
-  if (!IsLowLatency ())
+  return DoGetRtsTxVector (Lookup (address));
+}
+
+WifiTxVector
+WifiRemoteStationManager::GetCtsTxVector (Mac48Address to, WifiMode rtsTxMode) const
+{
+  NS_ASSERT (!to.IsGroup ());
+  WifiMode ctsMode = GetControlAnswerMode (rtsTxMode);
+  WifiTxVector v;
+  v.SetMode (ctsMode);
+  v.SetPreambleType (GetPreambleForTransmission (ctsMode.GetModulationClass (), GetShortPreambleEnabled ()));
+  v.SetTxPowerLevel (GetDefaultTxPowerLevel ());
+  v.SetChannelWidth (GetChannelWidthForTransmission (ctsMode, m_wifiPhy->GetChannelWidth ()));
+  uint16_t ctsTxGuardInterval = ConvertGuardIntervalToNanoSeconds (ctsMode, DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ()));
+  v.SetGuardInterval (ctsTxGuardInterval);
+  v.SetNss (1);
+  return v;
+}
+
+WifiTxVector
+WifiRemoteStationManager::GetAckTxVector (Mac48Address to, WifiMode dataTxMode) const
+{
+  NS_ASSERT (!to.IsGroup ());
+  WifiMode ackMode = GetControlAnswerMode (dataTxMode);
+  WifiTxVector v;
+  v.SetMode (ackMode);
+  v.SetPreambleType (GetPreambleForTransmission (ackMode.GetModulationClass (), GetShortPreambleEnabled ()));
+  v.SetTxPowerLevel (GetDefaultTxPowerLevel ());
+  v.SetChannelWidth (GetChannelWidthForTransmission (ackMode, m_wifiPhy->GetChannelWidth ()));
+  uint16_t ackTxGuardInterval = ConvertGuardIntervalToNanoSeconds (ackMode, DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ()));
+  v.SetGuardInterval (ackTxGuardInterval);
+  v.SetNss (1);
+  return v;
+}
+
+WifiTxVector
+WifiRemoteStationManager::GetBlockAckTxVector (Mac48Address to, WifiMode dataTxMode) const
+{
+  NS_ASSERT (!to.IsGroup ());
+  WifiMode blockAckMode = GetControlAnswerMode (dataTxMode);
+  WifiTxVector v;
+  v.SetMode (blockAckMode);
+  v.SetPreambleType (GetPreambleForTransmission (blockAckMode.GetModulationClass (), GetShortPreambleEnabled ()));
+  v.SetTxPowerLevel (GetDefaultTxPowerLevel ());
+  v.SetChannelWidth (GetChannelWidthForTransmission (blockAckMode, m_wifiPhy->GetChannelWidth ()));
+  uint16_t blockAckTxGuardInterval = ConvertGuardIntervalToNanoSeconds (blockAckMode, DynamicCast<WifiNetDevice> (m_wifiPhy->GetDevice ()));
+  v.SetGuardInterval (blockAckTxGuardInterval);
+  v.SetNss (1);
+  return v;
+}
+
+WifiMode
+WifiRemoteStationManager::GetControlAnswerMode (WifiMode reqMode) const
+{
+  /**
+   * The standard has relatively unambiguous rules for selecting a
+   * control response rate (the below is quoted from IEEE 802.11-2012,
+   * Section 9.7):
+   *
+   * To allow the transmitting STA to calculate the contents of the
+   * Duration/ID field, a STA responding to a received frame shall
+   * transmit its Control Response frame (either CTS or Ack), other
+   * than the BlockAck control frame, at the highest rate in the
+   * BSSBasicRateSet parameter that is less than or equal to the
+   * rate of the immediately previous frame in the frame exchange
+   * sequence (as defined in Annex G) and that is of the same
+   * modulation class (see Section 9.7.8) as the received frame...
+   */
+  NS_LOG_FUNCTION (this << reqMode);
+  WifiMode mode = GetDefaultMode ();
+  bool found = false;
+  //First, search the BSS Basic Rate set
+  for (uint8_t i = 0; i < GetNBasicModes (); i++)
     {
-      HighLatencyRtsTxVectorTag rtstag;
-      bool found = ConstCast<Packet> (packet)->PeekPacketTag (rtstag);
-      NS_ASSERT (found);
-      return rtstag.GetRtsTxVector ();
+      WifiMode testMode = GetBasicMode (i);
+      if ((!found || testMode.IsHigherDataRate (mode))
+          && (!testMode.IsHigherDataRate (reqMode))
+          && (IsAllowedControlAnswerModulationClass (reqMode.GetModulationClass (), testMode.GetModulationClass ())))
+        {
+          mode = testMode;
+          //We've found a potentially-suitable transmit rate, but we
+          //need to continue and consider all the basic rates before
+          //we can be sure we've got the right one.
+          found = true;
+        }
     }
-  return DoGetRtsTxVector (Lookup (address, header));
+  if (GetHtSupported ())
+    {
+      if (!found)
+        {
+          mode = GetDefaultMcs ();
+          for (uint8_t i = 0; i != GetNBasicMcs (); i++)
+            {
+              WifiMode testMode = GetBasicMcs (i);
+              if ((!found || testMode.IsHigherDataRate (mode))
+                  && (!testMode.IsHigherDataRate (reqMode))
+                  && (testMode.GetModulationClass () == reqMode.GetModulationClass ()))
+                {
+                  mode = testMode;
+                  //We've found a potentially-suitable transmit rate, but we
+                  //need to continue and consider all the basic rates before
+                  //we can be sure we've got the right one.
+                  found = true;
+                }
+            }
+        }
+    }
+  //If we found a suitable rate in the BSSBasicRateSet, then we are
+  //done and can return that mode.
+  if (found)
+    {
+      NS_LOG_DEBUG ("WifiRemoteStationManager::GetControlAnswerMode returning " << mode);
+      return mode;
+    }
+
+  /**
+   * If no suitable basic rate was found, we search the mandatory
+   * rates. The standard (IEEE 802.11-2007, Section 9.6) says:
+   *
+   *   ...If no rate contained in the BSSBasicRateSet parameter meets
+   *   these conditions, then the control frame sent in response to a
+   *   received frame shall be transmitted at the highest mandatory
+   *   rate of the PHY that is less than or equal to the rate of the
+   *   received frame, and that is of the same modulation class as the
+   *   received frame. In addition, the Control Response frame shall
+   *   be sent using the same PHY options as the received frame,
+   *   unless they conflict with the requirement to use the
+   *   BSSBasicRateSet parameter.
+   *
+   * \todo Note that we're ignoring the last sentence for now, because
+   * there is not yet any manipulation here of PHY options.
+   */
+  for (const auto & thismode : m_wifiPhy->GetModeList ())
+    {
+      /* If the rate:
+       *
+       *  - is a mandatory rate for the PHY, and
+       *  - is equal to or faster than our current best choice, and
+       *  - is less than or equal to the rate of the received frame, and
+       *  - is of the same modulation class as the received frame
+       *
+       * ...then it's our best choice so far.
+       */
+      if (thismode.IsMandatory ()
+          && (!found || thismode.IsHigherDataRate (mode))
+          && (!thismode.IsHigherDataRate (reqMode))
+          && (IsAllowedControlAnswerModulationClass (reqMode.GetModulationClass (), thismode.GetModulationClass ())))
+        {
+          mode = thismode;
+          //As above; we've found a potentially-suitable transmit
+          //rate, but we need to continue and consider all the
+          //mandatory rates before we can be sure we've got the right one.
+          found = true;
+        }
+    }
+  if (GetHtSupported () )
+    {
+      for (const auto & thismode : m_wifiPhy->GetMcsList ())
+        {
+          if (thismode.IsMandatory ()
+              && (!found || thismode.IsHigherDataRate (mode))
+              && (!thismode.IsHigherCodeRate (reqMode))
+              && (thismode.GetModulationClass () == reqMode.GetModulationClass ()))
+            {
+              mode = thismode;
+              //As above; we've found a potentially-suitable transmit
+              //rate, but we need to continue and consider all the
+              //mandatory rates before we can be sure we've got the right one.
+              found = true;
+            }
+        }
+    }
+
+  /**
+   * If we still haven't found a suitable rate for the response then
+   * someone has messed up the simulation configuration. This probably means
+   * that the WifiPhyStandard is not set correctly, or that a rate that
+   * is not supported by the PHY has been explicitly requested.
+   *
+   * Either way, it is serious - we can either disobey the standard or
+   * fail, and I have chosen to do the latter...
+   */
+  if (!found)
+    {
+      NS_FATAL_ERROR ("Can't find response rate for " << reqMode);
+    }
+
+  NS_LOG_DEBUG ("WifiRemoteStationManager::GetControlAnswerMode returning " << mode);
+  return mode;
 }
 
 void
-WifiRemoteStationManager::ReportRtsFailed (Mac48Address address, const WifiMacHeader *header)
+WifiRemoteStationManager::ReportRtsFailed (const WifiMacHeader& header)
 {
-  NS_LOG_FUNCTION (this << address << *header);
-  NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, header);
-  station->m_ssrc++;
-  m_macTxRtsFailed (address);
-  DoReportRtsFailed (station);
+  NS_LOG_FUNCTION (this << header);
+  NS_ASSERT (!header.GetAddr1 ().IsGroup ());
+  AcIndex ac = QosUtilsMapTidToAc ((header.IsQosData ()) ? header.GetQosTid () : 0);
+  m_ssrc[ac]++;
+  m_macTxRtsFailed (header.GetAddr1 ());
+  DoReportRtsFailed (Lookup (header.GetAddr1 ()));
 }
 
 void
-WifiRemoteStationManager::ReportDataFailed (Mac48Address address, const WifiMacHeader *header,
-                                            uint32_t packetSize)
+WifiRemoteStationManager::ReportDataFailed (Ptr<const WifiMacQueueItem> mpdu)
 {
-  NS_LOG_FUNCTION (this << address << *header);
-  NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, header);
-  bool longMpdu = (packetSize + header->GetSize () + WIFI_MAC_FCS_LENGTH) > m_rtsCtsThreshold;
+  NS_LOG_FUNCTION (this << *mpdu);
+  NS_ASSERT (!mpdu->GetHeader ().GetAddr1 ().IsGroup ());
+  AcIndex ac = QosUtilsMapTidToAc ((mpdu->GetHeader ().IsQosData ()) ? mpdu->GetHeader ().GetQosTid () : 0);
+  bool longMpdu = (mpdu->GetSize () > m_rtsCtsThreshold);
   if (longMpdu)
     {
-      station->m_slrc++;
+      m_slrc[ac]++;
     }
   else
     {
-      station->m_ssrc++;
+      m_ssrc[ac]++;
     }
-  m_macTxDataFailed (address);
-  DoReportDataFailed (station);
+  m_macTxDataFailed (mpdu->GetHeader ().GetAddr1 ());
+  DoReportDataFailed (Lookup (mpdu->GetHeader ().GetAddr1 ()));
 }
 
 void
-WifiRemoteStationManager::ReportRtsOk (Mac48Address address, const WifiMacHeader *header,
+WifiRemoteStationManager::ReportRtsOk (const WifiMacHeader& header,
                                        double ctsSnr, WifiMode ctsMode, double rtsSnr)
 {
-  NS_LOG_FUNCTION (this << address << *header << ctsSnr << ctsMode << rtsSnr);
-  NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, header);
-  station->m_state->m_info.NotifyTxSuccess (station->m_ssrc);
-  station->m_ssrc = 0;
+  NS_LOG_FUNCTION (this << header << ctsSnr << ctsMode << rtsSnr);
+  NS_ASSERT (!header.GetAddr1 ().IsGroup ());
+  WifiRemoteStation *station = Lookup (header.GetAddr1 ());
+  AcIndex ac = QosUtilsMapTidToAc ((header.IsQosData ()) ? header.GetQosTid () : 0);
+  station->m_state->m_info.NotifyTxSuccess (m_ssrc[ac]);
+  m_ssrc[ac] = 0;
   DoReportRtsOk (station, ctsSnr, ctsMode, rtsSnr);
 }
 
 void
-WifiRemoteStationManager::ReportDataOk (Mac48Address address, const WifiMacHeader *header,
-                                        double ackSnr, WifiMode ackMode, double dataSnr,
-                                        uint32_t packetSize)
+WifiRemoteStationManager::ReportDataOk (Ptr<const WifiMacQueueItem> mpdu, double ackSnr,
+                                        WifiMode ackMode, double dataSnr, WifiTxVector dataTxVector)
 {
-  NS_LOG_FUNCTION (this << address << *header << ackSnr << ackMode << dataSnr);
-  NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, header);
-  bool longMpdu = (packetSize + header->GetSize () + WIFI_MAC_FCS_LENGTH) > m_rtsCtsThreshold;
+  NS_LOG_FUNCTION (this << *mpdu << ackSnr << ackMode << dataSnr << dataTxVector);
+  const WifiMacHeader& hdr = mpdu->GetHeader ();
+  NS_ASSERT (!hdr.GetAddr1 ().IsGroup ());
+  WifiRemoteStation *station = Lookup (hdr.GetAddr1 ());
+  AcIndex ac = QosUtilsMapTidToAc ((hdr.IsQosData ()) ? hdr.GetQosTid () : 0);
+  bool longMpdu = (mpdu->GetSize () > m_rtsCtsThreshold);
   if (longMpdu)
     {
-      station->m_state->m_info.NotifyTxSuccess (station->m_slrc);
-      station->m_slrc = 0;
+      station->m_state->m_info.NotifyTxSuccess (m_slrc[ac]);
+      m_slrc[ac] = 0;
     }
   else
     {
-      station->m_state->m_info.NotifyTxSuccess (station->m_ssrc);
-      station->m_ssrc = 0;
+      station->m_state->m_info.NotifyTxSuccess (m_ssrc[ac]);
+      m_ssrc[ac] = 0;
     }
-  DoReportDataOk (station, ackSnr, ackMode, dataSnr);
+  DoReportDataOk (station, ackSnr, ackMode, dataSnr, dataTxVector.GetChannelWidth (), dataTxVector.GetNss ());
 }
 
 void
-WifiRemoteStationManager::ReportFinalRtsFailed (Mac48Address address, const WifiMacHeader *header)
+WifiRemoteStationManager::ReportFinalRtsFailed (const WifiMacHeader& header)
 {
-  NS_LOG_FUNCTION (this << address << *header);
-  NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, header);
+  NS_LOG_FUNCTION (this << header);
+  NS_ASSERT (!header.GetAddr1 ().IsGroup ());
+  WifiRemoteStation *station = Lookup (header.GetAddr1 ());
+  AcIndex ac = QosUtilsMapTidToAc ((header.IsQosData ()) ? header.GetQosTid () : 0);
   station->m_state->m_info.NotifyTxFailed ();
-  station->m_ssrc = 0;
-  m_macTxFinalRtsFailed (address);
+  m_ssrc[ac] = 0;
+  m_macTxFinalRtsFailed (header.GetAddr1 ());
   DoReportFinalRtsFailed (station);
 }
 
 void
-WifiRemoteStationManager::ReportFinalDataFailed (Mac48Address address, const WifiMacHeader *header,
-                                                 uint32_t packetSize)
+WifiRemoteStationManager::ReportFinalDataFailed (Ptr<const WifiMacQueueItem> mpdu)
 {
-  NS_LOG_FUNCTION (this << address << *header);
-  NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, header);
+  NS_LOG_FUNCTION (this << *mpdu);
+  NS_ASSERT (!mpdu->GetHeader ().GetAddr1 ().IsGroup ());
+  WifiRemoteStation *station = Lookup (mpdu->GetHeader ().GetAddr1 ());
+  AcIndex ac = QosUtilsMapTidToAc ((mpdu->GetHeader ().IsQosData ()) ? mpdu->GetHeader ().GetQosTid () : 0);
   station->m_state->m_info.NotifyTxFailed ();
-  bool longMpdu = (packetSize + header->GetSize () + WIFI_MAC_FCS_LENGTH) > m_rtsCtsThreshold;
+  bool longMpdu = (mpdu->GetSize () > m_rtsCtsThreshold);
   if (longMpdu)
     {
-      station->m_slrc = 0;
+      m_slrc[ac] = 0;
     }
   else
     {
-      station->m_ssrc = 0;
+      m_ssrc[ac] = 0;
     }
-  m_macTxFinalDataFailed (address);
+  m_macTxFinalDataFailed (mpdu->GetHeader ().GetAddr1 ());
   DoReportFinalDataFailed (station);
 }
 
 void
-WifiRemoteStationManager::ReportRxOk (Mac48Address address, const WifiMacHeader *header,
-                                      double rxSnr, WifiMode txMode)
+WifiRemoteStationManager::ReportRxOk (Mac48Address address, RxSignalInfo rxSignalInfo, WifiMode txMode)
 {
-  NS_LOG_FUNCTION (this << address << *header << rxSnr << txMode);
+  NS_LOG_FUNCTION (this << address << rxSignalInfo << txMode);
   if (address.IsGroup ())
     {
       return;
     }
-  WifiRemoteStation *station = Lookup (address, header);
-  DoReportRxOk (station, rxSnr, txMode);
+  WifiRemoteStation *station = Lookup (address);
+  DoReportRxOk (station, rxSignalInfo.snr, txMode);
+  station->m_rssiAndUpdateTimePair = std::make_pair (rxSignalInfo.rssi, Simulator::Now ());
 }
 
 void
-WifiRemoteStationManager::ReportAmpduTxStatus (Mac48Address address, uint8_t tid,
-                                               uint8_t nSuccessfulMpdus, uint8_t nFailedMpdus,
-                                               double rxSnr, double dataSnr)
+WifiRemoteStationManager::ReportAmpduTxStatus (Mac48Address address,
+                                               uint16_t nSuccessfulMpdus, uint16_t nFailedMpdus,
+                                               double rxSnr, double dataSnr, WifiTxVector dataTxVector)
 {
-  NS_LOG_FUNCTION (this << address << +tid << +nSuccessfulMpdus << +nFailedMpdus << rxSnr << dataSnr);
+  NS_LOG_FUNCTION (this << address << nSuccessfulMpdus << nFailedMpdus << rxSnr << dataSnr << dataTxVector);
   NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, tid);
   for (uint8_t i = 0; i < nFailedMpdus; i++)
     {
       m_macTxDataFailed (address);
     }
-  DoReportAmpduTxStatus (station, nSuccessfulMpdus, nFailedMpdus, rxSnr, dataSnr);
+  DoReportAmpduTxStatus (Lookup (address), nSuccessfulMpdus, nFailedMpdus, rxSnr, dataSnr, dataTxVector.GetChannelWidth (), dataTxVector.GetNss ());
 }
 
 bool
-WifiRemoteStationManager::NeedRts (Mac48Address address, const WifiMacHeader *header,
-                                   Ptr<const Packet> packet, WifiTxVector txVector)
+WifiRemoteStationManager::NeedRts (const WifiMacHeader &header, uint32_t size)
 {
+  NS_LOG_FUNCTION (this << header << size);
+  Mac48Address address = header.GetAddr1 ();
+  WifiTxVector txVector = GetDataTxVector (header);
   WifiMode mode = txVector.GetMode ();
-  NS_LOG_FUNCTION (this << address << *header << packet << mode);
   if (address.IsGroup ())
     {
       return false;
@@ -830,8 +925,8 @@ WifiRemoteStationManager::NeedRts (Mac48Address address, const WifiMacHeader *he
       NS_LOG_DEBUG ("WifiRemoteStationManager::NeedRTS returning true to protect non-HT stations");
       return true;
     }
-  bool normally = (packet->GetSize () + header->GetSize () + WIFI_MAC_FCS_LENGTH) > m_rtsCtsThreshold;
-  return DoNeedRts (Lookup (address, header), packet, normally);
+  bool normally = (size > m_rtsCtsThreshold);
+  return DoNeedRts (Lookup (address), size, normally);
 }
 
 bool
@@ -860,7 +955,7 @@ WifiRemoteStationManager::NeedCtsToSelf (WifiTxVector txVector)
     }
   else if (!m_useNonErpProtection)
     {
-      //search for the BSS Basic Rate set, if the used mode is in the basic set then there is no need for Cts To Self
+      //search for the BSS Basic Rate set, if the used mode is in the basic set then there is no need for CTS To Self
       for (WifiModeListIterator i = m_bssBasicRateSet.begin (); i != m_bssBasicRateSet.end (); i++)
         {
           if (mode == *i)
@@ -871,7 +966,7 @@ WifiRemoteStationManager::NeedCtsToSelf (WifiTxVector txVector)
         }
       if (GetHtSupported ())
         {
-          //search for the BSS Basic MCS set, if the used mode is in the basic set then there is no need for Cts To Self
+          //search for the BSS Basic MCS set, if the used mode is in the basic set then there is no need for CTS To Self
           for (WifiModeListIterator i = m_bssBasicMcsSet.begin (); i != m_bssBasicMcsSet.end (); i++)
             {
               if (mode == *i)
@@ -913,56 +1008,40 @@ WifiRemoteStationManager::GetUseNonHtProtection (void) const
   return m_useNonHtProtection;
 }
 
-void
-WifiRemoteStationManager::SetUseGreenfieldProtection (bool enable)
-{
-  NS_LOG_FUNCTION (this << enable);
-  m_useGreenfieldProtection = enable;
-}
-
 bool
-WifiRemoteStationManager::GetUseGreenfieldProtection (void) const
+WifiRemoteStationManager::NeedRetransmission (Ptr<const WifiMacQueueItem> mpdu)
 {
-  return m_useGreenfieldProtection;
-}
-
-bool
-WifiRemoteStationManager::NeedRetransmission (Mac48Address address, const WifiMacHeader *header,
-                                              Ptr<const Packet> packet)
-{
-  NS_LOG_FUNCTION (this << address << packet << *header);
-  NS_ASSERT (!address.IsGroup ());
-  WifiRemoteStation *station = Lookup (address, header);
-  bool longMpdu = (packet->GetSize () + header->GetSize () + WIFI_MAC_FCS_LENGTH) > m_rtsCtsThreshold;
+  NS_LOG_FUNCTION (this << *mpdu);
+  NS_ASSERT (!mpdu->GetHeader ().GetAddr1 ().IsGroup ());
+  AcIndex ac = QosUtilsMapTidToAc ((mpdu->GetHeader ().IsQosData ()) ? mpdu->GetHeader ().GetQosTid () : 0);
+  bool longMpdu = (mpdu->GetSize () > m_rtsCtsThreshold);
   uint32_t retryCount, maxRetryCount;
   if (longMpdu)
     {
-      retryCount = station->m_slrc;
+      retryCount = m_slrc[ac];
       maxRetryCount = m_maxSlrc;
     }
   else
     {
-      retryCount = station->m_ssrc;
+      retryCount = m_ssrc[ac];
       maxRetryCount = m_maxSsrc;
     }
   bool normally = retryCount < maxRetryCount;
   NS_LOG_DEBUG ("WifiRemoteStationManager::NeedRetransmission count: " << retryCount << " result: " << std::boolalpha << normally);
-  return DoNeedRetransmission (station, packet, normally);
+  return DoNeedRetransmission (Lookup (mpdu->GetHeader ().GetAddr1 ()), mpdu->GetPacket (), normally);
 }
 
 bool
-WifiRemoteStationManager::NeedFragmentation (Mac48Address address, const WifiMacHeader *header,
-                                             Ptr<const Packet> packet)
+WifiRemoteStationManager::NeedFragmentation (Ptr<const WifiMacQueueItem> mpdu)
 {
-  NS_LOG_FUNCTION (this << address << packet << *header);
-  if (address.IsGroup ())
+  NS_LOG_FUNCTION (this << *mpdu);
+  if (mpdu->GetHeader ().GetAddr1 ().IsGroup ())
     {
       return false;
     }
-  WifiRemoteStation *station = Lookup (address, header);
-  bool normally = (packet->GetSize () + header->GetSize () + WIFI_MAC_FCS_LENGTH) > GetFragmentationThreshold ();
+  bool normally = mpdu->GetSize () > GetFragmentationThreshold ();
   NS_LOG_DEBUG ("WifiRemoteStationManager::NeedFragmentation result: " << std::boolalpha << normally);
-  return DoNeedFragmentation (station, packet, normally);
+  return DoNeedFragmentation (Lookup (mpdu->GetHeader ().GetAddr1 ()), mpdu->GetPacket (), normally);
 }
 
 void
@@ -975,7 +1054,7 @@ WifiRemoteStationManager::DoSetFragmentationThreshold (uint32_t threshold)
        * ASN.1 encoding of the MAC and PHY MIB (256 ... 8000)
        */
       NS_LOG_WARN ("Fragmentation threshold should be larger than 256. Setting to 256.");
-      m_nextFragmentationThreshold = 256;
+      m_fragmentationThreshold = 256;
     }
   else
     {
@@ -986,19 +1065,13 @@ WifiRemoteStationManager::DoSetFragmentationThreshold (uint32_t threshold)
       if (threshold % 2 != 0)
         {
           NS_LOG_WARN ("Fragmentation threshold should be an even number. Setting to " << threshold - 1);
-          m_nextFragmentationThreshold = threshold - 1;
+          m_fragmentationThreshold = threshold - 1;
         }
       else
         {
-          m_nextFragmentationThreshold = threshold;
+          m_fragmentationThreshold = threshold;
         }
     }
-}
-
-void
-WifiRemoteStationManager::UpdateFragmentationThreshold (void)
-{
-  m_fragmentationThreshold = m_nextFragmentationThreshold;
 }
 
 uint32_t
@@ -1008,14 +1081,14 @@ WifiRemoteStationManager::DoGetFragmentationThreshold (void) const
 }
 
 uint32_t
-WifiRemoteStationManager::GetNFragments (const WifiMacHeader *header, Ptr<const Packet> packet)
+WifiRemoteStationManager::GetNFragments (Ptr<const WifiMacQueueItem> mpdu)
 {
-  NS_LOG_FUNCTION (this << *header << packet);
+  NS_LOG_FUNCTION (this << *mpdu);
   //The number of bytes a fragment can support is (Threshold - WIFI_HEADER_SIZE - WIFI_FCS).
-  uint32_t nFragments = (packet->GetSize () / (GetFragmentationThreshold () - header->GetSize () - WIFI_MAC_FCS_LENGTH));
+  uint32_t nFragments = (mpdu->GetPacket ()->GetSize () / (GetFragmentationThreshold () - mpdu->GetHeader ().GetSize () - WIFI_MAC_FCS_LENGTH));
 
   //If the size of the last fragment is not 0.
-  if ((packet->GetSize () % (GetFragmentationThreshold () - header->GetSize () - WIFI_MAC_FCS_LENGTH)) > 0)
+  if ((mpdu->GetPacket ()->GetSize () % (GetFragmentationThreshold () - mpdu->GetHeader ().GetSize () - WIFI_MAC_FCS_LENGTH)) > 0)
     {
       nFragments++;
     }
@@ -1024,12 +1097,11 @@ WifiRemoteStationManager::GetNFragments (const WifiMacHeader *header, Ptr<const 
 }
 
 uint32_t
-WifiRemoteStationManager::GetFragmentSize (Mac48Address address, const WifiMacHeader *header,
-                                           Ptr<const Packet> packet, uint32_t fragmentNumber)
+WifiRemoteStationManager::GetFragmentSize (Ptr<const WifiMacQueueItem> mpdu, uint32_t fragmentNumber)
 {
-  NS_LOG_FUNCTION (this << address << *header << packet << fragmentNumber);
-  NS_ASSERT (!address.IsGroup ());
-  uint32_t nFragment = GetNFragments (header, packet);
+  NS_LOG_FUNCTION (this << *mpdu << fragmentNumber);
+  NS_ASSERT (!mpdu->GetHeader ().GetAddr1 ().IsGroup ());
+  uint32_t nFragment = GetNFragments (mpdu);
   if (fragmentNumber >= nFragment)
     {
       NS_LOG_DEBUG ("WifiRemoteStationManager::GetFragmentSize returning 0");
@@ -1038,38 +1110,36 @@ WifiRemoteStationManager::GetFragmentSize (Mac48Address address, const WifiMacHe
   //Last fragment
   if (fragmentNumber == nFragment - 1)
     {
-      uint32_t lastFragmentSize = packet->GetSize () - (fragmentNumber * (GetFragmentationThreshold () - header->GetSize () - WIFI_MAC_FCS_LENGTH));
+      uint32_t lastFragmentSize = mpdu->GetPacket ()->GetSize () - (fragmentNumber * (GetFragmentationThreshold () - mpdu->GetHeader ().GetSize () - WIFI_MAC_FCS_LENGTH));
       NS_LOG_DEBUG ("WifiRemoteStationManager::GetFragmentSize returning " << lastFragmentSize);
       return lastFragmentSize;
     }
   //All fragments but the last, the number of bytes is (Threshold - WIFI_HEADER_SIZE - WIFI_FCS).
   else
     {
-      uint32_t fragmentSize = GetFragmentationThreshold () - header->GetSize () - WIFI_MAC_FCS_LENGTH;
+      uint32_t fragmentSize = GetFragmentationThreshold () - mpdu->GetHeader ().GetSize () - WIFI_MAC_FCS_LENGTH;
       NS_LOG_DEBUG ("WifiRemoteStationManager::GetFragmentSize returning " << fragmentSize);
       return fragmentSize;
     }
 }
 
 uint32_t
-WifiRemoteStationManager::GetFragmentOffset (Mac48Address address, const WifiMacHeader *header,
-                                             Ptr<const Packet> packet, uint32_t fragmentNumber)
+WifiRemoteStationManager::GetFragmentOffset (Ptr<const WifiMacQueueItem> mpdu, uint32_t fragmentNumber)
 {
-  NS_LOG_FUNCTION (this << address << *header << packet << fragmentNumber);
-  NS_ASSERT (!address.IsGroup ());
-  NS_ASSERT (fragmentNumber < GetNFragments (header, packet));
-  uint32_t fragmentOffset = fragmentNumber * (GetFragmentationThreshold () - header->GetSize () - WIFI_MAC_FCS_LENGTH);
+  NS_LOG_FUNCTION (this << *mpdu << fragmentNumber);
+  NS_ASSERT (!mpdu->GetHeader ().GetAddr1 ().IsGroup ());
+  NS_ASSERT (fragmentNumber < GetNFragments (mpdu));
+  uint32_t fragmentOffset = fragmentNumber * (GetFragmentationThreshold () - mpdu->GetHeader ().GetSize () - WIFI_MAC_FCS_LENGTH);
   NS_LOG_DEBUG ("WifiRemoteStationManager::GetFragmentOffset returning " << fragmentOffset);
   return fragmentOffset;
 }
 
 bool
-WifiRemoteStationManager::IsLastFragment (Mac48Address address, const WifiMacHeader *header,
-                                          Ptr<const Packet> packet, uint32_t fragmentNumber)
+WifiRemoteStationManager::IsLastFragment (Ptr<const WifiMacQueueItem> mpdu, uint32_t fragmentNumber)
 {
-  NS_LOG_FUNCTION (this << address << *header << packet << fragmentNumber);
-  NS_ASSERT (!address.IsGroup ());
-  bool isLast = fragmentNumber == (GetNFragments (header, packet) - 1);
+  NS_LOG_FUNCTION (this << *mpdu << fragmentNumber);
+  NS_ASSERT (!mpdu->GetHeader ().GetAddr1 ().IsGroup ());
+  bool isLast = fragmentNumber == (GetNFragments (mpdu) - 1);
   NS_LOG_DEBUG ("WifiRemoteStationManager::IsLastFragment returning " << std::boolalpha << isLast);
   return isLast;
 }
@@ -1085,6 +1155,26 @@ WifiRemoteStationManager::GetInfo (Mac48Address address)
 {
   WifiRemoteStationState *state = LookupState (address);
   return state->m_info;
+}
+
+double
+WifiRemoteStationManager::GetMostRecentRssi (Mac48Address address) const
+{
+  double rssi = 0.0;
+  Time mostRecentUpdateTime = NanoSeconds (0);
+  for (const auto & station : m_stations)
+    {
+      if (station->m_state->m_address == address) //get most recent RSSI irrespective of TID
+        {
+          if (station->m_rssiAndUpdateTimePair.second >= mostRecentUpdateTime)
+            {
+              rssi = station->m_rssiAndUpdateTimePair.first;
+              mostRecentUpdateTime = station->m_rssiAndUpdateTimePair.second;
+            }
+        }
+    }
+  NS_ASSERT (mostRecentUpdateTime.IsStrictlyPositive ());
+  return rssi;
 }
 
 WifiRemoteStationState *
@@ -1118,28 +1208,12 @@ WifiRemoteStationManager::LookupState (Mac48Address address) const
 }
 
 WifiRemoteStation *
-WifiRemoteStationManager::Lookup (Mac48Address address, const WifiMacHeader *header) const
+WifiRemoteStationManager::Lookup (Mac48Address address) const
 {
-  uint8_t tid;
-  if (header->IsQosData ())
-    {
-      tid = header->GetQosTid ();
-    }
-  else
-    {
-      tid = 0;
-    }
-  return Lookup (address, tid);
-}
-
-WifiRemoteStation *
-WifiRemoteStationManager::Lookup (Mac48Address address, uint8_t tid) const
-{
-  NS_LOG_FUNCTION (this << address << +tid);
+  NS_LOG_FUNCTION (this << address);
   for (Stations::const_iterator i = m_stations.begin (); i != m_stations.end (); i++)
     {
-      if ((*i)->m_tid == tid
-          && (*i)->m_state->m_address == address)
+      if ((*i)->m_state->m_address == address)
         {
           return (*i);
         }
@@ -1148,9 +1222,7 @@ WifiRemoteStationManager::Lookup (Mac48Address address, uint8_t tid) const
 
   WifiRemoteStation *station = DoCreateStation ();
   station->m_state = state;
-  station->m_tid = tid;
-  station->m_ssrc = 0;
-  station->m_slrc = 0;
+  station->m_rssiAndUpdateTimePair = std::make_pair (0, Seconds (0));
   const_cast<WifiRemoteStationManager *> (this)->m_stations.push_back (station);
   return station;
 }
@@ -1180,10 +1252,9 @@ WifiRemoteStationManager::AddStationHtCapabilities (Mac48Address from, HtCapabil
       state->m_channelWidth = 20;
     }
   SetQosSupport (from, true);
-  for (uint8_t j = 0; j < m_wifiPhy->GetNMcs (); j++)
+  for (const auto & mcs : m_wifiPhy->GetMcsList (WIFI_MOD_CLASS_HT))
     {
-      WifiMode mcs = m_wifiPhy->GetMcs (j);
-      if (mcs.GetModulationClass () == WIFI_MOD_CLASS_HT && htCapabilities.IsSupportedMcs (mcs.GetMcsValue ()))
+      if (htCapabilities.IsSupportedMcs (mcs.GetMcsValue ()))
         {
           AddSupportedMcs (from, mcs);
         }
@@ -1214,10 +1285,9 @@ WifiRemoteStationManager::AddStationVhtCapabilities (Mac48Address from, VhtCapab
     }
   for (uint8_t i = 1; i <= m_wifiPhy->GetMaxSupportedTxSpatialStreams (); i++)
     {
-      for (uint8_t j = 0; j < m_wifiPhy->GetNMcs (); j++)
+      for (const auto & mcs : m_wifiPhy->GetMcsList (WIFI_MOD_CLASS_VHT))
         {
-          WifiMode mcs = m_wifiPhy->GetMcs (j);
-          if (mcs.GetModulationClass () == WIFI_MOD_CLASS_VHT && vhtCapabilities.IsSupportedMcs (mcs.GetMcsValue (), i))
+          if (vhtCapabilities.IsSupportedMcs (mcs.GetMcsValue (), i))
             {
               AddSupportedMcs (from, mcs);
             }
@@ -1233,7 +1303,7 @@ WifiRemoteStationManager::AddStationHeCapabilities (Mac48Address from, HeCapabil
   NS_LOG_FUNCTION (this << from << heCapabilities);
   WifiRemoteStationState *state;
   state = LookupState (from);
-  if (Is5Ghz (m_wifiPhy->GetFrequency ()))
+  if ((m_wifiPhy->GetPhyBand () == WIFI_PHY_BAND_5GHZ) || (m_wifiPhy->GetPhyBand () == WIFI_PHY_BAND_6GHZ))
     {
       if (heCapabilities.GetChannelWidthSet () & 0x04)
         {
@@ -1245,7 +1315,7 @@ WifiRemoteStationManager::AddStationHeCapabilities (Mac48Address from, HeCapabil
         }
       //For other cases at 5 GHz, the supported channel width is set by the VHT capabilities
     }
-  else if (Is2_4Ghz (m_wifiPhy->GetFrequency ()))
+  else if (m_wifiPhy->GetPhyBand () == WIFI_PHY_BAND_2_4GHZ)
     {
       if (heCapabilities.GetChannelWidthSet () & 0x01)
         {
@@ -1270,12 +1340,10 @@ WifiRemoteStationManager::AddStationHeCapabilities (Mac48Address from, HeCapabil
     }
   for (uint8_t i = 1; i <= m_wifiPhy->GetMaxSupportedTxSpatialStreams (); i++)
     {
-      for (uint8_t j = 0; j < m_wifiPhy->GetNMcs (); j++)
+      for (const auto & mcs : m_wifiPhy->GetMcsList (WIFI_MOD_CLASS_HE))
         {
-          WifiMode mcs = m_wifiPhy->GetMcs (j);
-          if (mcs.GetModulationClass () == WIFI_MOD_CLASS_HE
-              && heCapabilities.GetHighestNssSupported () >= i
-              && heCapabilities.GetHighestMcsSupported () >= j)
+          if (heCapabilities.GetHighestNssSupported () >= i
+              && heCapabilities.GetHighestMcsSupported () >= mcs.GetMcsValue ())
             {
               AddSupportedMcs (from, mcs);
             }
@@ -1304,15 +1372,25 @@ WifiRemoteStationManager::GetStationHeCapabilities (Mac48Address from)
 }
 
 bool
-WifiRemoteStationManager::GetGreenfieldSupported (Mac48Address address) const
+WifiRemoteStationManager::GetLdpcSupported (Mac48Address address) const
 {
   Ptr<const HtCapabilities> htCapabilities = LookupState (address)->m_htCapabilities;
-
-  if (!htCapabilities)
+  Ptr<const VhtCapabilities> vhtCapabilities = LookupState (address)->m_vhtCapabilities;
+  Ptr<const HeCapabilities> heCapabilities = LookupState (address)->m_heCapabilities;
+  bool supported = false;
+  if (htCapabilities)
     {
-      return false;
+      supported |= htCapabilities->GetLdpc ();
     }
-  return htCapabilities->GetGreenfield ();
+  if (vhtCapabilities)
+    {
+      supported |= vhtCapabilities->GetRxLdpc ();
+    }
+  if (heCapabilities)
+    {
+      supported |= heCapabilities->GetLdpcCodingInPayload ();
+    }
+  return supported;
 }
 
 WifiMode
@@ -1343,15 +1421,17 @@ WifiRemoteStationManager::Reset (void)
   m_stations.clear ();
   m_bssBasicRateSet.clear ();
   m_bssBasicMcsSet.clear ();
+  m_ssrc.fill (0);
+  m_slrc.fill (0);
 }
 
 void
 WifiRemoteStationManager::AddBasicMode (WifiMode mode)
 {
   NS_LOG_FUNCTION (this << mode);
-  if (mode.GetModulationClass () == WIFI_MOD_CLASS_HT || mode.GetModulationClass () == WIFI_MOD_CLASS_VHT || mode.GetModulationClass () == WIFI_MOD_CLASS_HE)
+  if (mode.GetModulationClass () >= WIFI_MOD_CLASS_HT)
     {
-      NS_FATAL_ERROR ("It is not allowed to add a HT, VHT or HE rate in the BSSBasicRateSet!");
+      NS_FATAL_ERROR ("It is not allowed to add a HT rate in the BSSBasicRateSet!");
     }
   for (uint8_t i = 0; i < GetNBasicModes (); i++)
     {
@@ -1465,7 +1545,7 @@ WifiRemoteStationManager::GetNonUnicastMode (void) const
 
 bool
 WifiRemoteStationManager::DoNeedRts (WifiRemoteStation *station,
-                                     Ptr<const Packet> packet, bool normally)
+                                     uint32_t size, bool normally)
 {
   return normally;
 }
@@ -1485,7 +1565,7 @@ WifiRemoteStationManager::DoNeedFragmentation (WifiRemoteStation *station,
 }
 
 void
-WifiRemoteStationManager::DoReportAmpduTxStatus (WifiRemoteStation *station, uint8_t nSuccessfulMpdus, uint8_t nFailedMpdus, double rxSnr, double dataSnr)
+WifiRemoteStationManager::DoReportAmpduTxStatus (WifiRemoteStation *station, uint16_t nSuccessfulMpdus, uint16_t nFailedMpdus, double rxSnr, double dataSnr, uint16_t dataChannelWidth, uint8_t dataNss)
 {
   NS_LOG_DEBUG ("DoReportAmpduTxStatus received but the manager does not handle A-MPDUs!");
 }
@@ -1508,7 +1588,7 @@ WifiMode
 WifiRemoteStationManager::GetNonErpSupported (const WifiRemoteStation *station, uint8_t i) const
 {
   NS_ASSERT (i < GetNNonErpSupported (station));
-  //IEEE 802.11g standard defines that if the protection mechanism is enabled, Rts, Cts and Cts-To-Self
+  //IEEE 802.11g standard defines that if the protection mechanism is enabled, RTS, CTS and CTS-To-Self
   //frames should select a rate in the BSSBasicRateSet that corresponds to an 802.11b basic rate.
   //This is a implemented here to avoid changes in every RAA, but should maybe be moved in case it breaks standard rules.
   uint32_t index = 0;
@@ -1560,18 +1640,6 @@ uint16_t
 WifiRemoteStationManager::GetGuardInterval (const WifiRemoteStation *station) const
 {
   return station->m_state->m_guardInterval;
-}
-
-bool
-WifiRemoteStationManager::GetGreenfield (const WifiRemoteStation *station) const
-{
-  Ptr<const HtCapabilities> htCapabilities = station->m_state->m_htCapabilities;
-
-  if (!htCapabilities)
-    {
-      return false;
-    }
-  return htCapabilities->GetGreenfield ();
 }
 
 bool
@@ -1734,9 +1802,9 @@ WifiRemoteStationManager::GetMaxNumberOfTransmitStreams (void) const
 }
 
 bool
-WifiRemoteStationManager::UseGreenfieldForDestination (Mac48Address dest) const
+WifiRemoteStationManager::UseLdpcForDestination (Mac48Address dest) const
 {
-  return (GetGreenfieldSupported () && GetGreenfieldSupported (dest) && !GetUseGreenfieldProtection ());
+  return (GetLdpcSupported () && GetLdpcSupported (dest));
 }
 
 } //namespace ns3

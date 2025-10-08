@@ -303,7 +303,7 @@ public:
 																	Ptr<const MobilityModel> a,
 																	Ptr<const MobilityModel> b,
 																	uint8_t txLayerInd,
-																	uint8_t rxLayerInd) const override;
+																	uint8_t rxLayerInd) const;
 
 	/**
 	 * Looks for the long term component in m_longTermMap. If found, checks

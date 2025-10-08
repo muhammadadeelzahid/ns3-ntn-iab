@@ -742,21 +742,21 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("=======================\n");
     
   // IPv4 L3 layer tracing (these are known to work)
-  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Tx",
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/$ns3::Ipv4L3Protocol/Tx",
                                MakeCallback(&Ipv4L3TxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Rx",
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/$ns3::Ipv4L3Protocol/Rx",
                                MakeCallback(&Ipv4L3RxCallback));
   
   // Point-to-Point NetDevice tracing (using correct signatures)
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacTx",
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacTx",
                                MakeCallback(&P2PTxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacRx",
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacRx",
                                MakeCallback(&P2PRxCallback));
   
   // Physical layer tracing (MmWave) - using correct signature
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveEnbNetDevice/Phy/RxPacketTrace",
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/DeviceList/*/$ns3::MmWaveEnbNetDevice/Phy/RxPacketTrace",
                                MakeCallback(&P2PRxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveUeNetDevice/Phy/RxPacketTrace",
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/DeviceList/*/$ns3::MmWaveUeNetDevice/Phy/RxPacketTrace",
                                MakeCallback(&P2PRxCallback));
   
   mmwaveHelper->EnableTraces ();

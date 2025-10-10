@@ -116,7 +116,7 @@ main (int argc, char *argv[])
   // system so that they can be overridden with flags such as
   // "--backboneNodes=20"
   //
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("backboneNodes", "number of backbone nodes", backboneNodes);
   cmd.AddValue ("infraNodes", "number of leaf nodes", infraNodes);
   cmd.AddValue ("lanNodes", "number of LAN nodes", lanNodes);
@@ -155,7 +155,7 @@ main (int argc, char *argv[])
   mac.SetType ("ns3::AdhocWifiMac");
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
                                 "DataMode", StringValue ("OfdmRate54Mbps"));
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
   NetDeviceContainer backboneDevices = wifi.Install (wifiPhy, mac, backbone);

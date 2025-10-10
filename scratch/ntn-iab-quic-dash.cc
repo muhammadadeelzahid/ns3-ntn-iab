@@ -237,20 +237,23 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart)
   AsciiTraceHelper asciiTraceHelper;
 
   std::ostringstream pathCW;
-  pathCW << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/CongestionWindow";
-  NS_LOG_INFO("Matches cw " << Config::LookupMatches(pathCW.str().c_str()).GetN());
+  pathCW << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/CongestionWindow";
+  uint32_t cwMatches = Config::LookupMatches(pathCW.str().c_str()).GetN();
+  NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - CongestionWindow matches: " << cwMatches);
 
   std::ostringstream fileCW;
   fileCW << pathVersion << "QUIC-cwnd-change"  << serverId << "" << finalPart;
 
   std::ostringstream pathRTT;
-  pathRTT << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RTT";
+  pathRTT << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/RTT";
+  uint32_t rttMatches = Config::LookupMatches(pathRTT.str().c_str()).GetN();
+  NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - RTT matches: " << rttMatches);
 
   std::ostringstream fileRTT;
   fileRTT << pathVersion << "QUIC-rtt"  << serverId << "" << finalPart;
 
   std::ostringstream pathRCWnd;
-  pathRCWnd<< "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RWND";
+  pathRCWnd<< "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/RWND";
 
   std::ostringstream fileRCWnd;
   fileRCWnd<<pathVersion << "QUIC-rwnd-change"  << serverId << "" << finalPart;
@@ -259,7 +262,8 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart)
   fileName << pathVersion << "QUIC-rx-data" << serverId << "" << finalPart;
   std::ostringstream pathRx;
   pathRx << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
-  NS_LOG_INFO("Matches rx " << Config::LookupMatches(pathRx.str().c_str()).GetN());
+  uint32_t rxMatches = Config::LookupMatches(pathRx.str().c_str()).GetN();
+  NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Rx matches: " << rxMatches);
 
   Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
   Config::ConnectWithoutContextFailSafe (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
@@ -270,8 +274,11 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart)
   Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
   Config::ConnectWithoutContextFailSafe (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
 
-  Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileRCWnd.str ().c_str ());
-  Config::ConnectWithoutContextFailSafe (pathRCWnd.str ().c_str (), MakeBoundCallback(&CwndChange, stream4));
+  // Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
+  // Config::ConnectWithoutContextFailSafe (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
+
+  // Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileRCWnd.str ().c_str ());
+  // Config::ConnectWithoutContextFailSafe (pathRCWnd.str ().c_str (), MakeBoundCallback(&CwndChange, stream4));
 }
 
 void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
@@ -368,10 +375,14 @@ int
 main (int argc, char *argv[])
 {
   // Enable DASH logging for debugging
-  LogComponentEnable("DashClient", LOG_LEVEL_INFO);
+  LogComponentEnable("DashClient", LOG_LEVEL_LOGIC);  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
   LogComponentEnable("DashServer", LOG_LEVEL_INFO);
   LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
   LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
+  
+  // Enable QUIC socket logging to see connection events and data flow
+  LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);  // LOG_LEVEL_INFO to see data sending issues
+  LogComponentEnable("QuicL4Protocol", LOG_LEVEL_INFO);  // LOG_LEVEL_INFO to see packet flow
   
   // Enable QUIC logging (safe - no wildcard traces that cause crash)
   // LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
@@ -847,9 +858,9 @@ main (int argc, char *argv[])
   ApplicationContainer serverApps;
   
   // DASH over QUIC configuration
-  double target_dt = 35.0;  // Target buffering time
-  uint32_t bufferSpace = 30000000;  // 30 MB buffer
-  std::string window = "10s";  // Throughput measurement window
+  double target_dt = 0.1;  // Target buffering time
+  uint32_t bufferSpace = 20000000;  // 20 MB buffer
+  std::string window = "1s";  // Throughput measurement window
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
   // Create ONE DASH server on remote host to serve all UEs (on port 80)
@@ -965,29 +976,28 @@ main (int argc, char *argv[])
     clientApps.Get(i)->SetStartTime(Seconds(1.0 + i * 0.1));
   }
   
-  double stopTime = 3.0;  // Minimal time for testing
+  double stopTime = 2.0;  // Minimal time for testing
   clientApps.Stop (Seconds (stopTime));
   serverApps.Stop (Seconds (stopTime + 1.0));
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections ===");
-  Time traceTime = Seconds(0.1);
+  
+  // Connect traces for remote host (QUIC server) - schedule after server starts (0.0s)
+  uint32_t serverNodeId = remoteHost->GetId();
+  Time serverTraceTime = Seconds(0.005);  // After server socket is created
+  Simulator::Schedule(serverTraceTime, &Traces, serverNodeId, "./server", ".txt");
+  NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId << " at t=" << serverTraceTime.GetSeconds() << "s");
   
   // Connect traces for each UE node (QUIC client)
+  Time clientTraceTime = Seconds(0.002);  // After client sockets are created
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     uint32_t nodeId = ueNodes.Get(u)->GetId();
-    Simulator::Schedule(traceTime, &Traces, nodeId, "./client", ".txt");
-    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (client)");
+    Simulator::Schedule(clientTraceTime + Seconds(u * 0.1), &Traces, nodeId, "./client", ".txt");
+    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (client) at t=" << (clientTraceTime + Seconds(u * 0.1)).GetSeconds() << "s");
   }
-  
-  // Connect traces for remote host (QUIC server)
-  uint32_t serverNodeId = remoteHost->GetId();
-  Simulator::Schedule(traceTime, &Traces, serverNodeId, "./server", ".txt");
-  NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId);
-  NS_LOG_UNCOND("  Traces will connect at t=" << traceTime.GetSeconds() << "s");
-  NS_LOG_UNCOND("========================================\n");
-  
+    
   std::string tracePrefix = "ntn_iab_quic_dash";  // Keep variable for log statements
   NS_LOG_UNCOND("\n=== Trace Configuration ===");
   NS_LOG_UNCOND("QUIC traces: Using quic-variants-comparison example approach");
@@ -1000,8 +1010,8 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("Simulation time: " << stopTime << " seconds");
   NS_LOG_UNCOND("DASH algorithm: " << algorithm);
   NS_LOG_UNCOND("Target buffering time: " << target_dt << " seconds");
-  NS_LOG_UNCOND("Expected video segments: ~" << (int)(stopTime/2) << " (2s per segment)");
-  NS_LOG_UNCOND("Expected video frames: ~" << (int)(stopTime * 50) << " (50 fps)");
+  NS_LOG_UNCOND("Expected video segments: ~" << (int)(stopTime/2));
+  NS_LOG_UNCOND("Expected video frames: ~" << (int)(stopTime * 50));
   
   Simulator::Run();
   

@@ -105,12 +105,12 @@ void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::str
 // QUIC Socket Base Tx callback (using built-in trace source)
 void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
-  std::cout << "QUIC SOCKET TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
+  NS_LOG_UNCOND( "QUIC SOCKET TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
+            << " bytes, packet_number: " << header.GetPacketNumber());
   if (!quicTxFile.is_open())
   {
     quicTxFile.open("quic_socket_tx.txt", std::ios::out);
-    std::cout << "QUIC SOCKET TX file opened" << std::endl;
+    NS_LOG_UNCOND( "QUIC SOCKET TX file opened");
   }
   DumpPacketHex(quicTxFile, packet, "QUIC_SOCKET_TX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
   quicTxFile.flush();
@@ -119,12 +119,12 @@ void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Pt
 // QUIC Socket Base Rx callback (using built-in trace source)
 void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
-  std::cout << "QUIC SOCKET RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
+  NS_LOG_UNCOND( "QUIC SOCKET RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
+            << " bytes, packet_number: " << header.GetPacketNumber());
   if (!quicRxFile.is_open())
   {
     quicRxFile.open("quic_socket_rx.txt", std::ios::out);
-    std::cout << "QUIC SOCKET RX file opened" << std::endl;
+    NS_LOG_UNCOND( "QUIC SOCKET RX file opened");
   }
   DumpPacketHex(quicRxFile, packet, "QUIC_SOCKET_RX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
   quicRxFile.flush();
@@ -133,11 +133,11 @@ void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Pt
 // UDP L4 layer callbacks (using custom trace sources)
 void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
-  std::cout << "UDP L4 TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
+  NS_LOG_UNCOND( "UDP L4 TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes");
   if (!udpL4TxFile.is_open())
   {
     udpL4TxFile.open("udp_l4_tx.txt", std::ios::out);
-    std::cout << "UDP L4 TX file opened" << std::endl;
+    NS_LOG_UNCOND( "UDP L4 TX file opened");
   }
   DumpPacketHex(udpL4TxFile, packet, "UDP_L4_TX Interface=" + std::to_string(interface));
   udpL4TxFile.flush();
@@ -145,11 +145,11 @@ void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interfac
 
 void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
-  std::cout << "UDP L4 RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
+  NS_LOG_UNCOND( "UDP L4 RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes");
   if (!udpL4RxFile.is_open())
   {
     udpL4RxFile.open("udp_l4_rx.txt", std::ios::out);
-    std::cout << "UDP L4 RX file opened" << std::endl;
+    NS_LOG_UNCOND( "UDP L4 RX file opened");
   }
   DumpPacketHex(udpL4RxFile, packet, "UDP_L4_RX Interface=" + std::to_string(interface));
   udpL4RxFile.flush();
@@ -220,8 +220,51 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
     outFile.close();
 }
 void PacketDropCallback(Ptr<const Packet> packet) {
-  std::cout << "Packet dropped at " << Simulator::Now().GetSeconds() << "s" << std::endl;
+  NS_LOG_UNCOND( "Packet dropped at " << Simulator::Now().GetSeconds() << "s");
 }
+
+// Helper callback for QUIC client application trace
+void QuicClientTxCallback(Ptr<const Packet> packet) {
+  NS_LOG_UNCOND("QUIC CLIENT TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes");
+}
+
+// Helper callback for QUIC server application trace  
+void QuicServerTxCallback(Ptr<const Packet> packet) {
+  NS_LOG_UNCOND("QUIC SERVER TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes");
+}
+
+// Helper function to connect QUIC trace sources
+void ConnectQuicTraces(ApplicationContainer clientApps, ApplicationContainer serverApps)
+{
+  // for (uint32_t i = 0; i < clientApps.GetN(); ++i)
+  // {
+  //   Ptr<QuicClient> client = DynamicCast<QuicClient>(clientApps.Get(i));
+  //   if (client)
+  //   {
+  //     Ptr<QuicSocketBase> socket = DynamicCast<QuicSocketBase>(client->GetSocket());
+  //     if (socket)
+  //     {
+  //       socket->TraceConnectWithoutContext("Tx", MakeCallback(&QuicSocketTxCallback));
+  //       socket->TraceConnectWithoutContext("Rx", MakeCallback(&QuicSocketRxCallback));
+  //     }
+  //   }
+  // }
+  
+  // for (uint32_t i = 0; i < serverApps.GetN(); ++i)
+  // {
+  //   Ptr<QuicServer> server = DynamicCast<QuicServer>(serverApps.Get(i));
+  //   if (server)
+  //   {
+  //     Ptr<QuicSocketBase> socket = DynamicCast<QuicSocketBase>(server->GetSocket());
+  //     if (socket)
+  //     {
+  //       socket->TraceConnectWithoutContext("Tx", MakeCallback(&QuicSocketTxCallback));
+  //       socket->TraceConnectWithoutContext("Rx", MakeCallback(&QuicSocketRxCallback));
+  //     }
+  //   }
+  // }
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -312,7 +355,7 @@ main (int argc, char *argv[])
   // //LogComponentEnable("Packet", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicServer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicSocket", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicL4Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicSubheader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
@@ -758,10 +801,15 @@ main (int argc, char *argv[])
                                MakeCallback(&P2PRxCallback));
   Config::ConnectWithoutContextFailSafe("/NodeList/*/DeviceList/*/$ns3::MmWaveUeNetDevice/Phy/RxPacketTrace",
                                MakeCallback(&P2PRxCallback));
-  
+
+  // Schedule trace connections after applications start (at 1.1s, after client starts at 1.0s)
+  Simulator::Schedule(Seconds(1.1), &ConnectQuicTraces, clientApps, serverApps);
+
   mmwaveHelper->EnableTraces ();
+
   serverApps.Start (Seconds (0.5));
   clientApps.Start (Seconds (1.0));
+  
   clientApps.Stop (Seconds (3.0));
   serverApps.Stop (Seconds (3.0));
   Simulator::Stop (Seconds (3.5));

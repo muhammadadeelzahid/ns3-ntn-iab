@@ -43,3 +43,17 @@ def build(bld):
                                  ['point-to-point', 'internet', 'applications', 'flow-monitor'])
 
     obj.source = 'tcp-pacing.cc'
+
+    obj = bld.create_ns3_program('dctcp-example',
+                                 ['core', 'network', 'internet', 'point-to-point', 'applications', 'traffic-control'])
+    obj.source = 'dctcp-example.cc'
+
+    obj = bld.create_ns3_program('tcp-linux-reno',
+                                 ['point-to-point', 'internet', 'applications', 'traffic-control', 'network'])
+
+    obj.source = 'tcp-linux-reno.cc'
+
+    obj = bld.create_ns3_program('tcp-validation',
+                                 ['point-to-point', 'internet', 'applications', 'traffic-control', 'network', 'internet-apps'])
+
+    obj.source = 'tcp-validation.cc'

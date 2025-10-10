@@ -60,7 +60,7 @@ RegularWifiMac::RegularWifiMac ()
   m_txop = CreateObject<Txop> ();
   m_txop->SetChannelAccessManager (m_channelAccessManager);
   m_txop->SetTxMiddle (m_txMiddle);
-  m_txop->SetDroppedMpduCallback (MakeCallback (static_cast<void (DroppedMpduTracedCallback::*)(WifiMacDropReason, Ptr<const WifiMacQueueItem>) const>(&DroppedMpduTracedCallback::operator()),
+  m_txop->SetDroppedMpduCallback (MakeCallback (&DroppedMpduTracedCallback::operator(),
                                                 &m_droppedMpduCallback));
 
   //Construct the EDCAFs. The ordering is important - highest
@@ -151,13 +151,13 @@ RegularWifiMac::SetupFrameExchangeManager (void)
   m_feManager->SetMacRxMiddle (m_rxMiddle);
   m_feManager->SetAddress (GetAddress ());
   m_feManager->SetBssid (GetBssid ());
-  m_feManager->GetWifiTxTimer ().SetMpduResponseTimeoutCallback (MakeCallback (static_cast<void (MpduResponseTimeoutTracedCallback::*)(uint8_t, Ptr<const WifiMacQueueItem>, const WifiTxVector&) const>(&MpduResponseTimeoutTracedCallback::operator()),
+  m_feManager->GetWifiTxTimer ().SetMpduResponseTimeoutCallback (MakeCallback (&MpduResponseTimeoutTracedCallback::operator(),
                                                                                &m_mpduResponseTimeoutCallback));
-  m_feManager->GetWifiTxTimer ().SetPsduResponseTimeoutCallback (MakeCallback (static_cast<void (PsduResponseTimeoutTracedCallback::*)(uint8_t, Ptr<const WifiPsdu>, const WifiTxVector&) const>(&PsduResponseTimeoutTracedCallback::operator()),
+  m_feManager->GetWifiTxTimer ().SetPsduResponseTimeoutCallback (MakeCallback (&PsduResponseTimeoutTracedCallback::operator(),
                                                                                &m_psduResponseTimeoutCallback));
-  m_feManager->SetDroppedMpduCallback (MakeCallback (static_cast<void (DroppedMpduTracedCallback::*)(WifiMacDropReason, Ptr<const WifiMacQueueItem>) const>(&DroppedMpduTracedCallback::operator()),
+  m_feManager->SetDroppedMpduCallback (MakeCallback (&DroppedMpduTracedCallback::operator(),
                                                      &m_droppedMpduCallback));
-  m_feManager->SetAckedMpduCallback (MakeCallback (static_cast<void (MpduTracedCallback::*)(Ptr<const WifiMacQueueItem>) const>(&MpduTracedCallback::operator()),
+  m_feManager->SetAckedMpduCallback (MakeCallback (&MpduTracedCallback::operator(),
                                                    &m_ackedMpduCallback));
   m_channelAccessManager->SetupFrameExchangeManager (m_feManager);
   if (GetQosSupported ())
@@ -468,11 +468,11 @@ RegularWifiMac::SetupEdcaQueue (AcIndex ac)
   Ptr<QosTxop> edca = CreateObject<QosTxop> ();
   edca->SetChannelAccessManager (m_channelAccessManager);
   edca->SetTxMiddle (m_txMiddle);
-  edca->GetBaManager ()->SetTxOkCallback (MakeCallback (static_cast<void (MpduTracedCallback::*)(Ptr<const WifiMacQueueItem>) const>(&MpduTracedCallback::operator()),
+  edca->GetBaManager ()->SetTxOkCallback (MakeCallback (&MpduTracedCallback::operator(),
                                                         &m_ackedMpduCallback));
-  edca->GetBaManager ()->SetTxFailedCallback (MakeCallback (static_cast<void (MpduTracedCallback::*)(Ptr<const WifiMacQueueItem>) const>(&MpduTracedCallback::operator()),
+  edca->GetBaManager ()->SetTxFailedCallback (MakeCallback (&MpduTracedCallback::operator(),
                                                             &m_nackedMpduCallback));
-  edca->SetDroppedMpduCallback (MakeCallback (static_cast<void (DroppedMpduTracedCallback::*)(WifiMacDropReason, Ptr<const WifiMacQueueItem>) const>(&DroppedMpduTracedCallback::operator()),
+  edca->SetDroppedMpduCallback (MakeCallback (&DroppedMpduTracedCallback::operator(),
                                               &m_droppedMpduCallback));
   edca->SetAccessCategory (ac);
   edca->CompleteConfig ();

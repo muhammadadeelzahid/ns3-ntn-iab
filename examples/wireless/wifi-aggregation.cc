@@ -53,17 +53,16 @@
 // - station C enables A-MSDU (with maximum size of 8 kB) but disables A-MPDU;
 // - station D uses two-level aggregation (A-MPDU with maximum size of 32 kB and A-MSDU with maximum size of 4 kB).
 //
-// Packets in this simulation aren't marked with a QosTag so they
-// are considered belonging to BestEffort Access Class (AC_BE).
+//Packets in this simulation belong to BestEffort Access Class (AC_BE).
 //
 // The user can select the distance between the stations and the APs and can enable/disable the RTS/CTS mechanism.
 // Example: ./waf --run "wifi-aggregation --distance=10 --enableRts=0 --simulationTime=20"
 //
 // The output prints the throughput measured for the 4 cases/networks described above. When default aggregation parameters are enabled, the
-// maximum A-MPDU size is 65 kB and the throughput is maximal. When aggregation is disabled, the throughput is about the half of the
-// physical bitrate as in legacy wifi networks. When only A-MSDU is enabled, the throughput is increased but is not maximal, since the maximum
-// A-MSDU size is limited to 7935 bytes (whereas the maximum A-MPDU size is limited to 65535 bytes). When A-MSDU and A-MPDU are both enabled
-// (= two-level aggregation), the throughput is slightly smaller than the first scenario since we set a smaller maximum A-MPDU size.
+// maximum A-MPDU size is 65 kB and the throughput is maximal. When aggregation is disabled, the throughput is about the half of the physical
+// bitrate. When only A-MSDU is enabled, the throughput is increased but is not maximal, since the maximum A-MSDU size is limited to 7935 bytes
+// (whereas the maximum A-MPDU size is limited to 65535 bytes). When A-MSDU and A-MPDU are both enabled (= two-level aggregation),
+// the throughput is slightly smaller than the first scenario since we set a smaller maximum A-MPDU size.
 //
 // When the distance is increased, the frame error rate gets higher, and the output shows how it affects the throughput for the 4 networks.
 // Even through A-MSDU has less overheads than A-MPDU, A-MSDU is less robust against transmission errors than A-MPDU. When the distance is
@@ -82,7 +81,7 @@ int main (int argc, char *argv[])
   bool enablePcap = 0;
   bool verifyResults = 0; //used for regression
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("payloadSize", "Payload size in bytes", payloadSize);
   cmd.AddValue ("enableRts", "Enable or disable RTS/CTS", enableRts);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
@@ -99,12 +98,12 @@ int main (int argc, char *argv[])
   wifiApNodes.Create (4);
 
   YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
-  YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper phy;
   phy.SetPcapDataLinkType (WifiPhyHelper::DLT_IEEE802_11_RADIO);
   phy.SetChannel (channel.Create ());
 
   WifiHelper wifi;
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
+  wifi.SetStandard (WIFI_STANDARD_80211n_5GHZ);
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue ("HtMcs7"), "ControlMode", StringValue ("HtMcs0"));
   WifiMacHelper mac;
 
@@ -257,7 +256,7 @@ int main (int argc, char *argv[])
 
   UdpClientHelper clientA (StaInterfaceA.GetAddress (0), port);
   clientA.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
-  clientA.SetAttribute ("Interval", TimeValue (Time ("0.00002"))); //packets/s
+  clientA.SetAttribute ("Interval", TimeValue (Time ("0.0001"))); //packets/s
   clientA.SetAttribute ("PacketSize", UintegerValue (payloadSize));
 
   ApplicationContainer clientAppA = clientA.Install (wifiApNodes.Get (0));
@@ -271,7 +270,7 @@ int main (int argc, char *argv[])
 
   UdpClientHelper clientB (StaInterfaceB.GetAddress (0), port);
   clientB.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
-  clientB.SetAttribute ("Interval", TimeValue (Time ("0.00002"))); //packets/s
+  clientB.SetAttribute ("Interval", TimeValue (Time ("0.0001"))); //packets/s
   clientB.SetAttribute ("PacketSize", UintegerValue (payloadSize));
 
   ApplicationContainer clientAppB = clientB.Install (wifiApNodes.Get (1));
@@ -285,7 +284,7 @@ int main (int argc, char *argv[])
 
   UdpClientHelper clientC (StaInterfaceC.GetAddress (0), port);
   clientC.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
-  clientC.SetAttribute ("Interval", TimeValue (Time ("0.00002"))); //packets/s
+  clientC.SetAttribute ("Interval", TimeValue (Time ("0.0001"))); //packets/s
   clientC.SetAttribute ("PacketSize", UintegerValue (payloadSize));
 
   ApplicationContainer clientAppC = clientC.Install (wifiApNodes.Get (2));
@@ -299,7 +298,7 @@ int main (int argc, char *argv[])
 
   UdpClientHelper clientD (StaInterfaceD.GetAddress (0), port);
   clientD.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
-  clientD.SetAttribute ("Interval", TimeValue (Time ("0.00002"))); //packets/s
+  clientD.SetAttribute ("Interval", TimeValue (Time ("0.0001"))); //packets/s
   clientD.SetAttribute ("PacketSize", UintegerValue (payloadSize));
 
   ApplicationContainer clientAppD = clientD.Install (wifiApNodes.Get (3));
@@ -331,7 +330,7 @@ int main (int argc, char *argv[])
 
   double throughput = totalPacketsThroughA * payloadSize * 8 / (simulationTime * 1000000.0);
   std::cout << "Throughput with default configuration (A-MPDU aggregation enabled, 65kB): " << throughput << " Mbit/s" << '\n';
-  if (verifyResults && (throughput < 59 || throughput > 60))
+  if (verifyResults && (throughput < 58.5 || throughput > 59.5))
     {
       NS_LOG_ERROR ("Obtained throughput " << throughput << " is not in the expected boundaries!");
       exit (1);
@@ -339,7 +338,7 @@ int main (int argc, char *argv[])
 
   throughput = totalPacketsThroughB * payloadSize * 8 / (simulationTime * 1000000.0);
   std::cout << "Throughput with aggregation disabled: " << throughput << " Mbit/s" << '\n';
-  if (verifyResults && (throughput < 30 || throughput > 30.5))
+  if (verifyResults && (throughput < 30 || throughput > 31))
     {
       NS_LOG_ERROR ("Obtained throughput " << throughput << " is not in the expected boundaries!");
       exit (1);

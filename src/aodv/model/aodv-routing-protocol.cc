@@ -39,6 +39,7 @@
 #include "ns3/udp-header.h"
 #include "ns3/wifi-net-device.h"
 #include "ns3/adhoc-wifi-mac.h"
+#include "ns3/wifi-mac-queue-item.h"
 #include "ns3/string.h"
 #include "ns3/pointer.h"
 #include <algorithm>
@@ -340,10 +341,10 @@ RoutingProtocol::PrintRoutingTable (Ptr<OutputStreamWrapper> stream, Time::Unit 
 {
   *stream->GetStream () << "Node: " << m_ipv4->GetObject<Node> ()->GetId ()
                         << "; Time: " << Now ().As (unit)
-                        << ", Local time: " << GetObject<Node> ()->GetLocalTime ().As (unit)
+                        << ", Local time: " << m_ipv4->GetObject<Node> ()->GetLocalTime ().As (unit)
                         << ", AODV Routing table" << std::endl;
 
-  m_routingTable.Print (stream);
+  m_routingTable.Print (stream, unit);
   *stream->GetStream () << std::endl;
 }
 
@@ -725,7 +726,13 @@ RoutingProtocol::NotifyInterfaceUp (uint32_t i)
       return;
     }
 
-  mac->TraceConnectWithoutContext ("TxErrHeader", m_nb.GetTxErrorCallback ());
+  mac->TraceConnectWithoutContext ("DroppedMpdu", MakeCallback (&RoutingProtocol::NotifyTxError, this));
+}
+
+void
+RoutingProtocol::NotifyTxError (WifiMacDropReason reason, Ptr<const WifiMacQueueItem> mpdu)
+{
+  m_nb.GetTxErrorCallback ()(mpdu->GetHeader ());
 }
 
 void
@@ -742,8 +749,8 @@ RoutingProtocol::NotifyInterfaceDown (uint32_t i)
       Ptr<WifiMac> mac = wifi->GetMac ()->GetObject<AdhocWifiMac> ();
       if (mac != 0)
         {
-          mac->TraceDisconnectWithoutContext ("TxErrHeader",
-                                              m_nb.GetTxErrorCallback ());
+          mac->TraceDisconnectWithoutContext ("DroppedMpdu",
+                                              MakeCallback (&RoutingProtocol::NotifyTxError, this));
           m_nb.DelArpCache (l3->GetInterface (i)->GetArpCache ());
         }
     }
@@ -1089,7 +1096,7 @@ RoutingProtocol::ScheduleRreqRetry (Ipv4Address dst)
       m_addressReqTimer[dst] = timer;
     }
   m_addressReqTimer[dst].SetFunction (&RoutingProtocol::RouteRequestTimerExpire, this);
-  m_addressReqTimer[dst].Remove ();
+  m_addressReqTimer[dst].Cancel ();
   m_addressReqTimer[dst].SetArguments (dst);
   RoutingTableEntry rt;
   m_routingTable.LookupRoute (dst, rt);
@@ -1100,11 +1107,13 @@ RoutingProtocol::ScheduleRreqRetry (Ipv4Address dst)
     }
   else
     {
-      // Binary exponential backoff
-      retry = std::pow<uint16_t> (2, rt.GetRreqCnt () - 1) * m_netTraversalTime;
+      NS_ABORT_MSG_UNLESS (rt.GetRreqCnt () > 0, "Unexpected value for GetRreqCount ()");
+      uint16_t backoffFactor = rt.GetRreqCnt () - 1;
+      NS_LOG_LOGIC ("Applying binary exponential backoff factor " << backoffFactor);
+      retry = m_netTraversalTime * (1 << backoffFactor);
     }
   m_addressReqTimer[dst].Schedule (retry);
-  NS_LOG_LOGIC ("Scheduled RREQ retry in " << retry.GetSeconds () << " seconds");
+  NS_LOG_LOGIC ("Scheduled RREQ retry in " << retry.As (Time::S));
 }
 
 void
@@ -1339,7 +1348,7 @@ RoutingProtocol::RecvRequest (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address s
   if (m_routingTable.LookupRoute (dst, toDst))
     {
       /*
-       * Drop RREQ, This node RREP wil make a loop.
+       * Drop RREQ, This node RREP will make a loop.
        */
       if (toDst.GetNextHop () == src)
         {
@@ -1582,7 +1591,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
       if (toDst.GetFlag () == IN_SEARCH)
         {
           m_routingTable.Update (newEntry);
-          m_addressReqTimer[dst].Remove ();
+          m_addressReqTimer[dst].Cancel ();
           m_addressReqTimer.erase (dst);
         }
       m_routingTable.LookupRoute (dst, toDst);
@@ -1957,8 +1966,8 @@ RoutingProtocol::SendRerrWhenNoRouteToForward (Ipv4Address dst,
       // Just make sure that the RerrRateLimit timer is running and will expire
       NS_ASSERT (m_rerrRateLimitTimer.IsRunning ());
       // discard the packet and return
-      NS_LOG_LOGIC ("RerrRateLimit reached at " << Simulator::Now ().GetSeconds () << " with timer delay left "
-                                                << m_rerrRateLimitTimer.GetDelayLeft ().GetSeconds ()
+      NS_LOG_LOGIC ("RerrRateLimit reached at " << Simulator::Now ().As (Time::S) << " with timer delay left "
+                                                << m_rerrRateLimitTimer.GetDelayLeft ().As (Time::S)
                                                 << "; suppressing RERR");
       return;
     }
@@ -2019,8 +2028,8 @@ RoutingProtocol::SendRerrMessage (Ptr<Packet> packet, std::vector<Ipv4Address> p
       // Just make sure that the RerrRateLimit timer is running and will expire
       NS_ASSERT (m_rerrRateLimitTimer.IsRunning ());
       // discard the packet and return
-      NS_LOG_LOGIC ("RerrRateLimit reached at " << Simulator::Now ().GetSeconds () << " with timer delay left "
-                                                << m_rerrRateLimitTimer.GetDelayLeft ().GetSeconds ()
+      NS_LOG_LOGIC ("RerrRateLimit reached at " << Simulator::Now ().As (Time::S) << " with timer delay left "
+                                                << m_rerrRateLimitTimer.GetDelayLeft ().As (Time::S)
                                                 << "; suppressing RERR");
       return;
     }

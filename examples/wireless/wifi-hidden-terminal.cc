@@ -77,9 +77,9 @@ void experiment (bool enableCtsRts, std::string wifiManager)
 
   // 5. Install wireless devices
   WifiHelper wifi;
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+  wifi.SetStandard (WIFI_STANDARD_80211b);
   wifi.SetRemoteStationManager ("ns3::" + wifiManager + "WifiManager");
-  YansWifiPhyHelper wifiPhy =  YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   wifiPhy.SetChannel (wifiChannel);
   WifiMacHelper wifiMac;
   wifiMac.SetType ("ns3::AdhocWifiMac"); // use ad-hoc MAC
@@ -180,7 +180,7 @@ void experiment (bool enableCtsRts, std::string wifiManager)
 int main (int argc, char **argv)
 {
   std::string wifiManager ("Arf");
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("wifiManager", "Set wifi rate manager (Aarf, Aarfcd, Amrr, Arf, Cara, Ideal, Minstrel, Onoe, Rraa)", wifiManager);
   cmd.Parse (argc, argv);
 

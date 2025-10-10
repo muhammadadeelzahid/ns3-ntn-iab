@@ -179,7 +179,7 @@ Ipv4ClickRouting::GetInterfaceId (const char *ifname)
   // be used in the Click configuration files.
   // Thus eth0 will refer to the first network device of
   // the node, and is to be named so in the Click graph.
-  // This function is called by Click during the intialisation
+  // This function is called by Click during the initialisation
   // phase of the Click graph, during which it tries to map
   // interface IDs to interface names. The return value
   // corresponds to the interface ID that Click will use.
@@ -559,6 +559,7 @@ Ipv4ClickRouting::RouteInput  (Ptr<const Packet> p, const Ipv4Header &header,
 void
 Ipv4ClickRouting::PrintRoutingTable (Ptr<OutputStreamWrapper> stream, Time::Unit unit) const
 {
+  *stream->GetStream () << "\nCLICK Routing table printing is not yet implemented, skipping.\n";
 }
 
 void
@@ -609,7 +610,7 @@ int simclick_sim_send (simclick_node_t *simnode,
                        int ifid, int type, const unsigned char* data, int len,
                        simclick_simpacketinfo *pinfo)
 {
-  NS_LOG_DEBUG ("simclick_sim_send called at " << ns3::Simulator::Now ().GetSeconds () << ": " << ifid << " " << type << " " << data << " " << len);
+  NS_LOG_DEBUG ("simclick_sim_send called at " << ns3::Simulator::Now ().As (ns3::Time::S) << ": " << ifid << " " << type << " " << data << " " << len);
 
   if (simnode == NULL)
     {
@@ -798,7 +799,7 @@ int simclick_sim_command (simclick_node_t *simnode, int cmd, ...)
         // the size variable and return an error code.
         // Otherwise return the bytes actually writte into the buffer in size.
 
-        // Append key/value pair, seperated by \0.
+        // Append key/value pair, separated by \0.
         std::map<std::string, std::string> defines = clickInstance->GetDefines ();
         std::map<std::string, std::string>::const_iterator it = defines.begin ();
         while (it != defines.end ())

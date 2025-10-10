@@ -2,7 +2,11 @@
 
 
 def build(bld):
-    module = bld.create_ns3_module('point-to-point', ['network', 'mpi'])
+    # Only include mpi dependency if mpi module is available
+    dependencies = ['network']
+    if 'mpi' not in bld.env['MODULES_NOT_BUILT']:
+        dependencies.append('mpi')
+    module = bld.create_ns3_module('point-to-point', dependencies)
     module.source = [
         'model/point-to-point-net-device.cc',
         'model/point-to-point-channel.cc',

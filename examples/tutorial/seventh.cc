@@ -58,6 +58,9 @@ NS_LOG_COMPONENT_DEFINE ("SeventhScriptExample");
 // So first, we create a socket and do the trace connect on it; then we pass
 // this socket into the constructor of our simple application which we then
 // install in the source node.
+//
+// NOTE: If this example gets modified, do not forget to update the .png figure
+// in src/stats/docs/seventh-packet-byte-count.png
 // ===========================================================================
 //
 class MyApp : public Application
@@ -202,7 +205,7 @@ main (int argc, char *argv[])
 {
   bool useV6 = false;
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("useIpv6", "Use Ipv6", useV6);
   cmd.Parse (argc, argv);
 

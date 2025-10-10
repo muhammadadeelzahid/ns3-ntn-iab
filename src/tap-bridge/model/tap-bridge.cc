@@ -52,7 +52,7 @@ NS_LOG_COMPONENT_DEFINE ("TapBridge");
 
 FdReader::Data TapBridgeFdReader::DoRead (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 
   uint32_t bufferSize = 65536;
   uint8_t *buf = (uint8_t *)std::malloc (bufferSize);
@@ -132,6 +132,11 @@ TapBridge::GetTypeId (void)
                    MakeEnumChecker (CONFIGURE_LOCAL, "ConfigureLocal",
                                     USE_LOCAL, "UseLocal",
                                     USE_BRIDGE, "UseBridge"))
+    .AddAttribute ("Verbose",
+                   "Enable verbose output from tap-creator child process",
+                   BooleanValue (false),
+                   MakeBooleanAccessor (&TapBridge::m_verbose),
+                   MakeBooleanChecker ())
   ;
   return tid;
 }
@@ -145,14 +150,14 @@ TapBridge::TapBridge ()
     m_fdReader (0),
     m_ns3AddressRewritten (false)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   m_packetBuffer = new uint8_t[65536];
   Start (m_tStart);
 }
 
 TapBridge::~TapBridge()
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 
   StopTapDevice ();
 
@@ -165,14 +170,14 @@ TapBridge::~TapBridge()
 void
 TapBridge::DoDispose ()
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   NetDevice::DoDispose ();
 }
 
 void
 TapBridge::Start (Time tStart)
 {
-  NS_LOG_FUNCTION (tStart);
+  NS_LOG_FUNCTION (this << tStart);
 
   //
   // Cancel any pending start event and schedule a new one at some relative time in the future.
@@ -184,7 +189,7 @@ TapBridge::Start (Time tStart)
 void
 TapBridge::Stop (Time tStop)
 {
-  NS_LOG_FUNCTION (tStop);
+  NS_LOG_FUNCTION (this << tStop);
   //
   // Cancel any pending stop event and schedule a new one at some relative time in the future.
   //
@@ -195,7 +200,7 @@ TapBridge::Stop (Time tStop)
 void
 TapBridge::StartTapDevice (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 
   NS_ABORT_MSG_IF (m_sock != -1, "TapBridge::StartTapDevice(): Tap is already started");
 
@@ -237,7 +242,7 @@ TapBridge::StartTapDevice (void)
 void
 TapBridge::StopTapDevice (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 
   if (m_fdReader != 0)
     {
@@ -255,7 +260,7 @@ TapBridge::StopTapDevice (void)
 void
 TapBridge::CreateTap (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 
   // 
   // The TapBridge has three distinct operating modes.  At this point, the
@@ -339,7 +344,7 @@ TapBridge::CreateTap (void)
   NS_LOG_INFO ("Encoded Unix socket as \"" << path << "\"");
 
   //
-  // Tom Goff reports the possiblility of a deadlock when trying to acquire the
+  // Tom Goff reports the possibility of a deadlock when trying to acquire the
   // python GIL here.  He says that this might be due to trying to access Python
   // objects after fork() without calling PyOS_AfterFork() to properly reset 
   // Python state (including the GIL).  Originally these next three lines were
@@ -391,7 +396,7 @@ TapBridge::CreateTap (void)
       if (wantIp
           && (ipv4 == 0)
           && m_tapIp.IsBroadcast ()
-          && m_tapNetmask.IsEqual (Ipv4Mask::GetOnes ()))
+          && m_tapNetmask == Ipv4Mask::GetOnes ())
         {
           NS_FATAL_ERROR ("TapBridge::CreateTap(): Tap device IP configuration requested but neither IP address nor IP netmask is provided");
         }
@@ -464,7 +469,7 @@ TapBridge::CreateTap (void)
         }
 
       std::ostringstream ossNetmask;
-      if (m_tapNetmask.IsEqual (Ipv4Mask::GetOnes ()))
+      if (m_tapNetmask == Ipv4Mask::GetOnes ())
         {
           ossNetmask << "-n" << ipv4Mask;
         }
@@ -488,13 +493,31 @@ TapBridge::CreateTap (void)
           ossMode << "3";
         }
 
+      std::ostringstream ossVerbose;
+      if (m_verbose)
+        {
+          ossVerbose << "-v";
+        }
+
       std::ostringstream ossPath;
       ossPath << "-p" << path;
+
+      NS_LOG_DEBUG ("Executing: " << TAP_CREATOR <<
+                    " " << ossDeviceName.str () <<
+                    " " << ossGateway.str () <<
+                    " " << ossIp.str () <<
+                    " " << ossMac.str () <<
+                    " " << ossNetmask.str () <<
+                    " " << ossMode.str () <<
+                    " " << ossPath.str () <<
+                    " " << ossVerbose.str ()
+                   );
+
       //
       // Execute the socket creation process image.
       //
       status = ::execlp (TAP_CREATOR, 
-                         TAP_CREATOR,                       // argv[0] (filename)
+                         TAP_CREATOR,                         // argv[0] (filename)
                          ossDeviceName.str ().c_str (),       // argv[1] (-d<device name>)
                          ossGateway.str ().c_str (),          // argv[2] (-g<gateway>)
                          ossIp.str ().c_str (),               // argv[3] (-i<IP address>)
@@ -502,6 +525,7 @@ TapBridge::CreateTap (void)
                          ossNetmask.str ().c_str (),          // argv[5] (-n<net mask>)
                          ossMode.str ().c_str (),             // argv[6] (-o<operating mode>)
                          ossPath.str ().c_str (),             // argv[7] (-p<path>)
+                         ossVerbose.str ().c_str (),          // argv[8] (-v)
                          (char *)NULL);
 
       //
@@ -533,6 +557,10 @@ TapBridge::CreateTap (void)
           int exitStatus = WEXITSTATUS (st);
           NS_ABORT_MSG_IF (exitStatus != 0, 
                            "TapBridge::CreateTap(): socket creator exited normally with status " << exitStatus);
+        }
+      else if (WIFSIGNALED (st))
+        {
+          NS_FATAL_ERROR ("TapBridge::CreateTap(): socket creator exited with signal " << WTERMSIG (st));
         }
       else 
         {
@@ -632,14 +660,15 @@ TapBridge::CreateTap (void)
           NS_FATAL_ERROR ("Did not get the raw socket from the socket creator");
         }
 
-      if (m_mode == USE_LOCAL || m_mode == USE_BRIDGE)
+      if (m_mode == USE_BRIDGE)
         {
           //
           // Set the ns-3 device's mac address to the overlying container's
           // mac address
           //
           struct ifreq s;
-          strncpy (s.ifr_name, m_tapDeviceName.c_str (), sizeof (s.ifr_name));
+          memset (&s, 0, sizeof(struct ifreq));
+          strncpy (s.ifr_name, m_tapDeviceName.c_str (), IFNAMSIZ - 1);
 
           NS_LOG_INFO ("Trying to get MacAddr of " << m_tapDeviceName);
           int ioctlResult = ioctl (sock, SIOCGIFHWADDR, &s);
@@ -666,7 +695,7 @@ TapBridge::CreateTap (void)
 void
 TapBridge::ReadCallback (uint8_t *buf, ssize_t len)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this << buf << len);
 
   NS_ASSERT_MSG (buf != 0, "invalid buf argument");
   NS_ASSERT_MSG (len > 0, "invalid len argument");
@@ -691,7 +720,7 @@ TapBridge::ReadCallback (uint8_t *buf, ssize_t len)
 void
 TapBridge::ForwardToBridgedDevice (uint8_t *buf, ssize_t len)
 {
-  NS_LOG_FUNCTION (buf << len);
+  NS_LOG_FUNCTION (this << buf << len);
 
   //
   // There are three operating modes for the TapBridge
@@ -818,7 +847,7 @@ TapBridge::ForwardToBridgedDevice (uint8_t *buf, ssize_t len)
 Ptr<Packet>
 TapBridge::Filter (Ptr<Packet> p, Address *src, Address *dst, uint16_t *type)
 {
-  NS_LOG_FUNCTION (p);
+  NS_LOG_FUNCTION (this << p);
   uint32_t pktSize;
 
   //
@@ -880,14 +909,14 @@ TapBridge::Filter (Ptr<Packet> p, Address *src, Address *dst, uint16_t *type)
 Ptr<NetDevice>
 TapBridge::GetBridgedNetDevice (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_bridgedDevice;
 }
 
 void 
 TapBridge::SetBridgedNetDevice (Ptr<NetDevice> bridgedDevice)
 {
-  NS_LOG_FUNCTION (bridgedDevice);
+  NS_LOG_FUNCTION (this << bridgedDevice);
 
   NS_ASSERT_MSG (m_node != 0, "TapBridge::SetBridgedDevice:  Bridge not installed in a node");
   NS_ASSERT_MSG (bridgedDevice != this, "TapBridge::SetBridgedDevice:  Cannot bridge to self");
@@ -920,7 +949,7 @@ TapBridge::SetBridgedNetDevice (Ptr<NetDevice> bridgedDevice)
 bool
 TapBridge::DiscardFromBridgedDevice (Ptr<NetDevice> device, Ptr<const Packet> packet, uint16_t protocol, const Address &src)
 {
-  NS_LOG_FUNCTION (device << packet << protocol << src);
+  NS_LOG_FUNCTION (this << device << packet << protocol << src);
   NS_LOG_LOGIC ("Discarding packet stolen from bridged device " << device);
   return true;
 }
@@ -934,7 +963,7 @@ TapBridge::ReceiveFromBridgedDevice (
   const Address &dst, 
   PacketType packetType)
 {
-  NS_LOG_FUNCTION (device << packet << protocol << src << dst << packetType);
+  NS_LOG_FUNCTION (this << device << packet << protocol << src << dst << packetType);
   NS_ASSERT_MSG (device == m_bridgedDevice, "TapBridge::SetBridgedDevice:  Received packet from unexpected device");
   NS_LOG_DEBUG ("Packet UID is " << packet->GetUid ());
 
@@ -1000,56 +1029,56 @@ TapBridge::ReceiveFromBridgedDevice (
 void 
 TapBridge::SetIfIndex (const uint32_t index)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this << index);
   m_ifIndex = index;
 }
 
 uint32_t 
 TapBridge::GetIfIndex (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_ifIndex;
 }
 
 Ptr<Channel> 
 TapBridge::GetChannel (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return 0;
 }
 
 void
 TapBridge::SetAddress (Address address)
 {
-  NS_LOG_FUNCTION (address);
+  NS_LOG_FUNCTION (this << address);
   m_address = Mac48Address::ConvertFrom (address);
 }
 
 Address 
 TapBridge::GetAddress (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_address;
 }
 
 void
 TapBridge::SetMode (enum Mode mode)
 {
-  NS_LOG_FUNCTION (mode);
+  NS_LOG_FUNCTION (this << mode);
   m_mode = mode;
 }
 
 TapBridge::Mode
 TapBridge::GetMode (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_mode;
 }
 
 bool 
 TapBridge::SetMtu (const uint16_t mtu)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this << mtu);
   m_mtu = mtu;
   return true;
 }
@@ -1057,14 +1086,14 @@ TapBridge::SetMtu (const uint16_t mtu)
 uint16_t 
 TapBridge::GetMtu (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_mtu;
 }
 
 void
 TapBridge::NotifyLinkUp (void)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   if (!m_linkUp)
     {
       m_linkUp = true;
@@ -1075,35 +1104,35 @@ TapBridge::NotifyLinkUp (void)
 bool 
 TapBridge::IsLinkUp (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_linkUp;
 }
 
 void 
 TapBridge::AddLinkChangeCallback (Callback<void> callback)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   m_linkChangeCallbacks.ConnectWithoutContext (callback);
 }
 
 bool 
 TapBridge::IsBroadcast (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return true;
 }
 
 Address
 TapBridge::GetBroadcast (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return Mac48Address ("ff:ff:ff:ff:ff:ff");
 }
 
 bool
 TapBridge::IsMulticast (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return true;
 }
 
@@ -1118,14 +1147,14 @@ TapBridge::GetMulticast (Ipv4Address multicastGroup) const
 bool 
 TapBridge::IsPointToPoint (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return false;
 }
 
 bool 
 TapBridge::IsBridge (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   //
   // Returning false from IsBridge in a device called TapBridge may seem odd
   // at first glance, but this test is for a device that bridges ns-3 devices
@@ -1138,7 +1167,7 @@ TapBridge::IsBridge (void) const
 bool 
 TapBridge::Send (Ptr<Packet> packet, const Address& dst, uint16_t protocol)
 {
-  NS_LOG_FUNCTION (packet << dst << protocol);
+  NS_LOG_FUNCTION (this << packet << dst << protocol);
   NS_FATAL_ERROR ("TapBridge::Send: You may not call Send on a TapBridge directly");
   return false;
 }
@@ -1146,7 +1175,7 @@ TapBridge::Send (Ptr<Packet> packet, const Address& dst, uint16_t protocol)
 bool 
 TapBridge::SendFrom (Ptr<Packet> packet, const Address& src, const Address& dst, uint16_t protocol)
 {
-  NS_LOG_FUNCTION (packet << src << dst << protocol);
+  NS_LOG_FUNCTION (this << packet << src << dst << protocol);
   NS_FATAL_ERROR ("TapBridge::Send: You may not call SendFrom on a TapBridge directly");
   return false;
 }
@@ -1154,42 +1183,42 @@ TapBridge::SendFrom (Ptr<Packet> packet, const Address& src, const Address& dst,
 Ptr<Node> 
 TapBridge::GetNode (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_node;
 }
 
 void 
 TapBridge::SetNode (Ptr<Node> node)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   m_node = node;
 }
 
 bool 
 TapBridge::NeedsArp (void) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return true;
 }
 
 void 
 TapBridge::SetReceiveCallback (NetDevice::ReceiveCallback cb)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   m_rxCallback = cb;
 }
 
 void 
 TapBridge::SetPromiscReceiveCallback (NetDevice::PromiscReceiveCallback cb)
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   m_promiscRxCallback = cb;
 }
 
 bool
 TapBridge::SupportsSendFrom () const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return true;
 }
 

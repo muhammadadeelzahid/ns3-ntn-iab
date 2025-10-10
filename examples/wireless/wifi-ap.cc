@@ -115,7 +115,7 @@ AdvancePosition (Ptr<Node> node)
 
 int main (int argc, char *argv[])
 {
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("verbose", "Print trace information if true", g_verbose);
   cmd.Parse (argc, argv);
 
@@ -136,7 +136,7 @@ int main (int argc, char *argv[])
   packetSocket.Install (ap);
 
   WifiMacHelper wifiMac;
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
   Ssid ssid = Ssid ("wifi-default");

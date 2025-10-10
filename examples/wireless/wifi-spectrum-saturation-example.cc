@@ -20,7 +20,7 @@
  *          Sebastien Deronne <sebastien.deronne@gmail.com>
  *          Tom Henderson <tomhend@u.washington.edu>
  *
- * Adapted from ht-wifi-network.cc example
+ * Adapted from wifi-ht-network.cc example
  */
 
 #include <iomanip>
@@ -105,7 +105,7 @@ int main (int argc, char *argv[])
   std::string errorModelType = "ns3::NistErrorRateModel";
   bool enablePcap = false;
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
   cmd.AddValue ("distance", "meters separation between nodes", distance);
   cmd.AddValue ("index", "restrict index to single value between 0 and 63", index);
@@ -140,8 +140,8 @@ int main (int argc, char *argv[])
       NodeContainer wifiApNode;
       wifiApNode.Create (1);
 
-      YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
-      SpectrumWifiPhyHelper spectrumPhy = SpectrumWifiPhyHelper::Default ();
+      YansWifiPhyHelper phy;
+      SpectrumWifiPhyHelper spectrumPhy;
       if (wifiType == "ns3::YansWifiPhy")
         {
           YansWifiChannelHelper channel;
@@ -190,7 +190,6 @@ int main (int argc, char *argv[])
 
           spectrumPhy.SetChannel (spectrumChannel);
           spectrumPhy.SetErrorRateModel (errorModelType);
-          spectrumPhy.Set ("Frequency", UintegerValue (5180)); // channel 36 at 20 MHz
           spectrumPhy.Set ("TxPowerStart", DoubleValue (1));
           spectrumPhy.Set ("TxPowerEnd", DoubleValue (1));
 
@@ -225,7 +224,7 @@ int main (int argc, char *argv[])
         }
 
       WifiHelper wifi;
-      wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
+      wifi.SetStandard (WIFI_STANDARD_80211n_5GHZ);
       WifiMacHelper mac;
 
       Ssid ssid = Ssid ("ns380211n");
@@ -563,13 +562,17 @@ int main (int argc, char *argv[])
       NetDeviceContainer staDevice;
       NetDeviceContainer apDevice;
 
+      channelWidth = (i <= 15 || (i > 31 && i <= 47) ? 20 : 40);
+
       if (wifiType == "ns3::YansWifiPhy")
         {
           mac.SetType ("ns3::StaWifiMac",
                        "Ssid", SsidValue (ssid));
+          phy.Set ("ChannelWidth", UintegerValue (channelWidth));
           staDevice = wifi.Install (phy, mac, wifiStaNode);
           mac.SetType ("ns3::ApWifiMac",
                        "Ssid", SsidValue (ssid));
+          phy.Set ("ChannelWidth", UintegerValue (channelWidth));
           apDevice = wifi.Install (phy, mac, wifiApNode);
 
         }
@@ -577,30 +580,28 @@ int main (int argc, char *argv[])
         {
           mac.SetType ("ns3::StaWifiMac",
                        "Ssid", SsidValue (ssid));
+          phy.Set ("ChannelWidth", UintegerValue (channelWidth));
           staDevice = wifi.Install (spectrumPhy, mac, wifiStaNode);
           mac.SetType ("ns3::ApWifiMac",
                        "Ssid", SsidValue (ssid));
+          phy.Set ("ChannelWidth", UintegerValue (channelWidth));
           apDevice = wifi.Install (spectrumPhy, mac, wifiApNode);
         }
 
      if ((i <= 7) || (i > 31 && i <= 39))
         {
-          Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (20));
           Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/HtConfiguration/ShortGuardIntervalSupported", BooleanValue (false));
         }
       else if ((i > 7 && i <= 15) || (i > 39 && i <= 47))
         {
-          Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (20));
           Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/HtConfiguration/ShortGuardIntervalSupported", BooleanValue (true));
         }
       else if ((i > 15 && i <= 23) || (i > 47 && i <= 55))
         {
-          Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (40));
           Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/HtConfiguration/ShortGuardIntervalSupported", BooleanValue (false));
         }
       else
         {
-          Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (40));
           Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/HtConfiguration/ShortGuardIntervalSupported", BooleanValue (true));
         }
 
@@ -639,7 +640,7 @@ int main (int argc, char *argv[])
 
       UdpClientHelper client (staNodeInterface.GetAddress (0), port);
       client.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
-      client.SetAttribute ("Interval", TimeValue (Time ("0.00002"))); //packets/s
+      client.SetAttribute ("Interval", TimeValue (Time ("0.0001"))); //packets/s
       client.SetAttribute ("PacketSize", UintegerValue (payloadSize));
       ApplicationContainer clientApp = client.Install (wifiApNode.Get (0));
       clientApp.Start (Seconds (1.0));

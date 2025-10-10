@@ -132,7 +132,7 @@ main (int argc, char *argv[])
   double startTime = 0.0;       // seconds
   double distanceToRx = 100.0;  // meters
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("phyMode", "Wifi Phy mode", phyMode);
   cmd.AddValue ("Prss", "Intended primary RSS (dBm)", Prss);
   cmd.AddValue ("PpacketSize", "size of application packet sent", PpacketSize);
@@ -167,11 +167,11 @@ main (int argc, char *argv[])
     {
       wifi.EnableLogComponents ();
     }
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+  wifi.SetStandard (WIFI_STANDARD_80211b);
 
   /** Wifi PHY **/
   /***************************************************************************/
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
 
   /** wifi channel **/
   YansWifiChannelHelper wifiChannel;

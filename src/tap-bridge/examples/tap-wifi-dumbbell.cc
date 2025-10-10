@@ -120,7 +120,7 @@ main (int argc, char *argv[])
   std::string mode = "ConfigureLocal";
   std::string tapName = "thetap";
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("mode", "Mode setting of TapBridge", mode);
   cmd.AddValue ("tapName", "Name of the OS tap device", tapName);
   cmd.Parse (argc, argv);
@@ -135,7 +135,7 @@ main (int argc, char *argv[])
   NodeContainer nodesLeft;
   nodesLeft.Create (4);
 
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
 

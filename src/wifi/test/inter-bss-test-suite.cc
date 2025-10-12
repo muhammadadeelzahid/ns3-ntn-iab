@@ -35,6 +35,7 @@
 #include "ns3/constant-obss-pd-algorithm.h"
 #include "ns3/he-configuration.h"
 #include "ns3/wifi-utils.h"
+#include "ns3/propagation-loss-model.h"
 
 using namespace ns3;
 

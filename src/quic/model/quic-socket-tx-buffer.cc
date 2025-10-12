@@ -659,9 +659,9 @@ void QuicSocketTxBuffer::CleanSentList (uint8_t pathId)
       item->m_acked = true;
       m_sentSizeList[pathId] -= item->m_packet->GetSize ();
       m_subflowSentList[pathId].erase (sent_it);
-      NS_LOG_LOGIC (
-        "Packet " << (*sent_it)->m_packetNumber << " received and ACKed. Removing from sent buffer");
-      sent_it = m_subflowSentList[pathId].begin ();
+      // NS_LOG_LOGIC (
+      //   "Packet " << (*sent_it)->m_packetNumber << " received and ACKed. Removing from sent buffer");
+      // sent_it = m_subflowSentList[pathId].begin ();
     }
 }
 

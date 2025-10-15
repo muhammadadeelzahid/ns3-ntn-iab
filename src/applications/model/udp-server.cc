@@ -34,8 +34,6 @@
 #include "seq-ts-header.h"
 #include "udp-server.h"
 
-#include "ns3/string.h"
-
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("UdpServer");
@@ -61,11 +59,12 @@ UdpServer::GetTypeId (void)
                    MakeUintegerAccessor (&UdpServer::GetPacketWindowSize,
                                          &UdpServer::SetPacketWindowSize),
                    MakeUintegerChecker<uint16_t> (8,256))
-    .AddAttribute ("OutputFilename",
-                   "A string with the name of the file in which rx packets will be logged",
-                  StringValue("UdpServerRx.txt"),
-                  MakeStringAccessor(&UdpServer::m_outFilename),
-                  MakeStringChecker ())
+    .AddTraceSource ("Rx", "A packet has been received",
+                     MakeTraceSourceAccessor (&UdpServer::m_rxTrace),
+                     "ns3::Packet::TracedCallback")
+    .AddTraceSource ("RxWithAddresses", "A packet has been received",
+                     MakeTraceSourceAccessor (&UdpServer::m_rxTraceWithAddresses),
+                     "ns3::Packet::TwoAddressTracedCallback")
   ;
   return tid;
 }
@@ -150,11 +149,6 @@ UdpServer::StartApplication (void)
 
   m_socket6->SetRecvCallback (MakeCallback (&UdpServer::HandleRead, this));
 
-  if(!m_outFile.is_open())
-  {
-    m_outFile.open(m_outFilename.c_str());
-  }
-
 }
 
 void
@@ -166,10 +160,6 @@ UdpServer::StopApplication ()
     {
       m_socket->SetRecvCallback (MakeNullCallback<void, Ptr<Socket> > ());
     }
-  if(m_outFile.is_open())
-  {
-    m_outFile.close();
-  }
 }
 
 void
@@ -178,25 +168,17 @@ UdpServer::HandleRead (Ptr<Socket> socket)
   NS_LOG_FUNCTION (this << socket);
   Ptr<Packet> packet;
   Address from;
-
-  // Get the Node ID of the current server
-  uint32_t nodeId = GetNode()->GetId();
   Address localAddress;
-  m_socket->GetSockName(localAddress);
-
-  Ipv4Address localSocket = InetSocketAddress::ConvertFrom(localAddress).GetIpv4();
-
   while ((packet = socket->RecvFrom (from)))
     {
+      socket->GetSockName (localAddress);
+      m_rxTrace (packet);
+      m_rxTraceWithAddresses (packet, from, localAddress);
       if (packet->GetSize () > 0)
         {
           SeqTsHeader seqTs;
           packet->RemoveHeader (seqTs);
           uint32_t currentSequenceNumber = seqTs.GetSeq ();
-          if(!m_outFile.is_open())
-          {
-            m_outFile.open(m_outFilename.c_str(), std::ios::app);
-          }
           if (InetSocketAddress::IsMatchingType (from))
             {
               NS_LOG_INFO ("TraceDelay: RX " << packet->GetSize () <<
@@ -206,21 +188,6 @@ UdpServer::HandleRead (Ptr<Socket> socket)
                            " TXtime: " << seqTs.GetTs () <<
                            " RXtime: " << Simulator::Now () <<
                            " Delay: " << Simulator::Now () - seqTs.GetTs ());
-              if (firstWrite == 1)
-              {
-                firstWrite = 2;
-                m_outFile<<"Packet Size,\tfrom,\tSequence Number,\tUid,\tTxtime,\tRxtime,\tDelay,\tsocket,\tnode_id\n";
-              }
-              m_outFile << packet->GetSize () <<
-                           " " << InetSocketAddress::ConvertFrom (from).GetIpv4 () <<
-                           " " << m_port <<
-                           " " << currentSequenceNumber <<
-                           " " << packet->GetUid () <<
-                           " " << seqTs.GetTs () <<
-                           " " << Simulator::Now () <<
-                           " " << Simulator::Now () - seqTs.GetTs () <<
-                           " "<<localSocket<<
-                           " "<<nodeId<< "\n";
             }
           else if (Inet6SocketAddress::IsMatchingType (from))
             {
@@ -231,16 +198,7 @@ UdpServer::HandleRead (Ptr<Socket> socket)
                            " TXtime: " << seqTs.GetTs () <<
                            " RXtime: " << Simulator::Now () <<
                            " Delay: " << Simulator::Now () - seqTs.GetTs ());
-              m_outFile << packet->GetSize () <<
-                           " " << Inet6SocketAddress::ConvertFrom (from).GetIpv6 () <<
-                           " " << currentSequenceNumber <<
-                           " " << packet->GetUid () <<
-                           " " << seqTs.GetTs () <<
-                           " " << Simulator::Now () <<
-                           " " << Simulator::Now () - seqTs.GetTs () << "\n";
             }
-
-          m_outFile.close();
 
           m_lossCounter.NotifyReceived (currentSequenceNumber);
           m_received++;

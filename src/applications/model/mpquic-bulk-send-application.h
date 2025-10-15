@@ -16,6 +16,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * Author: George F. Riley <riley@ece.gatech.edu>
+ *         Shengjie Shu <shengjies@uvic.ca>
  */
 
 #ifndef BULK_SEND_APPLICATION_H
@@ -72,7 +73,7 @@ class Socket;
  * (enable its "EnableSeqTsSizeHeader" attribute), or users may extract
  * the header via trace sources.
  */
-class BulkSendApplication : public Application
+class MpquicBulkSendApplication : public Application
 {
 public:
   /**
@@ -81,9 +82,9 @@ public:
    */
   static TypeId GetTypeId (void);
 
-  BulkSendApplication ();
+  MpquicBulkSendApplication ();
 
-  virtual ~BulkSendApplication ();
+  virtual ~MpquicBulkSendApplication ();
 
   /**
    * \brief Set the upper bound for the total number of bytes to send.

@@ -803,7 +803,10 @@ QuicSocketBase::Connect (const Address & address)
       m_endPoint6 = nullptr;
 
       // For multipath implementation
-      Ptr<MpQuicSubFlow> subflow0 = m_pathManager->InitialSubflow0(InetSocketAddress(m_node->GetObject<Ipv4>()->GetAddress(1,0).GetLocal()), address);
+      Ipv4Address chosenLocal = m_node->GetObject<Ipv4>()->GetAddress(1,0).GetLocal();
+      NS_LOG_UNCOND ("QUIC Connect: subflow0 local=" << chosenLocal
+                   << " peer=" << InetSocketAddress::ConvertFrom(address));
+      Ptr<MpQuicSubFlow> subflow0 = m_pathManager->InitialSubflow0(InetSocketAddress(chosenLocal), address);
       
       
       // Get the appropriate local address and port number from the routing protocol and set up endpoint

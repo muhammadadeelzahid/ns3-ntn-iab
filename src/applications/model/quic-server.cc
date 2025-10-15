@@ -79,10 +79,6 @@ QuicServer::QuicServer ()
 QuicServer::~QuicServer ()
 {
   NS_LOG_FUNCTION (this);
-  if (m_outFile.is_open())
-    {
-      m_outFile.close();
-    }
 }
 
 uint16_t
@@ -166,11 +162,6 @@ QuicServer::StopApplication ()
     {
       m_socket->SetRecvCallback (MakeNullCallback<void, Ptr<Socket> > ());
     }
-  
-  if (m_outFile.is_open())
-    {
-      m_outFile.close();
-    }
 }
 
 void
@@ -184,21 +175,6 @@ QuicServer::HandleRead (Ptr<Socket> socket)
       if (packet->GetSize () > 0)
         {
           m_received++;
-          
-          // Log packet reception to file
-          if (!m_outFile.is_open())
-            {
-              m_outFile.open(m_outFilename.c_str(), std::ios::out);
-            }
-          
-          if (m_outFile.is_open())
-            {
-              m_outFile << "At time " << Simulator::Now().GetSeconds() 
-                       << "s server received " << packet->GetSize() 
-                       << " bytes from " << InetSocketAddress::ConvertFrom(from).GetIpv4() 
-                       << " port " << InetSocketAddress::ConvertFrom(from).GetPort() 
-                       << " total Rx " << m_received << " packets" << std::endl;
-            }
         }
     }
 }

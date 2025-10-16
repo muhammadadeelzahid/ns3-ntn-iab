@@ -216,6 +216,14 @@ QuicSocketBase::GetTypeId (void)
                                          &QuicSocketBase::SetInitialPacketSize),
                    MakeUintegerChecker<uint32_t> (
                     QuicSocketBase::MIN_INITIAL_PACKET_SIZE, UINT32_MAX))
+    .AddAttribute ("InitialCwnd",
+                   "QUIC initial congestion window size (segments). "
+                   "RFC 9002 Section 7.2 recommends: min(10 * max_datagram_size, max(14720, 2 * max_datagram_size)). "
+                   "Default is 10 segments.",
+                   UintegerValue (10),
+                   MakeUintegerAccessor (&QuicSocketBase::GetInitialCwnd,
+                                         &QuicSocketBase::SetInitialCwnd),
+                   MakeUintegerChecker<uint32_t> ())
 //    .AddAttribute (
 //                   "LegacyCongestionControl",
 //                   "When true, use TCP implementations for the congestion control",
@@ -1046,10 +1054,35 @@ QuicSocketBase::SetSegSize (uint32_t size)
   NS_ABORT_MSG_UNLESS (m_socketState == IDLE || m_tcb->m_segmentSize == size,
                        "Cannot change segment size dynamically.");
 
+  // Store the old segment size to recalculate initialCWnd if needed
+  uint32_t oldSegSize = m_tcb->m_segmentSize;
   m_tcb->m_segmentSize = size;
-  // Update minimum congestion window
-  m_tcb->m_initialCWnd = 2 * size;
-  m_tcb->m_kMinimumWindow = 2 * size;
+  
+  // RFC 9002 Section 7.2: Minimum congestion window
+  // kMinimumWindow = max(14720, 2 * max_datagram_size)
+  m_tcb->m_kMinimumWindow = std::max((uint32_t)14720, 2 * size);
+  
+  // Only set initialCWnd if it hasn't been explicitly configured
+  // If it was set, rescale it with the new segment size
+  if (oldSegSize == 0)
+    {
+      // First time initialization: use RFC 9002 Section 7.2 default (10 segments)
+      // but enforce minimum of max(14720, 2 * segment_size)
+      m_tcb->m_initialCWnd = std::max(10 * size, m_tcb->m_kMinimumWindow);
+    }
+  else if (oldSegSize != 0 && m_tcb->m_initialCWnd / oldSegSize != 10)
+    {
+      // initialCWnd was explicitly configured, rescale it with new segment size
+      uint32_t cwndInSegments = m_tcb->m_initialCWnd / oldSegSize;
+      uint32_t newInitialCwnd = cwndInSegments * size;
+      // Apply RFC 9002 Section 7.2 minimum constraint
+      m_tcb->m_initialCWnd = std::max(newInitialCwnd, m_tcb->m_kMinimumWindow);
+    }
+  else
+    {
+      // Use RFC 9002 Section 7.2 default of 10 segments with minimum constraint
+      m_tcb->m_initialCWnd = std::max(10 * size, m_tcb->m_kMinimumWindow);
+    }
 }
 
 uint32_t
@@ -2923,6 +2956,33 @@ uint32_t
 QuicSocketBase::GetInitialSSThresh (void) const
 {
   return m_tcb->m_initialSsThresh;
+}
+
+void
+QuicSocketBase::SetInitialCwnd (uint32_t cwnd)
+{
+  NS_LOG_FUNCTION (this << cwnd);
+  NS_ABORT_MSG_UNLESS ( (m_socketState == IDLE) || cwnd == m_tcb->m_initialCWnd,
+                        "QuicSocketBase::SetInitialCwnd() cannot change initial cwnd after connection started.");
+
+  // RFC 9002 Section 7.2: Initial Congestion Window
+  // Formula: min(10 * max_datagram_size, max(14720, 2 * max_datagram_size))
+  // The minimum window is the larger of 14720 bytes or 2 * max_datagram_size
+  uint32_t minWindowBytes = std::max((uint32_t)14720, 2 * m_tcb->m_segmentSize);
+  uint32_t requestedWindowBytes = cwnd * m_tcb->m_segmentSize;
+  
+  // Apply the minimum constraint from RFC 9002 Section 7.2
+  m_tcb->m_initialCWnd = std::max(requestedWindowBytes, minWindowBytes);
+  m_tcb->m_cWnd = m_tcb->m_initialCWnd;
+  
+  NS_LOG_INFO ("SetInitialCwnd: requested=" << cwnd << " segments (" << requestedWindowBytes 
+               << " bytes), minimum=" << minWindowBytes << " bytes, final=" << m_tcb->m_initialCWnd << " bytes");
+}
+
+uint32_t
+QuicSocketBase::GetInitialCwnd (void) const
+{
+  return m_tcb->m_initialCWnd / m_tcb->m_segmentSize;
 }
 
 void

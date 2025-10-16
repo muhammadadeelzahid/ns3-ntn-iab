@@ -196,7 +196,7 @@ QuicL5Protocol::DispatchSend (Ptr<Packet> data)
         {
           NS_LOG_INFO (
             "Sending data on stream " << (*jt)->GetStreamId ());
-          sentData = (*jt)->Send ((*it));
+          sentData += (*jt)->Send ((*it));  // Accumulate, don't overwrite
           ++it;
         }
     }

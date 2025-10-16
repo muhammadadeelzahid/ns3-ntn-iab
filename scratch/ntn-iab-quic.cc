@@ -46,158 +46,73 @@
 #include "ns3/quic-module.h"
 #include "ns3/quic-socket-base.h"
 #include "ns3/quic-header.h"
-#include <iomanip>
+#include <iostream>
+#include <fstream>
+#include <string>
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuic");
 
-// Global file streams for each layer
-std::ofstream quicTxFile, quicRxFile;
-std::ofstream udpL4TxFile, udpL4RxFile;
-std::ofstream ipv4L3TxFile, ipv4L3RxFile;
-std::ofstream p2pTxFile, p2pRxFile;
-
-// Helper function to dump full packet in hex
-void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
+// Trace callbacks similar to quic-variants-comparison
+static void
+CwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
 {
-  file << prefix << " Size=" << packet->GetSize() << " bytes" << std::endl;
-  
-  // Create a copy to avoid modifying the original packet
-  Ptr<Packet> copy = packet->Copy();
-  
-  file << "Full packet hex dump:" << std::endl;
-  
-  uint8_t buffer[16];
-  uint32_t offset = 0;
-  
-  while (copy->GetSize() > 0)
-  {
-    uint32_t bytesToRead = std::min(16u, (uint32_t)copy->GetSize());
-    copy->CopyData(buffer, bytesToRead);
-    
-    // Print offset
-    file << std::hex << std::setw(8) << std::setfill('0') << offset << ": ";
-    
-    // Print hex bytes
-    for (uint32_t i = 0; i < 16; i++)
-    {
-      if (i < bytesToRead)
-        file << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i] << " ";
-      else
-        file << "   ";
-    }
-    
-    // Print ASCII representation
-    file << " |";
-    for (uint32_t i = 0; i < bytesToRead; i++)
-    {
-      char c = buffer[i];
-      file << (isprint(c) ? c : '.');
-    }
-    file << "|" << std::endl;
-    
-    copy->RemoveAtStart(bytesToRead);
-    offset += bytesToRead;
-  }
-  file << std::endl;
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
 }
 
-// QUIC Socket Base Tx callback (using built-in trace source)
-void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
+static void
+RttChange (Ptr<OutputStreamWrapper> stream, Time oldRtt, Time newRtt)
 {
-  std::cout << "QUIC SOCKET TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
-  if (!quicTxFile.is_open())
-  {
-    quicTxFile.open("quic_socket_tx.txt", std::ios::out);
-    std::cout << "QUIC SOCKET TX file opened" << std::endl;
-  }
-  DumpPacketHex(quicTxFile, packet, "QUIC_SOCKET_TX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
-  quicTxFile.flush();
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldRtt.GetSeconds () << "\t" << newRtt.GetSeconds () << std::endl;
 }
 
-// QUIC Socket Base Rx callback (using built-in trace source)
-void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
+static void
+Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, Ptr<const QuicSocketBase> qsb)
 {
-  std::cout << "QUIC SOCKET RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
-  if (!quicRxFile.is_open())
-  {
-    quicRxFile.open("quic_socket_rx.txt", std::ios::out);
-    std::cout << "QUIC SOCKET RX file opened" << std::endl;
-  }
-  DumpPacketHex(quicRxFile, packet, "QUIC_SOCKET_RX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
-  quicRxFile.flush();
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() << std::endl;
 }
 
-// UDP L4 layer callbacks (using custom trace sources)
-void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
+static void
+Traces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
 {
-  std::cout << "UDP L4 TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
-  if (!udpL4TxFile.is_open())
-  {
-    udpL4TxFile.open("udp_l4_tx.txt", std::ios::out);
-    std::cout << "UDP L4 TX file opened" << std::endl;
-  }
-  DumpPacketHex(udpL4TxFile, packet, "UDP_L4_TX Interface=" + std::to_string(interface));
-  udpL4TxFile.flush();
-}
+  AsciiTraceHelper asciiTraceHelper;
 
-void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  std::cout << "UDP L4 RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
-  if (!udpL4RxFile.is_open())
-  {
-    udpL4RxFile.open("udp_l4_rx.txt", std::ios::out);
-    std::cout << "UDP L4 RX file opened" << std::endl;
-  }
-  DumpPacketHex(udpL4RxFile, packet, "UDP_L4_RX Interface=" + std::to_string(interface));
-  udpL4RxFile.flush();
-}
+  std::ostringstream pathCW;
+  pathCW << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/CongestionWindow";
+  NS_LOG_INFO("Matches cw " << Config::LookupMatches(pathCW.str().c_str()).GetN());
 
-// IPv4 L3 layer callbacks
-void Ipv4L3TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!ipv4L3TxFile.is_open())
-  {
-    ipv4L3TxFile.open("ipv4_l3_tx.txt", std::ios::out);
-  }
-  DumpPacketHex(ipv4L3TxFile, packet, "IPV4_L3_TX Interface=" + std::to_string(interface));
-  ipv4L3TxFile.flush();
-}
+  std::ostringstream fileCW;
+  fileCW << pathVersion << "QUIC-cwnd-change"  << nodeId << "" << finalPart;
 
-void Ipv4L3RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!ipv4L3RxFile.is_open())
-  {
-    ipv4L3RxFile.open("ipv4_l3_rx.txt", std::ios::out);
-  }
-  DumpPacketHex(ipv4L3RxFile, packet, "IPV4_L3_RX Interface=" + std::to_string(interface));
-  ipv4L3RxFile.flush();
-}
+  std::ostringstream pathRTT;
+  pathRTT << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RTT";
 
-// Traffic Control traces are not easily accessible in NS-3
-// We'll focus on the available traces: UDP, IPv4, and P2P
+  std::ostringstream fileRTT;
+  fileRTT << pathVersion << "QUIC-rtt"  << nodeId << "" << finalPart;
 
-// Point-to-Point NetDevice callbacks (using correct signature)
-void P2PTxCallback(Ptr<const Packet> packet)
-{
-  if (!p2pTxFile.is_open())
-  {
-    p2pTxFile.open("p2p_tx.txt", std::ios::out);
-  }
-  DumpPacketHex(p2pTxFile, packet, "P2P_TX");
-  p2pTxFile.flush();
-}
+  std::ostringstream pathRCWnd;
+  pathRCWnd<< "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RWND";
 
-void P2PRxCallback(Ptr<const Packet> packet)
-{
-  if (!p2pRxFile.is_open())
-  {
-    p2pRxFile.open("p2p_rx.txt", std::ios::out);
-  }
-  DumpPacketHex(p2pRxFile, packet, "P2P_RX");
-  p2pRxFile.flush();
+  std::ostringstream fileRCWnd;
+  fileRCWnd<<pathVersion << "QUIC-rwnd-change"  << nodeId << "" << finalPart;
+
+  std::ostringstream fileName;
+  fileName << pathVersion << "QUIC-rx-data" << nodeId << "" << finalPart;
+  std::ostringstream pathRx;
+  pathRx << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
+  NS_LOG_INFO("Matches rx " << Config::LookupMatches(pathRx.str().c_str()).GetN());
+
+  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
+  Config::ConnectWithoutContext (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
+
+  Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
+  Config::ConnectWithoutContext (pathCW.str ().c_str (), MakeBoundCallback(&CwndChange, stream1));
+
+  Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
+  Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
+
+  Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileRCWnd.str ().c_str ());
+  Config::ConnectWithoutContext (pathRCWnd.str ().c_str (), MakeBoundCallback(&CwndChange, stream4));
 }
 
 void
@@ -218,9 +133,6 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
             << ", RNTI: " << rnti << "\n";
     // Close the file
     outFile.close();
-}
-void PacketDropCallback(Ptr<const Packet> packet) {
-  std::cout << "Packet dropped at " << Simulator::Now().GetSeconds() << "s" << std::endl;
 }
 int
 main (int argc, char *argv[])
@@ -448,6 +360,12 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(500));
   Config::SetDefault("ns3::QuicClient::Interval", TimeValue(MicroSeconds(interPacketInterval)));
   
+  // Configure QUIC Initial Congestion Window (in segments)
+  // RFC 9002 Section 7.2: Default is 10 segments, minimum is max(14720 bytes, 2 * segment_size)
+  // For high BDP networks (satellite), increase to allow more packets in flight
+  // 100 segments = ~146KB initial window (suitable for ~100-200ms RTT satellite links)
+  Config::SetDefault("ns3::QuicSocketBase::InitialCwnd", UintegerValue(100));
+  
   // Enable multi-beam functionality
 //  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
@@ -489,10 +407,13 @@ main (int argc, char *argv[])
 
   // Increase socket buffer sizes to prevent buffer overflow
   // 4 MB of buffer
-  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 21));
-  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 21));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 21));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 21));
+  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 23));
+  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 23));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 23));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 23));
+  
+  // Log QUIC congestion control parameters
+  NS_LOG_UNCOND("\n=== QUIC CONGESTION CONTROL CONFIGURATION (RFC 9002) ===");
   
   quicHelper.InstallQuic (remoteHostContainer);
   // Create the Internet
@@ -654,6 +575,29 @@ main (int argc, char *argv[])
   // Install QUIC stack on UE nodes (instead of Internet stack)
   quicHelper.InstallQuic (ueNodes);
   
+  // Log the actual QUIC parameters (read from Config, not by creating sockets)
+  // Creating temporary sockets can interfere with QUIC L4 protocol listener binding
+  // Typical segment size is 1460 bytes (MTU 1500 - IP 20 - UDP 8 - QUIC ~12)
+  uint32_t segmentSize = 1460;  // Default max_datagram_size
+  uint32_t initialCwndSegments = 100;  // As configured above
+  uint32_t initialCwndBytes = initialCwndSegments * segmentSize;
+  
+  // Calculate minimum window per RFC 9002 Section 7.2
+  uint32_t minWindowBytes = std::max((uint32_t)14720, 2 * segmentSize);
+  uint32_t minWindowSegments = minWindowBytes / segmentSize;
+  
+  NS_LOG_UNCOND("Segment Size (max_datagram_size): " << segmentSize << " bytes");
+  NS_LOG_UNCOND("Initial Congestion Window (configured): " << initialCwndSegments << " segments (" << initialCwndBytes << " bytes)");
+  NS_LOG_UNCOND("Minimum Window (RFC 9002 Sec 7.2): " << minWindowSegments << " segments (" << minWindowBytes << " bytes)");
+  NS_LOG_UNCOND("  = max(14720 bytes, 2 * " << segmentSize << " bytes) = " << minWindowBytes << " bytes");
+  
+  if (initialCwndBytes < minWindowBytes)
+  {
+    NS_LOG_UNCOND("NOTE: Initial window will be enforced to minimum of " << minWindowBytes << " bytes");
+  }
+  
+  NS_LOG_UNCOND("========================================================\n");
+  
   // Assign IP addresses to UEs using EPC helper
   Ipv4InterfaceContainer ueIpIface;
   ueIpIface = epcHelper->AssignUeIpv4Address (NetDeviceContainer (uemmWaveDevs));
@@ -694,7 +638,7 @@ main (int argc, char *argv[])
     QuicClientHelper dlClient (ueIpIface.GetAddress (u), dlPort);
     dlClient.SetAttribute ("Interval", TimeValue (MicroSeconds(interPacketInterval)));
     dlClient.SetAttribute ("PacketSize", UintegerValue(packetSize));
-    dlClient.SetAttribute ("MaxPackets", UintegerValue(500));
+    dlClient.SetAttribute ("MaxPackets", UintegerValue(packetSize*1000));
     clientApps.Add (dlClient.Install (remoteHost));
     dlPort++;
   }
@@ -741,51 +685,29 @@ main (int argc, char *argv[])
   }
   NS_LOG_UNCOND("=======================\n");
     
-  // IPv4 L3 layer tracing (these are known to work)
-  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Tx",
-                               MakeCallback(&Ipv4L3TxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/$ns3::Ipv4L3Protocol/Rx",
-                               MakeCallback(&Ipv4L3RxCallback));
-  
-  // Point-to-Point NetDevice tracing (using correct signatures)
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacTx",
-                               MakeCallback(&P2PTxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::PointToPointNetDevice/MacRx",
-                               MakeCallback(&P2PRxCallback));
-  
-  // Physical layer tracing (MmWave) - using correct signature
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveEnbNetDevice/Phy/RxPacketTrace",
-                               MakeCallback(&P2PRxCallback));
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::MmWaveUeNetDevice/Phy/RxPacketTrace",
-                               MakeCallback(&P2PRxCallback));
-  
   mmwaveHelper->EnableTraces ();
   serverApps.Start (Seconds (0.5));
   clientApps.Start (Seconds (1.0));
-  clientApps.Stop (Seconds (3.0));
-  serverApps.Stop (Seconds (3.0));
-  Simulator::Stop (Seconds (3.5));
+  clientApps.Stop (Seconds (10.0));
+  serverApps.Stop (Seconds (10.0));
+  
+  // Schedule trace connections for each UE (server) and remote host (client)
+  for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
+  {
+    Ptr<Node> ueNode = ueNodes.Get (u);
+    Time t = Seconds(1.100001);
+    Simulator::Schedule (t, &Traces, ueNode->GetId(), 
+          "./server", ".txt");
+    Simulator::Schedule (t, &Traces, remoteHost->GetId(), 
+          "./client", ".txt");
+  }
+  
+  Simulator::Stop (Seconds (30.5));
   
   Simulator::Run();
   /*GtkConfigStore config;
   config.ConfigureAttributes();*/
   Simulator::Destroy();
-  
-  // Close all trace files
-  if (quicTxFile.is_open()) quicTxFile.close();
-  if (quicRxFile.is_open()) quicRxFile.close();
-  if (udpL4TxFile.is_open()) udpL4TxFile.close();
-  if (udpL4RxFile.is_open()) udpL4RxFile.close();
-  if (ipv4L3TxFile.is_open()) ipv4L3TxFile.close();
-  if (ipv4L3RxFile.is_open()) ipv4L3RxFile.close();
-  if (p2pTxFile.is_open()) p2pTxFile.close();
-  if (p2pRxFile.is_open()) p2pRxFile.close();
-  
-  NS_LOG_UNCOND("Packet trace files created:");
-  NS_LOG_UNCOND("- quic_socket_tx.txt, quic_socket_rx.txt");
-  NS_LOG_UNCOND("- udp_l4_tx.txt, udp_l4_rx.txt");
-  NS_LOG_UNCOND("- ipv4_l3_tx.txt, ipv4_l3_rx.txt");
-  NS_LOG_UNCOND("- p2p_tx.txt, p2p_rx.txt");
-  
+    
   return 0;
 }

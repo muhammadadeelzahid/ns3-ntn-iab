@@ -489,6 +489,27 @@ public:
   uint32_t GetInitialSSThresh (void) const;
 
   /**
+   * \brief Set the initial Congestion Window.
+   * 
+   * Implements RFC 9002 Section 7.2 initial window calculation:
+   * min(10 * max_datagram_size, max(14720, 2 * max_datagram_size))
+   * 
+   * The minimum window is enforced as max(14720 bytes, 2 * segment_size)
+   *
+   * \param cwnd the initial congestion window size (in segments)
+   */
+  void SetInitialCwnd (uint32_t cwnd);
+
+  /**
+   * \brief Get the initial Congestion Window.
+   * 
+   * Returns the value in segments as configured, subject to RFC 9002 Section 7.2 minimum.
+   *
+   * \returns the initial congestion window size (in segments)
+   */
+  uint32_t GetInitialCwnd (void) const;
+
+  /**
    * \brief Set the size of initial packet of the handshake
    * It must be at least 1200 bytes
    *

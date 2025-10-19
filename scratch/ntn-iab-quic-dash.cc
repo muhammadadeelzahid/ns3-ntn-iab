@@ -372,20 +372,39 @@ int
 main (int argc, char *argv[])
 {
   // Enable DASH logging for debugging
-  LogComponentEnable("DashClient", LOG_LEVEL_LOGIC);  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
-  LogComponentEnable("DashServer", LOG_LEVEL_INFO);
-  LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
-  LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
+  LogComponentEnable("DashClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
+  LogComponentEnable("DashServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   
-  // Enable QUIC socket logging to see connection events and data flow
-  LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);  // LOG_LEVEL_INFO to see data sending issues
-  LogComponentEnable("QuicL4Protocol", LOG_LEVEL_INFO);  // LOG_LEVEL_INFO to see packet flow
+  // QUIC State Machine and Connection Debugging
+  LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicL4Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicStreamBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSocket", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   
-  // Enable QUIC logging (safe - no wildcard traces that cause crash)
+  // QUIC Congestion Control and Loss Detection
+  LogComponentEnable("QuicCongestionControl", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  
+  // QUIC Transport Parameters and Handshake
+  LogComponentEnable("QuicTransportParameters", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicHeader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSubheader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  
+  // QUIC Buffer Management
+  LogComponentEnable("QuicSocketTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSocketRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicStreamTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // Enable component logging for debugging (disabled by default)
+  // LogComponentEnable("MmWaveNtnIabQuicDash", LOG_LEVEL_ALL);
+  
+  // Enable QUIC socket logging to see connection events and data flow (disabled by default)
   // LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
   // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_INFO);
   // LogComponentEnable("QuicStreamBase", LOG_LEVEL_INFO);
   
+  // Enable other component logging (disabled by default)
   // LogComponentEnableAll (LOG_PREFIX_TIME);
   // LogComponentEnableAll (LOG_PREFIX_FUNC);
   // LogComponentEnableAll (LOG_PREFIX_NODE);
@@ -533,15 +552,17 @@ main (int argc, char *argv[])
   // LogComponentEnable("PointToPointNetDevice", LOG_LEVEL_FUNCTION);
   // LogComponentEnable("PointToPointChannel", LOG_LEVEL_FUNCTION);
 
+  LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
+  
   CommandLine cmd; 
   unsigned run = 0;
   bool rlcAm = false;
   uint32_t numRelays = 0;
-  uint32_t numUes = 1;  // Number of UE nodes/users
   uint32_t rlcBufSize = 10;
-  uint32_t interPacketInterval = 5;
+  uint32_t interPacketInterval = 5000;
   uint32_t throughput = 200;
-  uint32_t packetSize = 1400; //bytes
+  uint32_t packetSize = 800; //bytes
+  uint32_t numUes = 1;  // Number of UE nodes/users
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
@@ -615,9 +636,8 @@ main (int argc, char *argv[])
   
   // Configure QUIC Initial Congestion Window (in segments)
   // RFC 9002 Section 7.2: Default is 10 segments, minimum is max(14720 bytes, 2 * segment_size)
-  // For high BDP networks (satellite), increase to allow more packets in flight
-  // 100 segments = ~146KB initial window (suitable for ~100-200ms RTT satellite links)
-  Config::SetDefault("ns3::QuicSocketBase::InitialCwnd", UintegerValue(100));
+  // IETF compliant: 10 segments = ~14.6KB initial window (RFC 9002 Section 7.2)
+  Config::SetDefault("ns3::QuicSocketBase::InitialCwnd", UintegerValue(10));
   
   // Enable multi-beam functionality
 //  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
@@ -660,10 +680,13 @@ main (int argc, char *argv[])
 
   // Increase socket buffer sizes to prevent buffer overflow
   // 32 MB of buffer (larger than ntn-iab-quic due to video streaming requirements)
-  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 25));  // 32 MB
-  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 25));  // 32 MB
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 25));  // 32 MB
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 25));  // 32 MB
+  // BUG FIX: Increase QUIC buffers to handle burst of DASH packets (100+ packets)
+  // With default 32MB buffers, only ~9 packets fit before buffer fills and rejects packets
+  // Increased to 256MB to accommodate full DASH segment responses
+  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 28));  // 256 MB
+  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 28));  // 256 MB
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 28));  // 256 MB
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 28));  // 256 MB
   
   // IMPORTANT: Set to 1 bidirectional stream for DASH compatibility
   // QUIC's DisgregateSend splits packets across (streams-1), which breaks DASH's assumptions
@@ -848,7 +871,7 @@ main (int argc, char *argv[])
   // Log the actual QUIC parameters (read from Config, not by creating sockets)
   // Typical segment size is 1460 bytes (MTU 1500 - IP 20 - UDP 8 - QUIC ~12)
   uint32_t segmentSize = 1460;  // Default max_datagram_size
-  uint32_t initialCwndSegments = 100;  // As configured above
+  uint32_t initialCwndSegments = 10;  // IETF RFC 9002 compliant
   uint32_t initialCwndBytes = initialCwndSegments * segmentSize;
   
   // Calculate minimum window per RFC 9002 Section 7.2
@@ -890,41 +913,48 @@ main (int argc, char *argv[])
   mmwaveHelper->AttachToClosestEnb (uemmWaveDevs, possibleBaseStations);
 
   // Install and start applications on UEs and remote host
-  // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_INFO);
-  // LogComponentEnable("OnOffApplication", LOG_LEVEL_INFO);
-  // LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   
   // DASH over QUIC configuration
-  double target_dt = 0.1;  // Target buffering time
-  uint32_t bufferSpace = 20000000;  // 20 MB buffer
-  std::string window = "1s";  // Throughput measurement window
+  double targetDt = 1;  // Target buffering time (seconds)
+  uint32_t bufferSpace = 30000000;  // 30 MB buffer - same as lena-dash default
+  double window = 1.0;  // Throughput measurement window (seconds)
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
+  uint16_t dashPort = 80;  // DASH server port
   
-  // Create ONE DASH server on remote host to serve all UEs (on port 80)
-  DashServerHelper dashServer ("ns3::QuicSocketFactory",
-                                InetSocketAddress(Ipv4Address::GetAny(), 80));
-  serverApps.Add (dashServer.Install (remoteHost));
-  NS_LOG_UNCOND("DASH Server installed on remoteHost (IP=" << remoteHostAddr << ") port 80");
+  NS_LOG_LOGIC("Setting up DASH applications");
   
-  // Create DASH clients on each UE
+  // Create DASH clients on each UE (similar to lena-dash.cc loop)
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
+    Ptr<Node> ue = ueNodes.Get(u);
+    
+    NS_LOG_LOGIC("Installing DASH client app on UE " << u << ", using algorithm " << algorithm);
+    
     // Client (on UE) - requests and receives video segments
-    DashClientHelper dashClient ("ns3::QuicSocketFactory",
-                                  InetSocketAddress(remoteHostAddr, 80),
-                                  algorithm);
-    dashClient.SetAttribute ("VideoId", UintegerValue(u + 1));  // Each UE gets different video ID
-    dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
-    dashClient.SetAttribute ("window", TimeValue(Time(window)));
-    dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
+    DashClientHelper dashClientHelper ("ns3::QuicSocketFactory",
+                                        InetSocketAddress(remoteHostAddr, dashPort),
+                                        algorithm);
     
-    clientApps.Add (dashClient.Install (ueNodes.Get(u)));
+    dashClientHelper.SetAttribute ("VideoId", UintegerValue(u + 1));  // VideoId should be positive
+    dashClientHelper.SetAttribute ("TargetDt", TimeValue(Seconds(targetDt)));
+    dashClientHelper.SetAttribute ("window", TimeValue(Seconds(window)));
+    dashClientHelper.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
     
-    NS_LOG_UNCOND("DASH Client " << u << " installed on UE (IP=" << ueIpIface.GetAddress(u) 
-                  << ") -> server IP=" << remoteHostAddr << ":80");
+    clientApps.Add (dashClientHelper.Install (ue));
+    
+    NS_LOG_UNCOND("DASH Client " << u << " installed on UE " << u 
+                  << " (IP=" << ueIpIface.GetAddress(u) << ")");
   }
+  
+  // Create DASH server on remote host (installed after clients, like lena-dash.cc)
+  NS_LOG_LOGIC("Installing DASH server on remote host");
+  ApplicationContainer remoteApps;
+  DashServerHelper dashServerHelper ("ns3::QuicSocketFactory",
+                                      InetSocketAddress(Ipv4Address::GetAny(), dashPort));
+  remoteApps.Add (dashServerHelper.Install (remoteHost));
+  NS_LOG_UNCOND("DASH Server installed on remoteHost (IP=" << remoteHostAddr << ":" << dashPort << ")");
   
    // Connect DASH trace sources
    for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
@@ -943,9 +973,9 @@ main (int argc, char *argv[])
    }
   
   // Connect server Rx trace - get the actual DashServer application
-  if (serverApps.GetN() > 0)
+  if (remoteApps.GetN() > 0)
   {
-    Ptr<Application> app = serverApps.Get(0);
+    Ptr<Application> app = remoteApps.Get(0);
     Ptr<DashServer> dashServer = DynamicCast<DashServer>(app);
     if (dashServer)
     {
@@ -1002,39 +1032,37 @@ main (int argc, char *argv[])
     
   mmwaveHelper->EnableTraces ();  // Enables RLC/MAC/PHY traces (DlRlcStats.txt, RxPacketTrace.txt, etc.)
   
-  // DASH timing: servers start first with staggered delays, clients need delay for QUIC handshake
-  // Stagger server starts to avoid QUIC socket conflicts
-  for (uint32_t i = 0; i < serverApps.GetN(); ++i)
-  {
-    serverApps.Get(i)->SetStartTime(Seconds(0.0 + i * 0.1));
-  }
+  // DASH timing: server starts first, clients start after with staggered delays
+  remoteApps.Start(Seconds(0.5));
   
-  // Clients start after servers with additional delay for QUIC handshake
+  // Clients start after server with staggered delays for QUIC handshake
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
     clientApps.Get(i)->SetStartTime(Seconds(1.0 + i * 0.1));
   }
   
-  double stopTime = 60.0;  // Minimal time for testing
-  clientApps.Stop (Seconds (stopTime));
-  serverApps.Stop (Seconds (stopTime + 1.0));
-  Simulator::Stop (Seconds (stopTime + 2.0));
+  double simTime = 20.0;
+  clientApps.Stop (Seconds (simTime));
+  remoteApps.Stop (Seconds (simTime + 1.0));
+  Simulator::Stop (Seconds (simTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections ===");
+  NS_LOG_UNCOND("QUIC Server: Remote Host (sends video data)");
+  NS_LOG_UNCOND("QUIC Client: UE (receives video data)");
   
-  // Connect traces for remote host (QUIC server) - schedule after server starts (0.0s)
+  // Connect traces for remote host (QUIC server sends video data) - schedule AFTER server starts
   uint32_t serverNodeId = remoteHost->GetId();
-  Time serverTraceTime = Seconds(0.005);  // After server socket is created
+  Time serverTraceTime = Seconds(0.6);  // After server socket is created (server starts at 0.5s)
   Simulator::Schedule(serverTraceTime, &Traces, serverNodeId, "./server", ".txt");
-  NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId << " at t=" << serverTraceTime.GetSeconds() << "s");
+  NS_LOG_UNCOND("  Scheduled QUIC Server traces for Remote Host Node " << serverNodeId << " at t=" << serverTraceTime.GetSeconds() << "s");
   
-  // Connect traces for each UE node (QUIC client)
-  Time clientTraceTime = Seconds(0.002);  // After client sockets are created
+  // Connect traces for each UE node (QUIC client receives video) - schedule AFTER clients start
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     uint32_t nodeId = ueNodes.Get(u)->GetId();
-    Simulator::Schedule(clientTraceTime + Seconds(u * 0.1), &Traces, nodeId, "./client", ".txt");
-    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (client) at t=" << (clientTraceTime + Seconds(u * 0.1)).GetSeconds() << "s");
+    Time clientTraceTime = Seconds(1.2 + u * 0.1);  // After client socket is created (clients start at 1.0+)
+    Simulator::Schedule(clientTraceTime, &Traces, nodeId, "./client", ".txt");
+    NS_LOG_UNCOND("  Scheduled QUIC Client traces for UE Node " << nodeId << " at t=" << clientTraceTime.GetSeconds() << "s");
   }
     
   std::string tracePrefix = "ntn_iab_quic_dash";  // Keep variable for log statements
@@ -1046,25 +1074,30 @@ main (int argc, char *argv[])
   
   NS_LOG_UNCOND("\n=== DASH over QUIC Simulation Parameters ===");
   NS_LOG_UNCOND("Number of UEs: " << ueNodes.GetN());
-  NS_LOG_UNCOND("Simulation time: " << stopTime << " seconds");
+  NS_LOG_UNCOND("Simulation time: " << simTime << " seconds");
   NS_LOG_UNCOND("DASH algorithm: " << algorithm);
-  NS_LOG_UNCOND("Target buffering time: " << target_dt << " seconds");
-  NS_LOG_UNCOND("Expected video segments: ~" << (int)(stopTime/2));
-  NS_LOG_UNCOND("Expected video frames: ~" << (int)(stopTime * 50));
+  NS_LOG_UNCOND("Target buffering time (TargetDt): " << targetDt << " seconds");
+  NS_LOG_UNCOND("Throughput window: " << window << " seconds");
+  NS_LOG_UNCOND("Buffer space: " << bufferSpace << " bytes");
+  NS_LOG_UNCOND("Expected video segments: ~" << (int)(simTime/2));
+  NS_LOG_UNCOND("Expected video frames: ~" << (int)(simTime * 50));
   
   Simulator::Run();
   
-  // Print DASH statistics for each UE
+  // Print DASH statistics for each UE (similar to lena-dash.cc output)
   NS_LOG_UNCOND("\n========== DASH over QUIC Results ==========");
-  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
+  
+  uint32_t users = clientApps.GetN();
+  for (uint32_t u = 0; u < users; ++u)
   {
     Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
     if (dashClient)
     {
-      NS_LOG_UNCOND("\nUE " << u << " (VideoId=" << (u+1) << "):");
+      // Print algorithm and node info (matching lena-dash.cc format)
+      std::cout << algorithm << "-Node: " << u;
       dashClient->GetStats();
       
-      // Print DASH trace statistics
+      // Print additional DASH trace statistics
       if (g_dashClientTxPackets.find(u) != g_dashClientTxPackets.end())
       {
         NS_LOG_UNCOND("  DASH Requests sent: " << g_dashClientTxPackets[u] 
@@ -1074,15 +1107,16 @@ main (int argc, char *argv[])
       {
         NS_LOG_UNCOND("  DASH Video received: " << g_dashClientRxPackets[u] 
                      << " packets (" << g_dashClientRxBytes[u] << " bytes)");
-        double avgThroughput = (g_dashClientRxBytes[u] * 8.0) / (stopTime * 1000000.0);
+        double avgThroughput = (g_dashClientRxBytes[u] * 8.0) / (simTime * 1000000.0);
         NS_LOG_UNCOND("  Average throughput: " << avgThroughput << " Mbps");
       }
     }
   }
   
-  NS_LOG_UNCOND("\nDASH Server Statistics:");
+  NS_LOG_UNCOND("\n--- DASH Server Statistics ---");
   NS_LOG_UNCOND("  Total requests received: " << g_dashServerRxPackets 
                << " packets (" << g_dashServerRxBytes << " bytes)");
+  NS_LOG_UNCOND("============================================\n");
   
   
   /*GtkConfigStore config;

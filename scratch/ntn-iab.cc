@@ -145,13 +145,11 @@ main (int argc, char *argv[])
   uint32_t numRelays = 0;
   uint32_t rlcBufSize = 10;
   uint32_t interPacketInterval = 5;
-  uint32_t throughput = 200;
-  uint32_t packetSize = 1400; //bytes
+  uint32_t packetSize = 1500; //bytes
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
-  cmd.AddValue("throughput", "throughput [mbps]", throughput);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
   cmd.Parse(argc, argv);
 
@@ -238,7 +236,7 @@ main (int argc, char *argv[])
   inputConfig.ConfigureDefaults();
   // parse again so you can override default values from the command line
   cmd.Parse(argc, argv);
-  NS_LOG_UNCOND("Throughput: "<<throughput<<" Inter-packet interval: "<<interPacketInterval);
+  NS_LOG_UNCOND("Inter-packet interval: "<<interPacketInterval);
  
   Ptr<Node> pgw = epcHelper->GetPgwNode ();
   // Create a single RemoteHost
@@ -275,7 +273,7 @@ main (int argc, char *argv[])
   //double gnbX = xMax/2.0;
   //double gnbY = yMax/2.0;
   // Center Donor Node
-  Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);
+  Vector posWired = Vector((xMax / 2.0)+500, yMax / 2.0, gnbHeight);
 
   // Symmetric IAB positions
   Vector posIab1 = Vector(xMax / 2.0 , yMax / 2.0, iabHeight);        // Mid
@@ -299,7 +297,7 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(20);
+  ueNodes.Create(1);
   // Install Mobility Model
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
   enbPositionAlloc->Add (posWired);
@@ -353,11 +351,11 @@ main (int argc, char *argv[])
   // Create one user at fixed position 100 meters away from eNB
   // eNB is at center (xMax/2, yMax/2, gnbHeight)
   // Place UE 100 meters north of eNB
-  // double ueX = xMax/2.0+10000;  // Same X coordinate as eNB
-  // double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
-  // double ueZ = 1.7;  // Typical UE height
+  double ueX = xMax/2.0+1000;  // Same X coordinate as eNB
+  double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
+  double ueZ = 1.7;  // Typical UE height
   
-  // uePosAlloc->Add(Vector(ueX, ueY, ueZ));
+  uePosAlloc->Add(Vector(ueX, ueY, ueZ));
   
 
 // Additional user positioning code (no longer needed)
@@ -366,29 +364,29 @@ main (int argc, char *argv[])
 // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
 // uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
 
-  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
-  radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
+  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  // radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
+  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
   
-  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  angleRand->SetAttribute("Min", DoubleValue(0));
-  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+  // angleRand->SetAttribute("Min", DoubleValue(0));
+  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
   
-  for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  {
-      double radius = radiusRand->GetValue();
-      double angle = angleRand->GetValue();
+  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+  // {
+  //     double radius = radiusRand->GetValue();
+  //     double angle = angleRand->GetValue();
   
-      double x = xMax/2 + radius * std::cos(angle);
-      double y = yMax/2 + radius * std::sin(angle);
-      double z = 1.7; // typical UE height
+  //     double x = xMax/2 + radius * std::cos(angle);
+  //     double y = yMax/2 + radius * std::sin(angle);
+  //     double z = 1.7; // typical UE height
   
-      // Ensure within boundaries
-      x = std::min(std::max(x, 0.0), xMax);
-      y = std::min(std::max(y, 0.0), yMax);
+  //     // Ensure within boundaries
+  //     x = std::min(std::max(x, 0.0), xMax);
+  //     y = std::min(std::max(y, 0.0), yMax);
   
-      uePosAlloc->Add(Vector(x, y, z));
-  }
+  //     uePosAlloc->Add(Vector(x, y, z));
+  // }
 
   uemobility.SetPositionAllocator (uePosAlloc);
   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -441,7 +439,7 @@ main (int argc, char *argv[])
     UdpClientHelper dlClient (ueIpIface.GetAddress (u), dlPort);
     dlClient.SetAttribute ("Interval", TimeValue (MicroSeconds(interPacketInterval)));
     dlClient.SetAttribute ("PacketSize", UintegerValue(packetSize));
-    dlClient.SetAttribute ("MaxPackets", UintegerValue(500));
+    dlClient.SetAttribute ("MaxPackets", UintegerValue(1000));
     clientApps.Add (dlClient.Install (remoteHost));
     dlPort++;
   }
@@ -488,11 +486,11 @@ main (int argc, char *argv[])
   }
   NS_LOG_UNCOND("=======================\n");
   mmwaveHelper->EnableTraces ();
-  serverApps.Start (Seconds (0.3));
+  serverApps.Start (Seconds (0.2));
   clientApps.Start (Seconds (0.3));
   clientApps.Stop (Seconds (2.0));
   serverApps.Stop (Seconds (2.0));
-  Simulator::Stop (Seconds (2.5));
+  Simulator::Stop (Seconds (2.2));
   
   Simulator::Run();
   /*GtkConfigStore config;

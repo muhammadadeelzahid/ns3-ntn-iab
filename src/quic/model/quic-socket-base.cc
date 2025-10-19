@@ -371,7 +371,7 @@ QuicSocketState::QuicSocketState ()
     m_rttVar (0),
     m_minRtt (
       Seconds (0)),
-    m_maxAckDelay (Seconds (0)),
+    m_maxAckDelay (Seconds (0.025)),
     m_lossTime (Seconds (0)),
     m_kMinimumWindow (
       2 * m_segmentSize),
@@ -390,7 +390,7 @@ QuicSocketState::QuicSocketState ()
     m_alarmType (0),
     m_nextAlarmTrigger (Seconds (100)),
     m_kDefaultInitialRtt (
-      MilliSeconds (100)),
+      MilliSeconds (333)),                // 333ms default (IETF RFC 9000)
     m_kMaxPacketsReceivedBeforeAckSend (20)
 {
   m_lossDetectionAlarm.Cancel ();

@@ -49,6 +49,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <map>
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuic");
@@ -66,10 +67,26 @@ RttChange (Ptr<OutputStreamWrapper> stream, Time oldRtt, Time newRtt)
   *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldRtt.GetSeconds () << "\t" << newRtt.GetSeconds () << std::endl;
 }
 
+// Global stream counters for monitoring
+static std::map<uint32_t, uint32_t> streamPacketCounts;  // nodeId -> packet count
+static std::map<uint32_t, uint64_t> streamByteCounts;   // nodeId -> byte count
+static std::map<std::string, uint32_t> streamIdPacketCounts;  // "nodeId:streamId" -> packet count
+static std::map<std::string, uint64_t> streamIdByteCounts;   // "nodeId:streamId" -> byte count
+
 static void
 Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, Ptr<const QuicSocketBase> qsb)
 {
-  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() << std::endl;
+  uint32_t nodeId = qsb->GetNode()->GetId();
+  uint32_t packetSize = p->GetSize();
+  
+  // Log with node and connection information
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
+                       << "\tNode:" << nodeId << std::endl;
+  
+  // Print to console for real-time monitoring
+  NS_LOG_UNCOND("Rx: Node " << nodeId
+                << " received " << packetSize << " bytes at " 
+                << Simulator::Now().GetSeconds() << "s");
 }
 
 static void
@@ -154,6 +171,26 @@ main (int argc, char *argv[])
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
+  // LogComponentEnable("QuicServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL4Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+
+  // Enable QUIC logs to investigate packet flow stopping
+  LogComponentEnable("QuicClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see client sending issues
+  LogComponentEnable("QuicServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see server reception issues
+  // LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see socket buffer issues
+  // LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see protocol layer issues
+  // LogComponentEnable("QuicL5Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see application layer issues
+  // LogComponentEnable("QuicStreamBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see stream-specific issues
+  
+  // // Enable additional QUIC frame parsing and header logging
+  // LogComponentEnable("QuicSubheader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see frame parsing issues
+  // LogComponentEnable("QuicHeader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see packet header issues
+  // LogComponentEnable("QuicSocket",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see socket-level issues
+  
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
@@ -289,14 +326,12 @@ main (int argc, char *argv[])
   bool rlcAm = false;
   uint32_t numRelays = 0;
   uint32_t rlcBufSize = 10;
-  uint32_t interPacketInterval = 5;
-  uint32_t throughput = 200;
-  uint32_t packetSize = 1400; //bytes
+  uint32_t interPacketInterval = 5000; // IETF recommendation
+  uint32_t packetSize = 1280; //bytes // according to IETF, min size should be 1280 bytes
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
-  cmd.AddValue("throughput", "throughput [mbps]", throughput);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
   cmd.Parse(argc, argv);
 
@@ -357,14 +392,26 @@ main (int argc, char *argv[])
   
   // QUIC-specific configuration
   Config::SetDefault("ns3::QuicClient::PacketSize", UintegerValue(packetSize));
-  Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(500));
+  Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(1000));
   Config::SetDefault("ns3::QuicClient::Interval", TimeValue(MicroSeconds(interPacketInterval)));
   
-  // Configure QUIC Initial Congestion Window (in segments)
-  // RFC 9002 Section 7.2: Default is 10 segments, minimum is max(14720 bytes, 2 * segment_size)
-  // For high BDP networks (satellite), increase to allow more packets in flight
-  // 100 segments = ~146KB initial window (suitable for ~100-200ms RTT satellite links)
-  Config::SetDefault("ns3::QuicSocketBase::InitialCwnd", UintegerValue(100));
+  Config::SetDefault("ns3::QuicSocketBase::InitialCwnd", UintegerValue(10));              // 10 packets (RFC 9002 Section 7.2)
+  
+  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(1048576));             // 1MB connection limit (RFC 9000)
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(1048576));       // 1MB per stream (RFC 9000)
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdBidi", UintegerValue(100));         // 100 bidirectional streams (RFC 9000)
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdUni", UintegerValue(100));          // 100 unidirectional streams (RFC 9000)
+  
+  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30)));         // 30 seconds (RFC 9000 typical)
+  
+  Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(3));      // Loss detection threshold (3 packets)
+  Config::SetDefault("ns3::QuicSocketBase::kMaxTLPs", UintegerValue(2));                  // Max tail loss probes (2)
+  Config::SetDefault("ns3::QuicSocketBase::kMinTLPTimeout", TimeValue(MilliSeconds(10))); // Min TLP timeout (10ms)
+  Config::SetDefault("ns3::QuicSocketBase::kMinRTOTimeout", TimeValue(MilliSeconds(200))); // Min RTO timeout (200ms)
+  Config::SetDefault("ns3::QuicSocketBase::kDelayedAckTimeout", TimeValue(MilliSeconds(25))); // ACK delay timeout (25ms)
+  
+  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333))); // 333ms (RFC 9000 Section 6.2.2)
+
   
   // Enable multi-beam functionality
 //  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
@@ -394,7 +441,6 @@ main (int argc, char *argv[])
   inputConfig.ConfigureDefaults();
   // parse again so you can override default values from the command line
   cmd.Parse(argc, argv);
-  NS_LOG_UNCOND("Throughput: "<<throughput<<" Inter-packet interval: "<<interPacketInterval);
  
   Ptr<Node> pgw = epcHelper->GetPgwNode ();
   // Create a single RemoteHost
@@ -406,11 +452,10 @@ main (int argc, char *argv[])
   QuicHelper quicHelper;
 
   // Increase socket buffer sizes to prevent buffer overflow
-  // 4 MB of buffer
-  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 23));
-  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 23));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 23));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 23));
+  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 24));
+  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 24));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 24));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 24));
   
   // Log QUIC congestion control parameters
   NS_LOG_UNCOND("\n=== QUIC CONGESTION CONTROL CONFIGURATION (RFC 9002) ===");
@@ -447,7 +492,7 @@ main (int argc, char *argv[])
   Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);
 
   // Symmetric IAB positions
-  Vector posIab1 = Vector(xMax / 2.0 , yMax / 2.0, iabHeight);        // Mid
+  Vector posIab1 = Vector(xMax / 2.0 + 500 , yMax / 2.0, iabHeight);        // Mid
   Vector posIab3 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 + yOffset, iabHeight);        // Top-left
   Vector posIab4 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-left
   Vector posIab2 = Vector(xMax / 2.0 + xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-right
@@ -468,7 +513,7 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(2);
+  ueNodes.Create(1);  // Create 2 UE nodes for 2 streams
   // Install Mobility Model
   
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
@@ -523,11 +568,11 @@ main (int argc, char *argv[])
   // Create one user at fixed position 100 meters away from eNB
   // eNB is at center (xMax/2, yMax/2, gnbHeight)
   // Place UE 100 meters north of eNB
-  // double ueX = xMax/2.0+10000;  // Same X coordinate as eNB
-  // double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
-  // double ueZ = 1.7;  // Typical UE height
+  double ueX = xMax/2.0+1000;  // Same X coordinate as eNB
+  double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
+  double ueZ = 1.7;  // Typical UE height
   
-  // uePosAlloc->Add(Vector(ueX, ueY, ueZ));
+  uePosAlloc->Add(Vector(ueX, ueY, ueZ));
   
 
 // Additional user positioning code (no longer needed)
@@ -536,29 +581,30 @@ main (int argc, char *argv[])
 // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
 // uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
 
-  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
-  radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
+  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  // radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
+  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
   
-  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  angleRand->SetAttribute("Min", DoubleValue(0));
-  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+  // angleRand->SetAttribute("Min", DoubleValue(0));
+  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
   
-  for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  {
-      double radius = radiusRand->GetValue();
-      double angle = angleRand->GetValue();
+  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+  // {
+  //     double radius = radiusRand->GetValue();
+  //     double angle = angleRand->GetValue();
   
-      double x = xMax/2 + radius * std::cos(angle);
-      double y = yMax/2 + radius * std::sin(angle);
-      double z = 1.7; // typical UE height
+  //     double x = xMax/2 + radius * std::cos(angle);
+  //     double y = yMax/2 + radius * std::sin(angle);
+  //     double z = 1.7; // typical UE height
   
-      // Ensure within boundaries
-      x = std::min(std::max(x, 0.0), xMax);
-      y = std::min(std::max(y, 0.0), yMax);
-  
-      uePosAlloc->Add(Vector(x, y, z));
-  }
+  //     // Ensure within boundaries
+  //     x = std::min(std::max(x, 0.0), xMax);
+  //     y = std::min(std::max(y, 0.0), yMax);
+    
+  //     NS_LOG_UNCOND("UE " << i << " position: " << x << ", " << y << ", " << z);
+  //     uePosAlloc->Add(Vector(x, y, z));
+  // }
 
   uemobility.SetPositionAllocator (uePosAlloc);
   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -574,27 +620,6 @@ main (int argc, char *argv[])
   NetDeviceContainer uemmWaveDevs = mmwaveHelper->InstallUeDevice (ueNodes);
   // Install QUIC stack on UE nodes (instead of Internet stack)
   quicHelper.InstallQuic (ueNodes);
-  
-  // Log the actual QUIC parameters (read from Config, not by creating sockets)
-  // Creating temporary sockets can interfere with QUIC L4 protocol listener binding
-  // Typical segment size is 1460 bytes (MTU 1500 - IP 20 - UDP 8 - QUIC ~12)
-  uint32_t segmentSize = 1460;  // Default max_datagram_size
-  uint32_t initialCwndSegments = 100;  // As configured above
-  uint32_t initialCwndBytes = initialCwndSegments * segmentSize;
-  
-  // Calculate minimum window per RFC 9002 Section 7.2
-  uint32_t minWindowBytes = std::max((uint32_t)14720, 2 * segmentSize);
-  uint32_t minWindowSegments = minWindowBytes / segmentSize;
-  
-  NS_LOG_UNCOND("Segment Size (max_datagram_size): " << segmentSize << " bytes");
-  NS_LOG_UNCOND("Initial Congestion Window (configured): " << initialCwndSegments << " segments (" << initialCwndBytes << " bytes)");
-  NS_LOG_UNCOND("Minimum Window (RFC 9002 Sec 7.2): " << minWindowSegments << " segments (" << minWindowBytes << " bytes)");
-  NS_LOG_UNCOND("  = max(14720 bytes, 2 * " << segmentSize << " bytes) = " << minWindowBytes << " bytes");
-  
-  if (initialCwndBytes < minWindowBytes)
-  {
-    NS_LOG_UNCOND("NOTE: Initial window will be enforced to minimum of " << minWindowBytes << " bytes");
-  }
   
   NS_LOG_UNCOND("========================================================\n");
   
@@ -686,23 +711,23 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("=======================\n");
     
   mmwaveHelper->EnableTraces ();
-  serverApps.Start (Seconds (0.5));
-  clientApps.Start (Seconds (1.0));
-  clientApps.Stop (Seconds (10.0));
-  serverApps.Stop (Seconds (10.0));
+  serverApps.Start (Seconds (0.2));
+  clientApps.Start (Seconds (0.3));
+  clientApps.Stop (Seconds (2.0));
+  serverApps.Stop (Seconds (2.0));
   
   // Schedule trace connections for each UE (server) and remote host (client)
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
     Ptr<Node> ueNode = ueNodes.Get (u);
-    Time t = Seconds(1.100001);
+    Time t = Seconds(0.3);
     Simulator::Schedule (t, &Traces, ueNode->GetId(), 
           "./server", ".txt");
     Simulator::Schedule (t, &Traces, remoteHost->GetId(), 
           "./client", ".txt");
   }
-  
-  Simulator::Stop (Seconds (30.5));
+
+  Simulator::Stop (Seconds (2.2));
   
   Simulator::Run();
   /*GtkConfigStore config;

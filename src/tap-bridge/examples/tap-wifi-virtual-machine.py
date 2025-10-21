@@ -48,17 +48,17 @@ def main(argv):
     # We're going to use 802.11 A so set up a wifi helper to reflect that.
     #
     wifi = ns.wifi.WifiHelper()
-    wifi.SetStandard (ns.wifi.WIFI_PHY_STANDARD_80211a);
+    wifi.SetStandard (ns.wifi.WIFI_STANDARD_80211a);
     wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", ns.core.StringValue ("OfdmRate54Mbps"));
 
     #
     # No reason for pesky access points, so we'll use an ad-hoc network.
     #
-    wifiMac = ns.wifi.WifiMacHelper
+    wifiMac = ns.wifi.WifiMacHelper()
     wifiMac.SetType ("ns3::AdhocWifiMac");
 
     #
-    # Configure the physcial layer.
+    # Configure the physical layer.
     #
     wifiChannel = ns.wifi.YansWifiChannelHelper.Default()
     wifiPhy = ns.wifi.YansWifiPhyHelper.Default()

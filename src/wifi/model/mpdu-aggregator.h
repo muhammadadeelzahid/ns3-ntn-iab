@@ -33,6 +33,8 @@ class AmpduSubframeHeader;
 class WifiTxVector;
 class Packet;
 class WifiMacQueueItem;
+class RegularWifiMac;
+class WifiTxParameters;
 
 /**
  * \brief Aggregator used to construct A-MPDUs
@@ -41,14 +43,6 @@ class WifiMacQueueItem;
 class MpduAggregator : public Object
 {
 public:
-  /**
-   * A list of deaggregated packets and their A-MPDU subframe headers.
-   */
-  typedef std::list<std::pair<Ptr<Packet>, AmpduSubframeHeader> > DeaggregatedMpdus;
-  /**
-   * A constant iterator for a list of deaggregated packets and their A-MPDU subframe headers.
-   */
-  typedef std::list<std::pair<Ptr<Packet>, AmpduSubframeHeader> >::const_iterator DeaggregatedMpdusCI;
   /**
    * EDCA queues typedef
    */
@@ -74,21 +68,12 @@ public:
   static void Aggregate (Ptr<const WifiMacQueueItem> mpdu, Ptr<Packet> ampdu, bool isSingle);
 
   /**
-   * \param mpdu the MPDU we want to insert into an A-MPDU subframe.
-   * \param last true if it is the last MPDU.
-   * \param isSingleMpdu true if it is a single MPDU
-   *
-   * Adds A-MPDU subframe header and padding to each MPDU that is part of an A-MPDU before it is sent.
-   */
-  void AddHeaderAndPad (Ptr<Packet> mpdu, bool last, bool isSingleMpdu) const;
-
-  /**
    * Compute the size of the A-MPDU resulting from the aggregation of an MPDU of
    * size <i>mpduSize</i> and an A-MPDU of size <i>ampduSize</i>.
    *
-   * \param mpduSize the MPDU size.
-   * \param ampduSize the A-MPDU size.
-   * \return the size of the resulting A-MPDU.
+   * \param mpduSize the MPDU size in bytes.
+   * \param ampduSize the A-MPDU size in bytes.
+   * \return the size of the resulting A-MPDU in bytes.
    */
   static uint32_t GetSizeIfAggregated (uint32_t mpduSize, uint32_t ampduSize);
 
@@ -99,7 +84,7 @@ public:
    * \param recipient the receiver station address.
    * \param tid the TID.
    * \param modulation the modulation class.
-   * \return the maximum A-MPDU size.
+   * \return the maximum A-MPDU size in bytes.
    */
   uint32_t GetMaxAmpduSize (Mac48Address recipient, uint8_t tid,
                             WifiModulationClass modulation) const;
@@ -112,8 +97,12 @@ public:
    * as determined for the modulation class indicated by the given TxVector
    *
    * - the time to transmit the resulting PPDU, according to the given TxVector,
-   * does not exceed both the maximum PPDU duration allowed by the corresponding
-   * modulation class (if any) and the given PPDU duration limit (if non null)
+   * does not exceed the maximum PPDU duration allowed by the corresponding
+   * modulation class (if any)
+   *
+   * - the time to transmit the resulting PPDU and to carry out protection and
+   * acknowledgment, as specified by the given TX parameters, does not exceed the
+   * given available time (if distinct from Time::Min ())
    *
    * For now, only non-broadcast QoS Data frames can be aggregated (do not pass
    * other types of frames to this method). MPDUs to aggregate are looked for
@@ -127,33 +116,27 @@ public:
    * the returned vector is empty.
    *
    * \param mpdu the given MPDU.
-   * \param txVector the TxVector used to transmit the frame
-   * \param ppduDurationLimit the limit on the PPDU duration
+   * \param txParams the TX parameters used to transmit the frame
+   * \param availableTime the time available for the frame exchange
+   * \param queueIt the QueueIteratorPair pointing to the queue item from which the
+   *                search for an MPDU starts, if the QueueIteratorPair is valid
    * \return the resulting A-MPDU, if aggregation is possible.
    */
-  std::vector<Ptr<WifiMacQueueItem>> GetNextAmpdu (Ptr<const WifiMacQueueItem> mpdu,
-                                                   WifiTxVector txVector,
-                                                   Time ppduDurationLimit = Seconds (0)) const;
+  std::vector<Ptr<WifiMacQueueItem>> GetNextAmpdu (Ptr<WifiMacQueueItem> mpdu,
+                                                   WifiTxParameters& txParams,
+                                                   Time availableTime,
+                                                   WifiMacQueueItem::QueueIteratorPair queueIt) const;
 
   /**
-   * Deaggregates an A-MPDU by removing the A-MPDU subframe header and padding.
+   * Set the MAC layer to use.
    *
-   * \param aggregatedPacket the aggregated packet
-   * \return list of deaggragted packets and their A-MPDU subframe headers
+   * \param mac the MAC layer to use
    */
-  static DeaggregatedMpdus Deaggregate (Ptr<Packet> aggregatedPacket);
+  void SetWifiMac (const Ptr<RegularWifiMac> mac);
 
   /**
-   * Set the map of EDCA queues.
-   *
-   * \param edcaQueues the map of EDCA queues.
-   */
-  void SetEdcaQueues (EdcaQueues edcaQueues);
-
-private:
-  /**
-   * \param ampduSize the size of the A-MPDU that needs to be padded
-   * \return the size of the padding that must be added to the end of an A-MPDU
+   * \param ampduSize the size of the A-MPDU that needs to be padded in bytes
+   * \return the size of the padding that must be added to the end of an A-MPDU in bytes
    *
    * Calculates how much padding must be added to the end of an A-MPDU of the given size
    * (once another MPDU is aggregated).
@@ -161,7 +144,20 @@ private:
    */
   static uint8_t CalculatePadding (uint32_t ampduSize);
 
-  EdcaQueues m_edca;   //!< the map of EDCA queues
+  /**
+   * Get the A-MPDU subframe header corresponding to the MPDU size and
+   * whether the MPDU is a single MPDU.
+   *
+   * \param mpduSize size of the MPDU in bytes.
+   * \param isSingle true if S-MPDU.
+   */
+  static AmpduSubframeHeader GetAmpduSubframeHeader (uint16_t mpduSize, bool isSingle);
+
+protected:
+  virtual void DoDispose ();
+
+private:
+  Ptr<RegularWifiMac> m_mac;   //!< the MAC of this station
 };
 
 }  //namespace ns3

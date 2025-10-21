@@ -374,7 +374,7 @@ std::vector<Vector> clusterCenters = {
               MakeBoundCallback(&ConnectionEstablishedTraceSink, imsi));
       }
   }
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/Drop", MakeCallback(&PacketDropCallback));
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/DeviceList/*/Phy/Drop", MakeCallback(&PacketDropCallback));
   
   serverApps.Start (Seconds (0.20));
   clientApps.Stop (Seconds (0.8));

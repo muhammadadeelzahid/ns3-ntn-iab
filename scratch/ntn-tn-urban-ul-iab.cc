@@ -375,7 +375,7 @@ main (int argc, char *argv[])
               MakeBoundCallback(&ConnectionEstablishedTraceSink, imsi));
       }
   }
-  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/Phy/Drop", MakeCallback(&PacketDropCallback));
+  Config::ConnectWithoutContextFailSafe("/NodeList/*/DeviceList/*/Phy/Drop", MakeCallback(&PacketDropCallback));
   
   ulServerApps.Start(Seconds(0.2));
   ulClientApps.Start(Seconds(0.3));

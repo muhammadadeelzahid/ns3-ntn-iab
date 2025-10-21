@@ -25,10 +25,11 @@
 #include "ns3/spectrum-wifi-phy.h"
 #include "ns3/nist-error-rate-model.h"
 #include "ns3/wifi-mac-header.h"
-#include "ns3/wifi-mac-trailer.h"
-#include "ns3/wifi-phy-tag.h"
 #include "ns3/wifi-spectrum-signal-parameters.h"
 #include "ns3/wifi-utils.h"
+#include "ns3/wifi-psdu.h"
+#include "ns3/ofdm-ppdu.h"
+#include "ns3/ofdm-phy.h"
 
 using namespace ns3;
 
@@ -47,7 +48,15 @@ static const uint16_t CHANNEL_WIDTH = 20; //MHz
 class WifiPhyThresholdsTest : public TestCase
 {
 public:
+  /**
+   * Constructor
+   *
+   * \param test_name the test name
+   */
   WifiPhyThresholdsTest (std::string test_name);
+  /**
+   * Destructor
+   */
   virtual ~WifiPhyThresholdsTest ();
 
 protected:
@@ -71,21 +80,24 @@ protected:
   virtual void SendSignal (double txPowerWatts, bool wifiSignal);
   /**
    * PHY receive success callback function
-   * \param p the packet
-   * \param snr the SNR
+   * \param psdu the PSDU
+   * \param rxSignalInfo the info on the received signal (\see RxSignalInfo)
    * \param txVector the transmit vector
+   * \param statusPerMpdu reception status per MPDU
    */
-  virtual void RxSuccess (Ptr<Packet> p, double snr, WifiTxVector txVector);
+  virtual void RxSuccess (Ptr<WifiPsdu> psdu, RxSignalInfo rxSignalInfo,
+                          WifiTxVector txVector, std::vector<bool> statusPerMpdu);
   /**
    * PHY receive failure callback function
-   * \param p the packet
+   * \param psdu the PSDU
    */
-  virtual void RxFailure (Ptr<Packet> p);
+  virtual void RxFailure (Ptr<WifiPsdu> psdu);
   /**
    * PHY dropped packet callback function
    * \param p the packet
+   * \param reason the reason
    */
-  virtual void RxDropped (Ptr<const Packet> p);
+  void RxDropped (Ptr<const Packet> p, WifiPhyRxfailureReason reason);
   /**
    * PHY state changed callback function
    * \param start the start time of the new state
@@ -105,6 +117,7 @@ protected:
 
 private:
   virtual void DoSetup (void);
+  virtual void DoTeardown (void);
 };
 
 WifiPhyThresholdsTest::WifiPhyThresholdsTest (std::string test_name)
@@ -126,29 +139,25 @@ WifiPhyThresholdsTest::~WifiPhyThresholdsTest ()
 Ptr<SpectrumSignalParameters>
 WifiPhyThresholdsTest::MakeWifiSignal (double txPowerWatts)
 {
-  WifiTxVector txVector = WifiTxVector (WifiPhy::GetOfdmRate6Mbps (), 0, WIFI_PREAMBLE_LONG, false, 1, 1, 0, 20, false, false);
-  MpduType mpdutype = NORMAL_MPDU;
+  WifiTxVector txVector = WifiTxVector (OfdmPhy::GetOfdmRate6Mbps (), 0, WIFI_PREAMBLE_LONG, 800, 1, 1, 0, 20, false);
 
   Ptr<Packet> pkt = Create<Packet> (1000);
   WifiMacHeader hdr;
-  WifiMacTrailer trailer;
 
   hdr.SetType (WIFI_MAC_QOSDATA);
   hdr.SetQosTid (0);
-  uint32_t size = pkt->GetSize () + hdr.GetSize () + trailer.GetSerializedSize ();
-  Time txDuration = m_phy->CalculateTxDuration (size, txVector, m_phy->GetFrequency (), mpdutype, 0);
-  hdr.SetDuration (txDuration);
 
-  pkt->AddHeader (hdr);
-  pkt->AddTrailer (trailer);
-  WifiPhyTag tag (txVector, mpdutype, 1);
-  pkt->AddPacketTag (tag);
+  Ptr<WifiPsdu> psdu = Create<WifiPsdu> (pkt, hdr);
+  Time txDuration = m_phy->CalculateTxDuration (psdu->GetSize (), txVector, m_phy->GetPhyBand ());
+
+  Ptr<WifiPpdu> ppdu = Create<OfdmPpdu> (psdu, txVector, WIFI_PHY_BAND_5GHZ, 0);
+
   Ptr<SpectrumValue> txPowerSpectrum = WifiSpectrumValueHelper::CreateHeOfdmTxPowerSpectralDensity (FREQUENCY, CHANNEL_WIDTH, txPowerWatts, CHANNEL_WIDTH);
   Ptr<WifiSpectrumSignalParameters> txParams = Create<WifiSpectrumSignalParameters> ();
   txParams->psd = txPowerSpectrum;
   txParams->txPhy = 0;
   txParams->duration = txDuration;
-  txParams->packet = pkt;
+  txParams->ppdu = ppdu;
   return txParams;
 }
 
@@ -177,23 +186,24 @@ WifiPhyThresholdsTest::SendSignal (double txPowerWatts, bool wifiSignal)
 }
 
 void
-WifiPhyThresholdsTest::RxSuccess (Ptr<Packet> p, double snr, WifiTxVector txVector)
+WifiPhyThresholdsTest::RxSuccess (Ptr<WifiPsdu> psdu, RxSignalInfo rxSignalInfo,
+                                  WifiTxVector txVector, std::vector<bool> statusPerMpdu)
 {
-  NS_LOG_FUNCTION (this << p << snr << txVector);
+  NS_LOG_FUNCTION (this << *psdu << rxSignalInfo << txVector);
   m_rxSuccess++;
 }
 
 void
-WifiPhyThresholdsTest::RxFailure (Ptr<Packet> p)
+WifiPhyThresholdsTest::RxFailure (Ptr<WifiPsdu> psdu)
 {
-  NS_LOG_FUNCTION (this << p);
+  NS_LOG_FUNCTION (this << *psdu);
   m_rxFailure++;
 }
 
 void
-WifiPhyThresholdsTest::RxDropped (Ptr<const Packet> p)
+WifiPhyThresholdsTest::RxDropped (Ptr<const Packet> p, WifiPhyRxfailureReason reason)
 {
-  NS_LOG_FUNCTION (this << p);
+  NS_LOG_FUNCTION (this << p << reason);
   m_rxDropped++;
 }
 
@@ -220,7 +230,7 @@ void
 WifiPhyThresholdsTest::DoSetup (void)
 {
   m_phy = CreateObject<SpectrumWifiPhy> ();
-  m_phy->ConfigureStandard (WIFI_PHY_STANDARD_80211ax_5GHZ);
+  m_phy->ConfigureStandardAndBand (WIFI_PHY_STANDARD_80211ax, WIFI_PHY_BAND_5GHZ);
   Ptr<ErrorRateModel> error = CreateObject<NistErrorRateModel> ();
   m_phy->SetErrorRateModel (error);
   m_phy->SetChannelNumber (CHANNEL_NUMBER);
@@ -229,6 +239,13 @@ WifiPhyThresholdsTest::DoSetup (void)
   m_phy->SetReceiveErrorCallback (MakeCallback (&WifiPhyThresholdsTest::RxFailure, this));
   m_phy->TraceConnectWithoutContext ("PhyRxDrop", MakeCallback (&WifiPhyThresholdsTest::RxDropped, this));
   m_phy->GetState ()->TraceConnectWithoutContext ("State", MakeCallback (&WifiPhyThresholdsTest::PhyStateChanged, this));
+}
+
+void
+WifiPhyThresholdsTest::DoTeardown (void)
+{
+  m_phy->Dispose ();
+  m_phy = 0;
 }
 
 /**
@@ -260,8 +277,6 @@ WifiPhyThresholdsWeakWifiSignalTest::~WifiPhyThresholdsWeakWifiSignalTest ()
 void
 WifiPhyThresholdsWeakWifiSignalTest::DoRun (void)
 {
-  WifiHelper::EnableLogComponents ();
-
   double txPowerWatts = DbmToW (-110);
 
   Simulator::Schedule (Seconds (1), &WifiPhyThresholdsWeakWifiSignalTest::SendSignal, this, txPowerWatts, true);
@@ -302,8 +317,6 @@ WifiPhyThresholdsWeakForeignSignalTest::~WifiPhyThresholdsWeakForeignSignalTest 
 void
 WifiPhyThresholdsWeakForeignSignalTest::DoRun (void)
 {
-  WifiHelper::EnableLogComponents ();
-
   double txPowerWatts = DbmToW (-90);
 
   Simulator::Schedule (Seconds (1), &WifiPhyThresholdsWeakForeignSignalTest::SendSignal, this, txPowerWatts, false);
@@ -344,8 +357,6 @@ WifiPhyThresholdsStrongWifiSignalTest::~WifiPhyThresholdsStrongWifiSignalTest ()
 void
 WifiPhyThresholdsStrongWifiSignalTest::DoRun (void)
 {
-  WifiHelper::EnableLogComponents ();
-
   double txPowerWatts = DbmToW (-60);
 
   Simulator::Schedule (Seconds (1), &WifiPhyThresholdsStrongWifiSignalTest::SendSignal, this, txPowerWatts, true);
@@ -355,7 +366,8 @@ WifiPhyThresholdsStrongWifiSignalTest::DoRun (void)
 
   NS_TEST_ASSERT_MSG_EQ (m_rxDropped + m_rxFailure, 0, "Packet reception should have been successfull");
   NS_TEST_ASSERT_MSG_EQ (m_rxSuccess, 1, "Packet should have been successfully received");
-  NS_TEST_ASSERT_MSG_EQ (m_stateChanged, 2, "State should have moved to RX then back to IDLE");
+  NS_TEST_ASSERT_MSG_EQ (m_ccabusyStateCount, 2, "State should have moved to CCA_BUSY once");
+  NS_TEST_ASSERT_MSG_EQ (m_stateChanged, 4, "State should have moved to CCA_BUSY, then to RX and finally back to IDLE");
   NS_TEST_ASSERT_MSG_EQ (m_rxStateCount, 1, "State should have moved to RX once");
   NS_TEST_ASSERT_MSG_EQ (m_idleStateCount, 1, "State should have moved to IDLE once");
 }
@@ -389,8 +401,6 @@ WifiPhyThresholdsStrongForeignSignalTest::~WifiPhyThresholdsStrongForeignSignalT
 void
 WifiPhyThresholdsStrongForeignSignalTest::DoRun (void)
 {
-  WifiHelper::EnableLogComponents ();
-
   double txPowerWatts = DbmToW (-60);
 
   Simulator::Schedule (Seconds (1), &WifiPhyThresholdsStrongForeignSignalTest::SendSignal, this, txPowerWatts, false);
@@ -399,7 +409,7 @@ WifiPhyThresholdsStrongForeignSignalTest::DoRun (void)
   Simulator::Destroy ();
 
   NS_TEST_ASSERT_MSG_EQ (m_rxDropped + m_rxSuccess + m_rxFailure, 0, "Reception of non-wifi packet should not be triggered");
-  NS_TEST_ASSERT_MSG_EQ (m_ccabusyStateCount, 1, "State should have moved to CCA-BUSY");
+  NS_TEST_ASSERT_MSG_EQ (m_idleStateCount, 1, "State should have moved to CCA-BUSY then back to IDLE");
 }
 
 /**

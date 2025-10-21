@@ -22,7 +22,6 @@
 #define TXOP_H
 
 #include "ns3/traced-value.h"
-#include "mac-low-transmission-parameters.h"
 #include "wifi-mac-header.h"
 
 namespace ns3 {
@@ -30,13 +29,13 @@ namespace ns3 {
 class Packet;
 class ChannelAccessManager;
 class MacTxMiddle;
-class MacLow;
 class WifiMode;
 class WifiMacQueue;
 class WifiMacQueueItem;
 class UniformRandomVariable;
 class CtrlBAckResponseHeader;
 class WifiRemoteStationManager;
+enum WifiMacDropReason : uint8_t;  // opaque enum declaration
 
 /**
  * \brief Handle packet fragmentation and retransmissions
@@ -56,17 +55,15 @@ class WifiRemoteStationManager;
  *
  * The retransmission policy is also very simple: every packet is
  * retransmitted until it is either successfully transmitted or
- * it has been retransmitted up until the ssrc or slrc thresholds.
+ * it has been retransmitted up until the SSRC or SLRC thresholds.
  *
- * The rts/cts policy is similar to the fragmentation policy: when
- * a packet is bigger than a threshold, the rts/cts protocol is used.
+ * The RTS/CTS policy is similar to the fragmentation policy: when
+ * a packet is bigger than a threshold, the RTS/CTS protocol is used.
  */
 
 class Txop : public Object
 {
 public:
-  /// allow DcfListener class access
-  friend class DcfListener;
   /// allow MacLowTransmissionListener class access
   friend class MacLowTransmissionListener;
 
@@ -80,20 +77,19 @@ public:
   static TypeId GetTypeId (void);
 
   /**
-   * typedef for a callback to invoke when a
-   * packet transmission was completed successfully.
+   * typedef for a callback to invoke when an MPDU is dropped.
    */
-  typedef Callback <void, const WifiMacHeader&> TxOk;
+  typedef Callback <void, WifiMacDropReason, Ptr<const WifiMacQueueItem> > DroppedMpdu;
+
   /**
-   * typedef for a callback to invoke when a
-   * packet transmission was failed.
+   * Enumeration for channel access status
    */
-  typedef Callback <void, const WifiMacHeader&> TxFailed;
-  /**
-   * typedef for a callback to invoke when a
-   * packet is dropped.
-   */
-  typedef Callback <void, Ptr<const Packet> > TxDropped;
+  enum ChannelAccessStatus
+  {
+    NOT_REQUESTED = 0,
+    REQUESTED,
+    GRANTED
+  };
 
   /**
    * Check for QoS TXOP.
@@ -103,57 +99,33 @@ public:
   virtual bool IsQosTxop () const;
 
   /**
-   * Set MacLow associated with this Txop.
-   *
-   * \param low MacLow.
-   */
-  void SetMacLow (const Ptr<MacLow> low);
-  /**
    * Set ChannelAccessManager this Txop is associated to.
    *
-   * \param manager ChannelAccessManager.
+   * \param manager ChannelAccessManager to associate.
    */
   void SetChannelAccessManager (const Ptr<ChannelAccessManager> manager);
   /**
    * Set WifiRemoteStationsManager this Txop is associated to.
    *
-   * \param remoteManager WifiRemoteStationManager.
+   * \param remoteManager WifiRemoteStationManager to associate.
    */
   virtual void SetWifiRemoteStationManager (const Ptr<WifiRemoteStationManager> remoteManager);
   /**
    * Set MacTxMiddle this Txop is associated to.
    *
-   * \param txMiddle MacTxMiddle.
+   * \param txMiddle MacTxMiddle to associate.
    */
   void SetTxMiddle (const Ptr<MacTxMiddle> txMiddle);
 
   /**
-   * \param callback the callback to invoke when a
-   * packet transmission was completed successfully.
+   * \param callback the callback to invoke when an MPDU is dropped
    */
-  void SetTxOkCallback (TxOk callback);
-  /**
-   * \param callback the callback to invoke when a
-   * packet transmission was completed unsuccessfully.
-   */
-  void SetTxFailedCallback (TxFailed callback);
-  /**
-   * \param callback the callback to invoke when a
-   * packet is dropped.
-   */
-  void SetTxDroppedCallback (TxDropped callback);
-
-  /**
-   * Return the MacLow associated with this Txop.
-   *
-   * \return MacLow
-   */
-  Ptr<MacLow> GetLow (void) const;
+  virtual void SetDroppedMpduCallback (DroppedMpdu callback);
 
   /**
    * Return the packet queue associated with this Txop.
    *
-   * \return WifiMacQueue
+   * \return the associated WifiMacQueue
    */
   Ptr<WifiMacQueue > GetWifiMacQueue () const;
 
@@ -179,7 +151,7 @@ public:
    * Set the TXOP limit.
    *
    * \param txopLimit the TXOP limit.
-   * Value zero corresponds to default DCF.
+   *        Value zero corresponds to default Txop.
    */
   void SetTxopLimit (Time txopLimit);
   /**
@@ -206,6 +178,19 @@ public:
    * \return the TXOP limit.
    */
   Time GetTxopLimit (void) const;
+  /**
+   * Update the value of the CW variable to take into account
+   * a transmission success or a transmission abort (stop transmission
+   * of a packet after the maximum number of retransmissions has been
+   * reached). By default, this resets the CW variable to minCW.
+   */
+  void ResetCw (void);
+  /**
+   * Update the value of the CW variable to take into account
+   * a transmission failure. By default, this triggers a doubling
+   * of CW (capped by maxCW).
+   */
+  void UpdateFailedCw (void);
 
   /**
    * When a channel switching occurs, enqueued packets are removed.
@@ -237,90 +222,20 @@ public:
    * Store the packet in the internal queue until it
    * can be sent safely.
    */
-  virtual void Queue (Ptr<const Packet> packet, const WifiMacHeader &hdr);
+  virtual void Queue (Ptr<Packet> packet, const WifiMacHeader &hdr);
 
   /**
-   * Sends CF frame to sta with address <i>addr</i>.
+   * Called by the FrameExchangeManager to notify that channel access has
+   * been granted for the given amount of time.
    *
-   * \param frameType the type of frame to be transmitted.
-   * \param addr address of the recipient.
+   * \param txopDuration the duration of the TXOP gained (zero for DCF)
    */
-  void SendCfFrame (WifiMacType frameType, Mac48Address addr);
-
-  /* Event handlers */
+  virtual void NotifyChannelAccessed (Time txopDuration = Seconds (0));
   /**
-   * Event handler when a CTS timeout has occurred.
+   * Called by the FrameExchangeManager to notify the completion of the transmissions.
+   * This method generates a new backoff and restarts access if needed.
    */
-  virtual void MissedCts (void);
-  /**
-   * Event handler when an ACK is received.
-   */
-  virtual void GotAck (void);
-  /**
-   * Event handler when an ACK is missed.
-   */
-  virtual void MissedAck (void);
-  /**
-   * Event handler when a CF-END frame is received.
-   */
-  void GotCfEnd (void);
-  /**
-   * Event handler when a response to a CF-POLL frame is missed.
-   *
-   * \param expectedCfAck flag to indicate whether a CF-ACK was expected in the response.
-   */
-  void MissedCfPollResponse (bool expectedCfAck);
-  /**
-   * Event handler when a Block ACK is received.
-   *
-   * \param blockAck block ack.
-   * \param recipient address of the recipient.
-   * \param rxSnr SNR of the block ack itself.
-   * \param txMode wifi mode.
-   * \param dataSnr reported data SNR from the peer.
-   */
-  virtual void GotBlockAck (const CtrlBAckResponseHeader *blockAck, Mac48Address recipient, double rxSnr, WifiMode txMode, double dataSnr);
-  /**
-   * Event handler when a Block ACK timeout has occurred.
-   * \param nMpdus the number of MPDUs sent in the A-MPDU transmission that results in a Block ACK timeout.
-   */
-  virtual void MissedBlockAck (uint8_t nMpdus);
-
-  /**
-   * Start transmission for the next fragment.
-   * This is called for fragment only.
-   */
-  virtual void StartNextFragment (void);
-  /**
-   * Cancel the transmission.
-   */
-  virtual void Cancel (void);
-  /**
-   * Start transmission for the next packet if allowed by the TxopLimit.
-   */
-  virtual void StartNextPacket (void);
-  /**
-   * Event handler when a transmission that
-   * does not require an ACK has completed.
-   */
-  virtual void EndTxNoAck (void);
-
-  /**
-   * Check if the station has TXOP granted for the next MPDU.
-   *
-   * \return true if the station has TXOP granted for the next MPDU,
-   *         false otherwise
-   */
-  virtual bool HasTxop (void) const;
-
-  /**
-   * Check if the next PCF transmission can fit in the remaining CFP duration.
-   *
-   * \return true if the next PCF transmission can fit in the remaining CFP duration,
-   *         false otherwise
-   */
-  bool CanStartNextPolling (void) const;
-
+  virtual void NotifyChannelReleased (void);
 
   /**
    * Assign a fixed random variable stream number to the random variables
@@ -334,10 +249,9 @@ public:
   int64_t AssignStreams (int64_t stream);
 
   /**
-   * \returns true if access has been requested for this function and
-   *          has not been granted already, false otherwise.
+   * \return the current channel access status.
    */
-  virtual bool IsAccessRequested (void) const;
+  virtual ChannelAccessStatus GetAccessStatus (void) const;
 
   /**
    * \param nSlots the number of slots of the backoff.
@@ -354,51 +268,39 @@ protected:
   virtual void DoDispose (void);
   virtual void DoInitialize (void);
 
-  /* dcf notifications forwarded here */
+  /* Txop notifications forwarded here */
   /**
    * Notify that access request has been received.
    */
   virtual void NotifyAccessRequested (void);
   /**
-   * Notify the DCF that access has been granted.
-   */
-  virtual void NotifyAccessGranted (void);
-  /**
-   * Notify the DCF that internal collision has occurred.
+   * Notify the Txop that internal collision has occurred.
    */
   virtual void NotifyInternalCollision (void);
-  /**
-   * Notify the DCF that collision has occurred.
-   */
-  virtual void NotifyCollision (void);
 
   /**
-   * Restart access request if needed.
+   * Check if the Txop has frames to transmit.
+   * \return true if the Txop has frames to transmit.
    */
-  virtual void RestartAccessIfNeeded (void);
+  virtual bool HasFramesToTransmit (void);
   /**
-   * Request access from DCF manager if needed.
+   * Generate a new backoff now.
+   */
+  virtual void GenerateBackoff (void);
+  /**
+   * Request access from Txop if needed.
    */
   virtual void StartAccessIfNeeded (void);
+  /**
+   * Request access to the ChannelAccessManager
+   */
+  void RequestAccess (void);
 
   /**
    * \returns the current value of the CW variable. The initial value is
-   * minCW.
+   *          minCW.
    */
   uint32_t GetCw (void) const;
-  /**
-   * Update the value of the CW variable to take into account
-   * a transmission success or a transmission abort (stop transmission
-   * of a packet after the maximum number of retransmissions has been
-   * reached). By default, this resets the CW variable to minCW.
-   */
-  void ResetCw (void);
-  /**
-   * Update the value of the CW variable to take into account
-   * a transmission failure. By default, this triggers a doubling
-   * of CW (capped by maxCW).
-   */
-  void UpdateFailedCw (void);
   /**
    * Return the current number of backoff slots.
    *
@@ -414,102 +316,24 @@ protected:
   /**
    * Update backoff slots that nSlots has passed.
    *
-   * \param nSlots
-   * \param backoffUpdateBound
+   * \param nSlots the number of slots to decrement
+   * \param backoffUpdateBound the time at which backoff should start
    */
   void UpdateBackoffSlotsNow (uint32_t nSlots, Time backoffUpdateBound);
 
-  /**
-   * Check if RTS should be re-transmitted if CTS was missed.
-   *
-   * \param packet current packet being transmitted.
-   * \param hdr current header being transmitted.
-   * \return true if RTS should be re-transmitted,
-   *         false otherwise.
-   */
-  bool NeedRtsRetransmission (Ptr<const Packet> packet, const WifiMacHeader &hdr);
-  /**
-   * Check if DATA should be re-transmitted if ACK was missed.
-   *
-   * \param packet current packet being transmitted.
-   * \param hdr current header being transmitted.
-   * \return true if DATA should be re-transmitted,
-   *         false otherwise.
-   */
-  bool NeedDataRetransmission (Ptr<const Packet> packet, const WifiMacHeader &hdr);
-  /**
-   * Check if the current packet should be fragmented.
-   *
-   * \return true if the current packet should be fragmented,
-   *         false otherwise
-   */
-  virtual bool NeedFragmentation (void) const;
-
-  /**
-   * Continue to the next fragment. This method simply
-   * increments the internal variable that keep track
-   * of the current fragment number.
-   */
-  void NextFragment (void);
-  /**
-   * Get the next fragment from the packet with
-   * appropriate Wifi header for the fragment.
-   *
-   * \param hdr Wi-Fi header.
-   *
-   * \return the fragment with the current fragment number.
-   */
-  virtual Ptr<Packet> GetFragmentPacket (WifiMacHeader *hdr);
-  /**
-   * Calculate the size of the next fragment.
-   *
-   * \return the size of the next fragment.
-   */
-  virtual uint32_t GetNextFragmentSize (void) const;
-  /**
-   * Calculate the size of the current fragment.
-   *
-   * \return the size of the current fragment.
-   */
-  virtual uint32_t GetFragmentSize (void) const;
-  /**
-   * Calculate the offset for the current fragment.
-   *
-   * \return the offset for the current fragment.
-   */
-  virtual uint32_t GetFragmentOffset (void) const;
-  /**
-   * Check if the current fragment is the last fragment.
-   *
-   * \return true if the current fragment is the last fragment,
-   *         false otherwise.
-   */
-  virtual bool IsLastFragment (void) const;
-  /**
-   *
-   * Pass the packet included in the wifi MAC queue item to the
-   * packet dropped callback.
-   *
-   * \param item the wifi MAC queue item.
-   */
-  void TxDroppedPacket (Ptr<const WifiMacQueueItem> item);
-
   Ptr<ChannelAccessManager> m_channelAccessManager; //!< the channel access manager
-  TxOk m_txOkCallback; //!< the transmit OK callback
-  TxFailed m_txFailedCallback; //!< the transmit failed callback
-  TxDropped m_txDroppedCallback; //!< the packet dropped callback
-  Ptr<WifiMacQueue> m_queue; //!< the wifi MAC queue
-  Ptr<MacTxMiddle> m_txMiddle; //!< the MacTxMiddle
-  Ptr <MacLow> m_low; //!< the MacLow
-  Ptr<WifiRemoteStationManager> m_stationManager; //!< the wifi remote station manager
-  Ptr<UniformRandomVariable> m_rng; //!<  the random stream
+  DroppedMpdu m_droppedMpduCallback;                //!< the dropped MPDU callback
+  Ptr<WifiMacQueue> m_queue;                        //!< the wifi MAC queue
+  Ptr<MacTxMiddle> m_txMiddle;                      //!< the MacTxMiddle
+  Ptr<WifiRemoteStationManager> m_stationManager;   //!< the wifi remote station manager
+  Ptr<UniformRandomVariable> m_rng;                 //!< the random stream
 
-  uint32_t m_cwMin;       //!< the CW minimum
-  uint32_t m_cwMax;       //!< the CW maximum
-  uint32_t m_cw;          //!< the current CW
-  uint32_t m_backoff;     //!< the current backoff
-  bool m_accessRequested; //!< flag whether channel access is already requested
-  uint32_t m_backoffSlots; //!< the backoff slots
+  uint32_t m_cwMin;              //!< the minimum contention window
+  uint32_t m_cwMax;              //!< the maximum contention window
+  uint32_t m_cw;                 //!< the current contention window
+  uint32_t m_backoff;            //!< the current backoff
+  ChannelAccessStatus m_access;  //!< channel access status
+  uint32_t m_backoffSlots;       //!< the number of backoff slots
   /**
    * the backoffStart variable is used to keep track of the
    * time at which a backoff was started or the time at which
@@ -518,14 +342,10 @@ protected:
   Time m_backoffStart;
 
   uint8_t m_aifsn;        //!< the AIFSN
-  Time m_txopLimit;       //!< the txop limit time
+  Time m_txopLimit;       //!< the TXOP limit time
 
-  Ptr<const Packet> m_currentPacket; //!< the current packet
-  WifiMacHeader m_currentHdr; //!< the current header
-  MacLowTransmissionParameters m_currentParams; ///< current transmission parameters
-  uint8_t m_fragmentNumber; //!< the fragment number
-  TracedCallback<uint32_t> m_backoffTrace; //!< backoff trace value
-  TracedValue<uint32_t> m_cwTrace;         //!< CW trace value
+  TracedCallback<uint32_t> m_backoffTrace;      //!< backoff trace value
+  TracedValue<uint32_t> m_cwTrace;              //!< CW trace value
 };
 
 } //namespace ns3

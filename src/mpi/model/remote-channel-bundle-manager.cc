@@ -19,6 +19,12 @@
  *
  */
 
+/**
+ * \file
+ * \ingroup mpi
+ * Implementation of class ns3::RemoteChannelBundleManager.
+ */
+
 #include "remote-channel-bundle-manager.h"
 
 #include "remote-channel-bundle.h"
@@ -59,7 +65,7 @@ RemoteChannelBundleManager::Add (uint32_t systemId)
   return remoteChannelBundle;
 }
 
-uint32_t 
+std::size_t
 RemoteChannelBundleManager::Size (void) 
 {
   return g_remoteChannelBundles.size();

@@ -30,7 +30,7 @@
 // By default, the 802.11a standard using IdealWifiManager is plotted. Several command line
 // arguments can change the following options:
 // --wifiManager (Aarf, Aarfcd, Amrr, Arf, Cara, Ideal, Minstrel, MinstrelHt, Onoe, Rraa)
-// --standard (802.11a, 802.11b, 802.11g, 802.11n-5GHz, 802.11n-2.4GHz, 802.11ac, 802.11-holland, 802.11-10MHz, 802.11-5MHz)
+// --standard (802.11a, 802.11b, 802.11g, 802.11n-5GHz, 802.11n-2.4GHz, 802.11ac, 802.11p-10MHz, 802.11p-5MHz)
 // --serverShortGuardInterval and --clientShortGuardInterval (for 802.11n/ac)
 // --serverNss and --clientNss (for 802.11n/ac)
 // --serverChannelWidth and --clientChannelWidth (for 802.11n/ac)
@@ -71,7 +71,6 @@ uint64_t g_intervalRate = 0;
 void
 PacketRx (Ptr<const Packet> pkt, const Address &addr)
 {
-  NS_LOG_DEBUG ("Received size " << pkt->GetSize ());
   g_intervalBytes += pkt->GetSize ();
 }
 
@@ -100,7 +99,7 @@ struct StandardInfo
    * Constructor
    *
    * \param name reference name
-   * \param standard wifi phy standard
+   * \param standard wifi standard
    * \param width channel width
    * \param snrLow SNR low
    * \param snrHigh SNR high
@@ -108,7 +107,7 @@ struct StandardInfo
    * \param xMax x maximum
    * \param yMax y maximum
    */
-  StandardInfo (std::string name, WifiPhyStandard standard, uint16_t width, double snrLow, double snrHigh, double xMin, double xMax, double yMax)
+  StandardInfo (std::string name, WifiStandard standard, uint16_t width, double snrLow, double snrHigh, double xMin, double xMax, double yMax)
     : m_name (name),
       m_standard (standard),
       m_width (width),
@@ -120,7 +119,7 @@ struct StandardInfo
   {
   }
   std::string m_name; ///< name
-  WifiPhyStandard m_standard; ///< standard
+  WifiStandard m_standard; ///< standard
   uint16_t m_width; ///< channel width
   double m_snrLow; ///< lowest SNR
   double m_snrHigh; ///< highest SNR
@@ -134,12 +133,12 @@ ChangeSignalAndReportRate (Ptr<FixedRssLossModel> rssModel, struct Step step, do
 {
   NS_LOG_FUNCTION (rssModel << step.stepSize << step.stepTime << rss);
   double snr = rss - noiseDbm;
-  rateDataset.Add (snr, g_intervalRate / 1000000.0);
+  rateDataset.Add (snr, g_intervalRate / 1e6);
   // Calculate received rate since last interval
   double currentRate = ((g_intervalBytes * 8) / step.stepTime) / 1e6; // Mb/s
   actualDataset.Add (snr, currentRate);
   rssModel->SetRss (rss - step.stepSize);
-  NS_LOG_INFO ("At time " << Simulator::Now ().As (Time::S) << "; observed rate " << currentRate << "; setting new power to " << rss - step.stepSize);
+  NS_LOG_INFO ("At time " << Simulator::Now ().As (Time::S) << "; selected rate " << (g_intervalRate / 1e6) << "; observed rate " << currentRate << "; setting new power to " << rss - step.stepSize);
   g_intervalBytes = 0;
   Simulator::Schedule (Seconds (step.stepTime), &ChangeSignalAndReportRate, rssModel, step, (rss - step.stepSize), rateDataset, actualDataset);
 }
@@ -163,8 +162,8 @@ int main (int argc, char *argv[])
   uint16_t clientNss = 1;
   uint16_t serverShortGuardInterval = 800;
   uint16_t clientShortGuardInterval = 800;
-  uint16_t serverChannelWidth = 20;
-  uint16_t clientChannelWidth = 20;
+  uint16_t serverChannelWidth = 0;  // use default for standard and band
+  uint16_t clientChannelWidth = 0;  // use default for standard and band
   std::string wifiManager ("Ideal");
   std::string standard ("802.11a");
   StandardInfo serverSelectedStandard;
@@ -173,9 +172,9 @@ int main (int argc, char *argv[])
   uint32_t maxSlrc = 7;
   uint32_t maxSsrc = 7;
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("maxSsrc", "The maximum number of retransmission attempts for a RTS packet", maxSsrc);
-  cmd.AddValue ("maxSlrc", "The maximum number of retransmission attempts for a DATA packet", maxSlrc);
+  cmd.AddValue ("maxSlrc", "The maximum number of retransmission attempts for a Data packet", maxSlrc);
   cmd.AddValue ("rtsThreshold", "RTS threshold", rtsThreshold);
   cmd.AddValue ("maxAmpduSize", "Max A-MPDU size", maxAmpduSize);
   cmd.AddValue ("stepSize", "Power between steps (dBm)", stepSize);
@@ -187,7 +186,7 @@ int main (int argc, char *argv[])
   cmd.AddValue ("clientNss", "Set nss of the client (valid only for 802.11n or ac)", clientNss);
   cmd.AddValue ("serverShortGuardInterval", "Set short guard interval of the server (802.11n/ac/ax) in nanoseconds", serverShortGuardInterval);
   cmd.AddValue ("clientShortGuardInterval", "Set short guard interval of the client (802.11n/ac/ax) in nanoseconds", clientShortGuardInterval);
-  cmd.AddValue ("standard", "Set standard (802.11a, 802.11b, 802.11g, 802.11n-5GHz, 802.11n-2.4GHz, 802.11ac, 802.11-holland, 802.11-10MHz, 802.11-5MHz, 802.11ax-5GHz, 802.11ax-2.4GHz)", standard);
+  cmd.AddValue ("standard", "Set standard (802.11a, 802.11b, 802.11g, 802.11n-5GHz, 802.11n-2.4GHz, 802.11ac, 802.11p-10MHz, 802.11p-5MHz, 802.11ax-5GHz, 802.11ax-2.4GHz)", standard);
   cmd.AddValue ("wifiManager", "Set wifi rate manager (Aarf, Aarfcd, Amrr, Arf, Cara, Ideal, Minstrel, MinstrelHt, Onoe, Rraa)", wifiManager);
   cmd.AddValue ("infrastructure", "Use infrastructure instead of adhoc", infrastructure);
   cmd.Parse (argc,argv);
@@ -206,36 +205,78 @@ int main (int argc, char *argv[])
 
   if (standard == "802.11b")
     {
+      if (serverChannelWidth == 0)
+        {
+          serverChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211b, WIFI_PHY_BAND_2_4GHZ);
+        }
       NS_ABORT_MSG_IF (serverChannelWidth != 22 && serverChannelWidth != 22, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (serverNss != 1, "Invalid nss for standard " << standard);
+      if (clientChannelWidth == 0)
+        {
+          clientChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211b, WIFI_PHY_BAND_2_4GHZ);
+        }
       NS_ABORT_MSG_IF (clientChannelWidth != 22 && clientChannelWidth != 22, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (clientNss != 1, "Invalid nss for standard " << standard);
     }
   else if (standard == "802.11a" || standard == "802.11g")
     {
+      if (serverChannelWidth == 0)
+        {
+          serverChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211g, WIFI_PHY_BAND_2_4GHZ);
+        }
       NS_ABORT_MSG_IF (serverChannelWidth != 20, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (serverNss != 1, "Invalid nss for standard " << standard);
+      if (clientChannelWidth == 0)
+        {
+          clientChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211g, WIFI_PHY_BAND_2_4GHZ);
+        }
       NS_ABORT_MSG_IF (clientChannelWidth != 20, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (clientNss != 1, "Invalid nss for standard " << standard);
     }
   else if (standard == "802.11n-5GHz" || standard == "802.11n-2.4GHz")
     {
+      WifiPhyBand band = (standard == "802.11n-2.4GHz" ? WIFI_PHY_BAND_2_4GHZ : WIFI_PHY_BAND_5GHZ);
+      if (serverChannelWidth == 0)
+        {
+          serverChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211n, band);
+        }
       NS_ABORT_MSG_IF (serverChannelWidth != 20 && serverChannelWidth != 40, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (serverNss == 0 || serverNss > 4, "Invalid nss " << serverNss << " for standard " << standard);
+      if (clientChannelWidth == 0)
+        {
+          clientChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211n, band);
+        }
       NS_ABORT_MSG_IF (clientChannelWidth != 20 && clientChannelWidth != 40, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (clientNss == 0 || clientNss > 4, "Invalid nss " << clientNss << " for standard " << standard);
     }
   else if (standard == "802.11ac")
     {
+      if (serverChannelWidth == 0)
+        {
+          serverChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211ac, WIFI_PHY_BAND_5GHZ);
+        }
       NS_ABORT_MSG_IF (serverChannelWidth != 20 && serverChannelWidth != 40 && serverChannelWidth != 80 && serverChannelWidth != 160, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (serverNss == 0 || serverNss > 4, "Invalid nss " << serverNss << " for standard " << standard);
+      if (clientChannelWidth == 0)
+        {
+          clientChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211ac, WIFI_PHY_BAND_5GHZ);
+        }
       NS_ABORT_MSG_IF (clientChannelWidth != 20 && clientChannelWidth != 40 && clientChannelWidth != 80 && clientChannelWidth != 160, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (clientNss == 0 || clientNss > 4, "Invalid nss " << clientNss << " for standard " << standard);
     }
   else if (standard == "802.11ax-5GHz" || standard == "802.11ax-2.4GHz")
     {
+      WifiPhyBand band = (standard == "802.11ax-2.4GHz" ? WIFI_PHY_BAND_2_4GHZ : WIFI_PHY_BAND_5GHZ);
+      if (serverChannelWidth == 0)
+        {
+          serverChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211ax, band);
+        }
       NS_ABORT_MSG_IF (serverChannelWidth != 20 && serverChannelWidth != 40 && serverChannelWidth != 80 && serverChannelWidth != 160, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (serverNss == 0 || serverNss > 4, "Invalid nss " << serverNss << " for standard " << standard);
+      if (clientChannelWidth == 0)
+        {
+          clientChannelWidth = GetDefaultChannelWidth (WIFI_PHY_STANDARD_80211ax, band);
+        }
       NS_ABORT_MSG_IF (clientChannelWidth != 20 && clientChannelWidth != 40 && clientChannelWidth != 80 && clientChannelWidth != 160, "Invalid channel width for standard " << standard);
       NS_ABORT_MSG_IF (clientNss == 0 || clientNss > 4, "Invalid nss " << clientNss << " for standard " << standard);
     }
@@ -247,29 +288,27 @@ int main (int argc, char *argv[])
   // The first number is channel width, second is minimum SNR, third is maximum
   // SNR, fourth and fifth provide xrange axis limits, and sixth the yaxis
   // maximum
-  serverStandards.push_back (StandardInfo ("802.11a", WIFI_PHY_STANDARD_80211a, 20, 3, 27, 0, 30, 60));
-  serverStandards.push_back (StandardInfo ("802.11b", WIFI_PHY_STANDARD_80211b, 22, -5, 11, -6, 15, 15));
-  serverStandards.push_back (StandardInfo ("802.11g", WIFI_PHY_STANDARD_80211g, 20, -5, 27, -6, 30, 60));
-  serverStandards.push_back (StandardInfo ("802.11n-5GHz", WIFI_PHY_STANDARD_80211n_5GHZ, serverChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
-  serverStandards.push_back (StandardInfo ("802.11n-2.4GHz", WIFI_PHY_STANDARD_80211n_2_4GHZ, serverChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
-  serverStandards.push_back (StandardInfo ("802.11ac", WIFI_PHY_STANDARD_80211ac, serverChannelWidth, 5, 50, 0, 55, 120 * channelRateFactor));
-  serverStandards.push_back (StandardInfo ("802.11-holland", WIFI_PHY_STANDARD_holland, 20, 3, 27, 0, 30, 60));
-  serverStandards.push_back (StandardInfo ("802.11-10MHz", WIFI_PHY_STANDARD_80211_10MHZ, 10, 3, 27, 0, 30, 60));
-  serverStandards.push_back (StandardInfo ("802.11-5MHz", WIFI_PHY_STANDARD_80211_5MHZ, 5, 3, 27, 0, 30, 60));
-  serverStandards.push_back (StandardInfo ("802.11ax-5GHz", WIFI_PHY_STANDARD_80211ax_5GHZ, serverChannelWidth, 5, 55, 0, 60, 120 * channelRateFactor));
-  serverStandards.push_back (StandardInfo ("802.11ax-2.4GHz", WIFI_PHY_STANDARD_80211ax_2_4GHZ, serverChannelWidth, 5, 55, 0, 60, 120 * channelRateFactor));
+  serverStandards.push_back (StandardInfo ("802.11a", WIFI_STANDARD_80211a, 20, 3, 27, 0, 30, 60));
+  serverStandards.push_back (StandardInfo ("802.11b", WIFI_STANDARD_80211b, 22, -5, 11, -6, 15, 15));
+  serverStandards.push_back (StandardInfo ("802.11g", WIFI_STANDARD_80211g, 20, -5, 27, -6, 30, 60));
+  serverStandards.push_back (StandardInfo ("802.11n-5GHz", WIFI_STANDARD_80211n_5GHZ, serverChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
+  serverStandards.push_back (StandardInfo ("802.11n-2.4GHz", WIFI_STANDARD_80211n_2_4GHZ, serverChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
+  serverStandards.push_back (StandardInfo ("802.11ac", WIFI_STANDARD_80211ac, serverChannelWidth, 5, 50, 0, 55, 120 * channelRateFactor));
+  serverStandards.push_back (StandardInfo ("802.11p-10MHz", WIFI_STANDARD_80211p, 10, 3, 27, 0, 30, 60));
+  serverStandards.push_back (StandardInfo ("802.11p-5MHz", WIFI_STANDARD_80211p, 5, 3, 27, 0, 30, 60));
+  serverStandards.push_back (StandardInfo ("802.11ax-5GHz", WIFI_STANDARD_80211ax_5GHZ, serverChannelWidth, 5, 55, 0, 60, 120 * channelRateFactor));
+  serverStandards.push_back (StandardInfo ("802.11ax-2.4GHz", WIFI_STANDARD_80211ax_2_4GHZ, serverChannelWidth, 5, 55, 0, 60, 120 * channelRateFactor));
 
-  clientStandards.push_back (StandardInfo ("802.11a", WIFI_PHY_STANDARD_80211a, 20, 3, 27, 0, 30, 60));
-  clientStandards.push_back (StandardInfo ("802.11b", WIFI_PHY_STANDARD_80211b, 22, -5, 11, -6, 15, 15));
-  clientStandards.push_back (StandardInfo ("802.11g", WIFI_PHY_STANDARD_80211g, 20, -5, 27, -6, 30, 60));
-  clientStandards.push_back (StandardInfo ("802.11n-5GHz", WIFI_PHY_STANDARD_80211n_5GHZ, clientChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
-  clientStandards.push_back (StandardInfo ("802.11n-2.4GHz", WIFI_PHY_STANDARD_80211n_2_4GHZ, clientChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
-  clientStandards.push_back (StandardInfo ("802.11ac", WIFI_PHY_STANDARD_80211ac, clientChannelWidth, 5, 50, 0, 55, 120 * channelRateFactor));
-  clientStandards.push_back (StandardInfo ("802.11-holland", WIFI_PHY_STANDARD_holland, 20, 3, 27, 0, 30, 60));
-  clientStandards.push_back (StandardInfo ("802.11-10MHz", WIFI_PHY_STANDARD_80211_10MHZ, 10, 3, 27, 0, 30, 60));
-  clientStandards.push_back (StandardInfo ("802.11-5MHz", WIFI_PHY_STANDARD_80211_5MHZ, 5, 3, 27, 0, 30, 60));
-  clientStandards.push_back (StandardInfo ("802.11ax-5GHz", WIFI_PHY_STANDARD_80211ax_5GHZ, clientChannelWidth, 5, 55, 0, 60, 160 * channelRateFactor));
-  clientStandards.push_back (StandardInfo ("802.11ax-2.4GHz", WIFI_PHY_STANDARD_80211ax_2_4GHZ, clientChannelWidth, 5, 55, 0, 60, 160 * channelRateFactor));
+  clientStandards.push_back (StandardInfo ("802.11a", WIFI_STANDARD_80211a, 20, 3, 27, 0, 30, 60));
+  clientStandards.push_back (StandardInfo ("802.11b", WIFI_STANDARD_80211b, 22, -5, 11, -6, 15, 15));
+  clientStandards.push_back (StandardInfo ("802.11g", WIFI_STANDARD_80211g, 20, -5, 27, -6, 30, 60));
+  clientStandards.push_back (StandardInfo ("802.11n-5GHz", WIFI_STANDARD_80211n_5GHZ, clientChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
+  clientStandards.push_back (StandardInfo ("802.11n-2.4GHz", WIFI_STANDARD_80211n_2_4GHZ, clientChannelWidth, 3, 30, 0, 35, 80 * channelRateFactor));
+  clientStandards.push_back (StandardInfo ("802.11ac", WIFI_STANDARD_80211ac, clientChannelWidth, 5, 50, 0, 55, 120 * channelRateFactor));
+  clientStandards.push_back (StandardInfo ("802.11p-10MHz", WIFI_STANDARD_80211p, 10, 3, 27, 0, 30, 60));
+  clientStandards.push_back (StandardInfo ("802.11p-5MHz", WIFI_STANDARD_80211p, 5, 3, 27, 0, 30, 60));
+  clientStandards.push_back (StandardInfo ("802.11ax-5GHz", WIFI_STANDARD_80211ax_5GHZ, clientChannelWidth, 5, 55, 0, 60, 160 * channelRateFactor));
+  clientStandards.push_back (StandardInfo ("802.11ax-2.4GHz", WIFI_STANDARD_80211ax_2_4GHZ, clientChannelWidth, 5, 55, 0, 60, 160 * channelRateFactor));
 
   for (std::vector<StandardInfo>::size_type i = 0; i != serverStandards.size (); i++)
     {
@@ -335,7 +374,7 @@ int main (int argc, char *argv[])
 
   WifiHelper wifi;
   wifi.SetStandard (serverSelectedStandard.m_standard);
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
 
   Ptr<YansWifiChannel> wifiChannel = CreateObject<YansWifiChannel> ();
   Ptr<ConstantSpeedPropagationDelayModel> delayModel = CreateObject<ConstantSpeedPropagationDelayModel> ();
@@ -355,15 +394,19 @@ int main (int argc, char *argv[])
       Ssid ssid = Ssid ("ns-3-ssid");
       wifiMac.SetType ("ns3::StaWifiMac",
                        "Ssid", SsidValue (ssid));
+      wifiPhy.Set ("ChannelWidth", UintegerValue (serverSelectedStandard.m_width));
       serverDevice = wifi.Install (wifiPhy, wifiMac, serverNode);
       wifiMac.SetType ("ns3::ApWifiMac",
                        "Ssid", SsidValue (ssid));
+      wifiPhy.Set ("ChannelWidth", UintegerValue (clientSelectedStandard.m_width));
       clientDevice = wifi.Install (wifiPhy, wifiMac, clientNode);
     }
   else
     {
       wifiMac.SetType ("ns3::AdhocWifiMac");
+      wifiPhy.Set ("ChannelWidth", UintegerValue (serverSelectedStandard.m_width));
       serverDevice = wifi.Install (wifiPhy, wifiMac, serverNode);
+      wifiPhy.Set ("ChannelWidth", UintegerValue (clientSelectedStandard.m_width));
       clientDevice = wifi.Install (wifiPhy, wifiMac, clientNode);
     }
 
@@ -412,13 +455,11 @@ int main (int argc, char *argv[])
   wifiPhyPtrServer->SetNumberOfAntennas (t_serverNss);
   wifiPhyPtrServer->SetMaxSupportedTxSpatialStreams (t_serverNss);
   wifiPhyPtrServer->SetMaxSupportedRxSpatialStreams (t_serverNss);
-  // Only set the channel width and guard interval for HT and VHT modes
+  // Only set the guard interval for HT and VHT modes
   if (serverSelectedStandard.m_name == "802.11n-5GHz"
       || serverSelectedStandard.m_name == "802.11n-2.4GHz"
       || serverSelectedStandard.m_name == "802.11ac")
     {
-      wifiPhyPtrServer->SetChannelWidth (serverSelectedStandard.m_width);
-      wifiPhyPtrClient->SetChannelWidth (clientSelectedStandard.m_width);
       Ptr<HtConfiguration> clientHtConfiguration = wndClient->GetHtConfiguration ();
       clientHtConfiguration->SetShortGuardIntervalSupported (clientShortGuardInterval == 400);
       Ptr<HtConfiguration> serverHtConfiguration = wndServer->GetHtConfiguration ();
@@ -427,8 +468,6 @@ int main (int argc, char *argv[])
   else if (serverSelectedStandard.m_name == "802.11ax-5GHz"
            || serverSelectedStandard.m_name == "802.11ax-2.4GHz")
     {
-      wifiPhyPtrServer->SetChannelWidth (serverSelectedStandard.m_width);
-      wifiPhyPtrClient->SetChannelWidth (clientSelectedStandard.m_width);
       wndServer->GetHeConfiguration ()->SetGuardInterval (NanoSeconds (clientShortGuardInterval));
       wndClient->GetHeConfiguration ()->SetGuardInterval (NanoSeconds (clientShortGuardInterval));
     }

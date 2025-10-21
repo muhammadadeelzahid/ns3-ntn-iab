@@ -21,7 +21,6 @@
  */
 
 #include "ns3/log.h"
-#include "ns3/packet.h"
 #include "yans-wifi-phy.h"
 #include "yans-wifi-channel.h"
 
@@ -45,6 +44,11 @@ YansWifiPhy::GetTypeId (void)
 YansWifiPhy::YansWifiPhy ()
 {
   NS_LOG_FUNCTION (this);
+  //add dummy band for Yans
+  WifiSpectrumBand band;
+  band.first = 0;
+  band.second = 0;
+  m_interference.AddBand (band);
 }
 
 YansWifiPhy::~YansWifiPhy ()
@@ -75,10 +79,25 @@ YansWifiPhy::SetChannel (const Ptr<YansWifiChannel> channel)
 }
 
 void
-YansWifiPhy::StartTx (Ptr<Packet> packet, WifiTxVector txVector, Time txDuration)
+YansWifiPhy::StartTx (Ptr<WifiPpdu> ppdu)
 {
-  NS_LOG_DEBUG ("Start transmission: signal power before antenna gain=" << GetPowerDbm (txVector.GetTxPowerLevel ()) << "dBm");
-  m_channel->Send (this, packet, GetPowerDbm (txVector.GetTxPowerLevel ()) + GetTxGain (), txDuration);
+  NS_LOG_FUNCTION (this << ppdu);
+  NS_LOG_DEBUG ("Start transmission: signal power before antenna gain=" << GetPowerDbm (ppdu->GetTxVector ().GetTxPowerLevel ()) << "dBm");
+  m_channel->Send (this, ppdu, GetTxPowerForTransmission (ppdu) + GetTxGain ());
+}
+
+uint16_t
+YansWifiPhy::GetGuardBandwidth (uint16_t currentChannelWidth) const
+{
+  NS_ABORT_MSG ("Guard bandwidth not relevant for Yans");
+  return 0;
+}
+
+std::tuple<double, double, double>
+YansWifiPhy::GetTxMaskRejectionParams (void) const
+{
+  NS_ABORT_MSG ("Tx mask rejection params not relevant for Yans");
+  return std::make_tuple (0.0, 0.0, 0.0);
 }
 
 } //namespace ns3

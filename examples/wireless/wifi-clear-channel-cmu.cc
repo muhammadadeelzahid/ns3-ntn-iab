@@ -175,7 +175,7 @@ int main (int argc, char *argv[])
   modes.push_back ("DsssRate5_5Mbps");
   modes.push_back ("DsssRate11Mbps");
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.Parse (argc, argv);
 
   Gnuplot gnuplot = Gnuplot ("clear-channel.eps");
@@ -191,7 +191,7 @@ int main (int argc, char *argv[])
           dataset.SetStyle (Gnuplot2dDataset::LINES);
 
           WifiHelper wifi;
-          wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+          wifi.SetStandard (WIFI_STANDARD_80211b);
           WifiMacHelper wifiMac;
           Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
                               StringValue (modes[i]));
@@ -200,7 +200,7 @@ int main (int argc, char *argv[])
                                         "ControlMode",StringValue (modes[i]));
           wifiMac.SetType ("ns3::AdhocWifiMac");
 
-          YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+          YansWifiPhyHelper wifiPhy;
           YansWifiChannelHelper wifiChannel;
           wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
           wifiChannel.AddPropagationLoss ("ns3::FixedRssLossModel","Rss",DoubleValue (rss));

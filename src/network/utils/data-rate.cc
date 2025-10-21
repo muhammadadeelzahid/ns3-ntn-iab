@@ -24,7 +24,7 @@
 #include "ns3/log.h"
 
 namespace ns3 {
-  
+
 NS_LOG_COMPONENT_DEFINE ("DataRate");
 
 ATTRIBUTE_HELPER_CPP (DataRate);
@@ -196,6 +196,52 @@ DataRate::DataRate(uint64_t bps)
   NS_LOG_FUNCTION (this << bps);
 }
 
+DataRate DataRate::operator + (DataRate rhs)
+{
+  return DataRate(m_bps + rhs.m_bps);
+}
+
+DataRate& DataRate::operator += (DataRate rhs)
+{
+  m_bps += rhs.m_bps;
+  return *this;
+}
+
+DataRate DataRate::operator - (DataRate rhs)
+{
+  NS_ASSERT_MSG(m_bps >= rhs.m_bps, "Data Rate cannot be negative.");
+  return DataRate(m_bps - rhs.m_bps);
+}
+
+DataRate& DataRate::operator -= (DataRate rhs)
+{
+  NS_ASSERT_MSG(m_bps >= rhs.m_bps, "Data Rate cannot be negative.");
+  m_bps -= rhs.m_bps;
+  return *this;
+}
+
+DataRate DataRate::operator * (double rhs)
+{
+  return DataRate(((uint64_t)(m_bps * rhs)));
+}
+
+DataRate& DataRate::operator *= (double rhs)
+{
+  m_bps *= rhs;
+  return *this;
+}
+
+DataRate DataRate::operator * (uint64_t rhs)
+{
+  return DataRate(m_bps * rhs);
+}
+
+DataRate& DataRate::operator *= (uint64_t rhs)
+{
+  m_bps *= rhs;
+  return *this;
+}
+
 bool DataRate::operator < (const DataRate& rhs) const
 {
   return m_bps<rhs.m_bps;
@@ -226,24 +272,16 @@ bool DataRate::operator != (const DataRate& rhs) const
   return m_bps!=rhs.m_bps;
 }
 
-double DataRate::CalculateTxTime (uint32_t bytes) const
-{
-  NS_LOG_FUNCTION (this << bytes);
-  return static_cast<double>(bytes)*8/m_bps;
-}
-
 Time DataRate::CalculateBytesTxTime (uint32_t bytes) const
 {
   NS_LOG_FUNCTION (this << bytes);
-  // \todo avoid to use double (if possible).
-  return Seconds (static_cast<double>(bytes)*8/m_bps);
+  return Seconds (bytes * 8) / m_bps;
 }
 
 Time DataRate::CalculateBitsTxTime (uint32_t bits) const
 {
   NS_LOG_FUNCTION (this << bits);
-  // \todo avoid to use double (if possible).
-  return Seconds (static_cast<double>(bits)/m_bps);
+  return Seconds (bits) / m_bps;
 }
 
 uint64_t DataRate::GetBitRate () const

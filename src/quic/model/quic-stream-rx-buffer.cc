@@ -19,7 +19,7 @@
  *          Federico Chiariotti <chiariotti.federico@gmail.com>
  *          Michele Polese <michele.polese@gmail.com>
  *          Davide Marcato <davidemarcato@outlook.com>
- *          
+ *
  */
 
 #include "ns3/packet.h"
@@ -42,15 +42,15 @@ NS_LOG_COMPONENT_DEFINE ("QuicStreamRxBuffer");
 
 QuicStreamRxItem::QuicStreamRxItem ()
   : m_packet (0),
-    m_offset (0),
-    m_fin (false)
+  m_offset (0),
+  m_fin (false)
 {
 }
 
 QuicStreamRxItem::QuicStreamRxItem (const QuicStreamRxItem &other)
   : m_packet (other.m_packet),
-    m_offset (other.m_offset),
-    m_fin (other.m_fin)
+  m_offset (other.m_offset),
+  m_fin (other.m_fin)
 {
 }
 
@@ -71,18 +71,24 @@ NS_OBJECT_ENSURE_REGISTERED (QuicStreamRxBuffer);
 TypeId
 QuicStreamRxBuffer::GetTypeId (void)
 {
-  static TypeId tid =
-    TypeId ("ns3::QuicStreamRxBuffer").SetParent<Object> ().SetGroupName (
-      "Internet").AddConstructor<QuicStreamRxBuffer> ();
+  static TypeId tid = TypeId ("ns3::QuicStreamRxBuffer")
+    .SetParent<Object> ()
+    .SetGroupName ("Internet")
+    .AddConstructor<QuicStreamRxBuffer> ()
+    .AddTraceSource ("RxBuffer",
+                    "The QUIC receive buffer",
+                    MakeTraceSourceAccessor (&QuicStreamRxBuffer::m_numBytesInBuffer),
+                    "ns3::TracedValueCallback::Uint32")
+  ;
   return tid;
 }
 
 QuicStreamRxBuffer::QuicStreamRxBuffer ()
   : m_numBytesInBuffer (0),
-    m_finalSize (0),
-    m_maxBuffer (131072),
-    m_recvFin (
-      false)
+  m_finalSize (0),
+  m_maxBuffer (131072),
+  m_recvFin (
+    false)
 {
   m_streamRecvList = QuicStreamRxPacketList ();
 }
@@ -158,6 +164,7 @@ QuicStreamRxBuffer::Add (Ptr<Packet> p, const QuicSubheader& sub)
         }
     }
   NS_LOG_WARN ("Rejected. Not enough room to buffer packet.");
+  // std::cout<<"stream rx buffer, Rejected. Not enough room to buffer packet."<<std::endl;
   return false;
 }
 
@@ -166,7 +173,7 @@ QuicStreamRxBuffer::Extract (uint32_t maxSize)
 {
   NS_LOG_FUNCTION (this << maxSize);
 
-  uint32_t extractSize = std::min (maxSize, m_numBytesInBuffer);
+  uint32_t extractSize = std::min (maxSize, m_numBytesInBuffer.Get());
   NS_LOG_INFO (
     "Requested to extract " << extractSize << " bytes from QuicStreamRxBuffer of size = " << m_numBytesInBuffer);
 

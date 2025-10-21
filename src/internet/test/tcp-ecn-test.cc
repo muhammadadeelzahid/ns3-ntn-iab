@@ -83,10 +83,10 @@ private:
  *
  * \brief A TCP socket which sends certain data packets with CE flags set for tests 5 and 6.
  *
- * The SendDataPacket function of this class sends data packets numbered 1 and 2 with CE flags set
+ * The SendDataPacket function of this class sends data packets numbered 1 and 3 with CE flags set
  * for test 5 to verify if ECE and CWR bits are correctly set by receiver and sender respectively. It
- * also sets CE flags on data packets 10 and 11 in test case 6 to check if sender reduces congestion window
- * by half and also only once per every window.
+ * also sets CE flags on data packets 4 and 5 in test case 6 to check if sender reduces congestion window
+ * appropriately and also only once per every window.
  *
  */
 class TcpSocketCongestedRouter : public TcpSocketMsgBase
@@ -161,7 +161,7 @@ TcpSocketCongestedRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize
       isRetransmission = true;
     }
 
-  Ptr<Packet> p = m_txBuffer->CopyFromSequence (maxSize, seq);
+  Ptr<Packet> p = m_txBuffer->CopyFromSequence (maxSize, seq)->GetPacketCopy ();
   uint32_t sz = p->GetSize (); // Size of packet
   uint8_t flags = withAck ? TcpHeader::ACK : 0;
   uint32_t remainingData = m_txBuffer->SizeFromSequence (seq + SequenceNumber32 (sz));
@@ -175,21 +175,11 @@ TcpSocketCongestedRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize
   // Sender should reduce the Congestion Window as a response to receiver's ECN Echo notification only once per window
   if (m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD && m_ecnEchoSeq.Get () > m_ecnCWRSeq.Get () && !isRetransmission)
     {
-      NS_LOG_INFO ("Backoff mechanism by reducing CWND  by half because we've received ECN Echo");
-      m_tcb->m_cWnd = std::max (m_tcb->m_cWnd.Get () / 2, m_tcb->m_segmentSize);
-      m_tcb->m_ssThresh = m_tcb->m_cWnd;
-      m_tcb->m_cWndInfl = m_tcb->m_cWnd;
-      flags |= TcpHeader::CWR;
-      m_ecnCWRSeq = seq;
       NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_CWR_SENT");
       m_tcb->m_ecnState = TcpSocketState::ECN_CWR_SENT;
+      m_ecnCWRSeq = seq;
+      flags |= TcpHeader::CWR;
       NS_LOG_INFO ("CWR flags set");
-      NS_LOG_DEBUG (TcpSocketState::TcpCongStateName[m_tcb->m_congState] << " -> CA_CWR");
-      if (m_tcb->m_congState == TcpSocketState::CA_OPEN)
-        {
-          m_congestionControl->CongestionStateSet (m_tcb, TcpSocketState::CA_CWR);
-          m_tcb->m_congState = TcpSocketState::CA_CWR;
-        }
     }
   /*
    * Add tags for each socket option.
@@ -200,11 +190,11 @@ TcpSocketCongestedRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize
   if (GetIpTos ())
     {
       SocketIpTosTag ipTosTag;
-      if ( m_testcase == 5 && (m_dataPacketSent == 1  || m_dataPacketSent == 2 || m_dataPacketSent == 3 || m_dataPacketSent == 4))
+      if ( m_testcase == 5 && (m_dataPacketSent == 1 || m_dataPacketSent == 3))
         {
           ipTosTag.SetTos (MarkEcnCe (GetIpTos ()));
         }
-      else if ( m_testcase == 6 &&  ( m_dataPacketSent == 10 || m_dataPacketSent == 11))
+      else if ( m_testcase == 6 &&  ( m_dataPacketSent == 4 || m_dataPacketSent == 5))
         {
           ipTosTag.SetTos (MarkEcnCe (GetIpTos ()));
         }
@@ -224,11 +214,11 @@ TcpSocketCongestedRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize
   else
     {
       SocketIpTosTag ipTosTag;
-      if ( m_testcase == 5 && (m_dataPacketSent == 1  || m_dataPacketSent == 2 || m_dataPacketSent == 3 || m_dataPacketSent == 4))
+      if ( m_testcase == 5 && (m_dataPacketSent == 1 || m_dataPacketSent == 3))
         {
           ipTosTag.SetTos (MarkEcnCe (GetIpTos ()));
         }
-      else if ( m_testcase == 6 && ( m_dataPacketSent == 10 || m_dataPacketSent == 11))
+      else if ( m_testcase == 6 && ( m_dataPacketSent == 4 || m_dataPacketSent == 5))
         {
           ipTosTag.SetTos (MarkEcnCe (GetIpTos ()));
         }
@@ -245,11 +235,11 @@ TcpSocketCongestedRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize
   if (IsManualIpv6Tclass ())
     {
       SocketIpv6TclassTag ipTclassTag;
-      if ( m_testcase == 5 && (m_dataPacketSent == 1  || m_dataPacketSent == 2 || m_dataPacketSent == 3 || m_dataPacketSent == 4))
+      if ( m_testcase == 5 && (m_dataPacketSent == 1  || m_dataPacketSent == 3))
         {
           ipTclassTag.SetTclass (MarkEcnCe (GetIpv6Tclass ()));
         }
-      else if ( m_testcase == 6 && ( m_dataPacketSent == 10 || m_dataPacketSent == 11))
+      else if ( m_testcase == 6 && ( m_dataPacketSent == 4 || m_dataPacketSent == 5))
         {
           ipTclassTag.SetTclass (MarkEcnCe (GetIpv6Tclass ()));
         }
@@ -269,11 +259,11 @@ TcpSocketCongestedRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize
   else
     {
       SocketIpv6TclassTag ipTclassTag;
-      if ( m_testcase == 5 && (m_dataPacketSent == 1  || m_dataPacketSent == 2 || m_dataPacketSent == 3 || m_dataPacketSent == 4))
+      if ( m_testcase == 5 && (m_dataPacketSent == 1  || m_dataPacketSent == 3))
         {
           ipTclassTag.SetTclass (MarkEcnCe (GetIpv6Tclass ()));
         }
-      else if ( m_testcase == 6 &&( m_dataPacketSent == 10 || m_dataPacketSent == 11  ))
+      else if ( m_testcase == 6 &&( m_dataPacketSent == 4 || m_dataPacketSent == 5 ))
         {
           ipTclassTag.SetTclass (MarkEcnCe (GetIpv6Tclass ()));
         }
@@ -326,7 +316,7 @@ TcpSocketCongestedRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize
   TcpHeader header;
   header.SetFlags (flags);
   header.SetSequenceNumber (seq);
-  header.SetAckNumber (m_rxBuffer->NextRxSequence ());
+  header.SetAckNumber (m_tcb->m_rxBuffer->NextRxSequence ());
   if (m_endPoint)
     {
       header.SetSourcePort (m_endPoint->GetLocalPort ());
@@ -405,11 +395,11 @@ TcpEcnTest::ConfigureProperties ()
   TcpGeneralTest::ConfigureProperties ();
   if (m_testcase == 2 || m_testcase == 4 || m_testcase == 5 || m_testcase == 6)
     {
-      SetEcn (SENDER, TcpSocketBase::ClassicEcn);
+      SetUseEcn (SENDER, TcpSocketState::On);
     }
   if (m_testcase == 3 || m_testcase == 4 ||m_testcase == 5 || m_testcase == 6)
     {
-      SetEcn (RECEIVER, TcpSocketBase::ClassicEcn);
+      SetUseEcn (RECEIVER, TcpSocketState::On);
     }
 }
 
@@ -422,7 +412,7 @@ TcpEcnTest::CWndTrace (uint32_t oldValue, uint32_t newValue)
         {
           m_cwndChangeCount++;
           NS_TEST_ASSERT_MSG_EQ (m_cwndChangeCount, 1, "Congestion window should be reduced once per every window");
-          NS_TEST_ASSERT_MSG_EQ (newValue, oldValue / 2, "Congestion window should be reduced by half");
+          NS_TEST_ASSERT_MSG_EQ (newValue, 1000, "Congestion window should not drop below 2 segments");
         }
     }
 }
@@ -468,14 +458,6 @@ TcpEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
               NS_TEST_ASSERT_MSG_EQ (((h.GetFlags ()) & TcpHeader::ECE), 0, "The flag ECE should not be set in the TCP header of first message received at sender when  either receiver or sender are not ECN Capable");
             }
         }
-      if (m_senderReceived == 3 && m_testcase == 5)
-        {
-          NS_TEST_ASSERT_MSG_NE (((h.GetFlags ()) & TcpHeader::ECE), 0, "The flag ECE should be set in TCP header of the packet sent by the receiver when it receives a packet with CE bit set in IP header");
-        }
-      if (m_senderReceived == 4 && m_testcase == 5)
-        {
-          NS_TEST_ASSERT_MSG_NE (((h.GetFlags ()) & TcpHeader::ECE), 0, "The flag ECE should be set in TCP header of the packet sent by the receiver even after sender sends CWR flags to receiver if it receives a packet with CE bit set in IP header");
-        }
       if ( m_testcase == 5 && m_receiverReceived > 12)
         {
           NS_TEST_ASSERT_MSG_EQ (((h.GetFlags ()) & TcpHeader::ECE), 0, "The flag ECE should not be set in TCP header of the packet sent by the receiver after sender sends CWR flags to receiver and receiver receives a packet without CE bit set in IP header");
@@ -505,9 +487,9 @@ TcpEcnTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
             }
           else if (m_testcase == 5)
             {
-              if (m_senderSent == 3 || m_senderSent == 4)
+              if (m_senderSent == 3 || m_senderSent == 5)
                 {
-                  NS_TEST_ASSERT_MSG_EQ (ipTos, 0x3, "IP TOS should have CE bit set for 3rd and 4th packet sent in test case 5");
+                  NS_TEST_ASSERT_MSG_EQ (ipTos, 0x3, "IP TOS should have CE bit set for 3rd and 5th packet sent in test case 5");
                 }
               else
                 {

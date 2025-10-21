@@ -173,7 +173,7 @@ main (int argc, char *argv[])
   // Energy Harvester variables
   double harvestingUpdateInterval = 1;  // seconds
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("phyMode", "Wifi Phy mode", phyMode);
   cmd.AddValue ("Prss", "Intended primary RSS (dBm)", Prss);
   cmd.AddValue ("PacketSize", "size of application packet sent", PacketSize);
@@ -208,11 +208,11 @@ main (int argc, char *argv[])
     {
       wifi.EnableLogComponents ();
     }
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+  wifi.SetStandard (WIFI_STANDARD_80211b);
 
   /** Wifi PHY **/
   /***************************************************************************/
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
 
   /** wifi channel **/
   YansWifiChannelHelper wifiChannel;

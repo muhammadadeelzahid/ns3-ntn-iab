@@ -117,6 +117,7 @@ WaveNetDevice::DoDispose (void)
       mac->Dispose ();
     }
   m_macEntities.clear ();
+  m_phyEntities.clear ();
   m_channelCoordinator->Dispose ();
   m_channelManager->Dispose ();
   m_channelScheduler->Dispose ();
@@ -126,7 +127,7 @@ WaveNetDevice::DoDispose (void)
   m_channelScheduler = 0;
   m_vsaManager = 0;
   // chain up.
-  NetDevice::DoDispose ();
+  WifiNetDevice::DoDispose ();
 }
 
 void
@@ -635,16 +636,6 @@ WaveNetDevice::Send (Ptr<Packet> packet, const Address& dest, uint16_t protocol)
   return true;
 }
 
-Ptr<Node>
-WaveNetDevice::GetNode (void) const
-{
-  return m_node;
-}
-void
-WaveNetDevice::SetNode (Ptr<Node> node)
-{
-  m_node = node;
-}
 bool
 WaveNetDevice::NeedsArp (void) const
 {
@@ -676,11 +667,12 @@ WaveNetDevice::IsAvailableChannel (uint32_t channelNumber) const
 }
 
 void
-WaveNetDevice::ForwardUp (Ptr<Packet> packet, Mac48Address from, Mac48Address to)
+WaveNetDevice::ForwardUp (Ptr<const Packet> packet, Mac48Address from, Mac48Address to)
 {
   NS_LOG_FUNCTION (this << packet << from << to);
+  Ptr<Packet> copy = packet->Copy ();
   LlcSnapHeader llc;
-  packet->RemoveHeader (llc);
+  copy->RemoveHeader (llc);
   enum NetDevice::PacketType type;
   if (to.IsBroadcast ())
     {
@@ -704,8 +696,8 @@ WaveNetDevice::ForwardUp (Ptr<Packet> packet, Mac48Address from, Mac48Address to
       // currently we cannot know from which MAC entity the packet is received,
       // so we use the MAC entity for CCH as it receives this packet.
       Ptr<OcbWifiMac> mac = GetMac (CCH);
-      mac->NotifyRx (packet);
-      m_forwardUp (this, packet, llc.GetType (), from);
+      mac->NotifyRx (copy);
+      m_forwardUp (this, copy, llc.GetType (), from);
     }
 
   if (!m_promiscRx.IsNull ())
@@ -713,8 +705,8 @@ WaveNetDevice::ForwardUp (Ptr<Packet> packet, Mac48Address from, Mac48Address to
       // currently we cannot know from which MAC entity the packet is received,
       // so we use the MAC entity for CCH as it receives this packet.
       Ptr<OcbWifiMac> mac = GetMac (CCH);
-      mac->NotifyPromiscRx (packet);
-      m_promiscRx (this, packet, llc.GetType (), from, to, type);
+      mac->NotifyPromiscRx (copy);
+      m_promiscRx (this, copy, llc.GetType (), from, to, type);
     }
 }
 

@@ -16,8 +16,14 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * Author: Steven Smith <smith84@llnl.gov>
- *
  */
+
+/**
+ * \file
+ * \ingroup mpi
+ * Implementation of class ns3::NullMessageSimulatorImpl.
+ */
+
 
 #include "null-message-simulator-impl.h"
 
@@ -67,7 +73,6 @@ NullMessageSimulatorImpl::GetTypeId (void)
 
 NullMessageSimulatorImpl::NullMessageSimulatorImpl ()
 {
-#ifdef NS3_MPI
   NS_LOG_FUNCTION (this);
 
   m_myId = MpiInterface::GetSystemId ();
@@ -84,16 +89,13 @@ NullMessageSimulatorImpl::NullMessageSimulatorImpl ()
   m_currentTs = 0;
   m_currentContext = Simulator::NO_CONTEXT;
   m_unscheduledEvents = 0;
+  m_eventCount = 0;
   m_events = 0;
 
   m_safeTime = Seconds (0);
 
   NS_ASSERT (g_instance == 0);
   g_instance = this;
-
-#else
-  NS_FATAL_ERROR ("Can't use Null Message simulator without MPI compiled in");
-#endif
 }
 
 NullMessageSimulatorImpl::~NullMessageSimulatorImpl ()
@@ -235,6 +237,7 @@ NullMessageSimulatorImpl::ProcessOneEvent (void)
 
   NS_ASSERT (next.key.m_ts >= m_currentTs);
   m_unscheduledEvents--;
+  m_eventCount++;
 
   NS_LOG_LOGIC ("handle " << next.key.m_ts);
   m_currentTs = next.key.m_ts;
@@ -370,14 +373,6 @@ uint32_t
 NullMessageSimulatorImpl::GetSystemId () const
 {
   return m_myId;
-}
-
-void
-NullMessageSimulatorImpl::RunOneEvent (void)
-{
-  NS_LOG_FUNCTION (this);
-
-  ProcessOneEvent ();
 }
 
 void
@@ -573,6 +568,12 @@ uint32_t
 NullMessageSimulatorImpl::GetContext (void) const
 {
   return m_currentContext;
+}
+
+uint64_t
+NullMessageSimulatorImpl::GetEventCount (void) const
+{
+  return m_eventCount;
 }
 
 Time NullMessageSimulatorImpl::CalculateGuaranteeTime (uint32_t nodeSysId)

@@ -23,7 +23,8 @@
 #ifndef AP_WIFI_MAC_H
 #define AP_WIFI_MAC_H
 
-#include "infrastructure-wifi-mac.h"
+#include "regular-wifi-mac.h"
+#include <unordered_map>
 
 namespace ns3 {
 
@@ -44,7 +45,7 @@ class CfParameterSet;
  * Handle association, dis-association and authentication,
  * of STAs within an infrastructure BSS.
  */
-class ApWifiMac : public InfrastructureWifiMac
+class ApWifiMac : public RegularWifiMac
 {
 public:
   /**
@@ -56,45 +57,14 @@ public:
   ApWifiMac ();
   virtual ~ApWifiMac ();
 
-  /**
-   * \param stationManager the station manager attached to this MAC.
-   */
+  // Implementations of pure virtual methods, or overridden from base class.
   void SetWifiRemoteStationManager (const Ptr<WifiRemoteStationManager> stationManager);
-
-  /**
-   * \param linkUp the callback to invoke when the link becomes up.
-   */
   void SetLinkUpCallback (Callback<void> linkUp);
-
-  /**
-   * \param packet the packet to send.
-   * \param to the address to which the packet should be sent.
-   *
-   * The packet should be enqueued in a tx queue, and should be
-   * dequeued as soon as the channel access function determines that
-   * access is granted to this MAC.
-   */
-  void Enqueue (Ptr<const Packet> packet, Mac48Address to);
-
-  /**
-   * \param packet the packet to send.
-   * \param to the address to which the packet should be sent.
-   * \param from the address from which the packet should be sent.
-   *
-   * The packet should be enqueued in a tx queue, and should be
-   * dequeued as soon as the channel access function determines that
-   * access is granted to this MAC.  The extra parameter "from" allows
-   * this device to operate in a bridged mode, forwarding received
-   * frames without altering the source address.
-   */
-  void Enqueue (Ptr<const Packet> packet, Mac48Address to, Mac48Address from);
-
+  void Enqueue (Ptr<Packet> packet, Mac48Address to);
+  void Enqueue (Ptr<Packet> packet, Mac48Address to, Mac48Address from);
   bool SupportsSendFrom (void) const;
-
-  /**
-   * \param address the current address of this MAC layer.
-   */
   void SetAddress (Mac48Address address);
+
   /**
    * \param interval the interval between two beacon transmissions.
    */
@@ -104,16 +74,8 @@ public:
    */
   Time GetBeaconInterval (void) const;
   /**
-   * \param duration the maximum duration for the CF period.
-   */
-  void SetCfpMaxDuration (Time duration);
-  /**
-   * \return the maximum duration for the CF period.
-   */
-  Time GetCfpMaxDuration (void) const;
-  /**
    * Determine whether short slot time should be enabled or not in the BSS.
-   * Typically, true is returned only when there is no non-erp stations associated
+   * Typically, true is returned only when there is no non-ERP stations associated
    * to the AP, and that short slot time is supported by the AP and by all other
    * ERP stations that are associated to the AP. Otherwise, false is returned.
    *
@@ -123,17 +85,11 @@ public:
   /**
    * Determine whether short preamble should be enabled or not in the BSS.
    * Typically, true is returned only when the AP and all associated
-   * stations support short PLCP preamble.
+   * stations support short PHY preamble.
    *
    * \returns whether short preamble should be enabled or not in the BSS.
    */
   bool GetShortPreambleEnabled (void) const;
-  /**
-   * Determine whether non-Greenfield HT stations are present or not.
-   *
-   * \returns whether non-Greenfield HT stations are present or not.
-   */
-  bool IsNonGfHtStasPresent (void) const;
   /**
    * Determine the VHT operational channel width (in MHz).
    *
@@ -152,27 +108,79 @@ public:
    */
   int64_t AssignStreams (int64_t stream);
 
+  /**
+   * Get a const reference to the map of associated stations. Each station is
+   * specified by an (association ID, MAC address) pair. Make sure not to use
+   * the returned reference after that this object has been deallocated.
+   *
+   * \return a const reference to the map of associated stations
+   */
+  const std::map<uint16_t, Mac48Address>& GetStaList (void) const;
+  /**
+   * \param addr the address of the associated station
+   * \return the Association ID allocated by the AP to the station, SU_STA_ID if unallocated
+   */
+  uint16_t GetAssociationId (Mac48Address addr) const;
+
+  /**
+   * Return the value of the Queue Size subfield of the last QoS Data or QoS Null
+   * frame received from the station with the given MAC address and belonging to
+   * the given TID.
+   *
+   * The Queue Size value is the total size, rounded up to the nearest multiple
+   * of 256 octets and expressed in units of 256 octets, of all  MSDUs and A-MSDUs
+   * buffered at the STA (excluding the MSDU or A-MSDU of the present QoS Data frame).
+   * A queue size value of 254 is used for all sizes greater than 64 768 octets.
+   * A queue size value of 255 is used to indicate an unspecified or unknown size.
+   * See Section 9.2.4.5.6 of 802.11-2016
+   *
+   * \param tid the given TID
+   * \param address the given MAC address
+   * \return the value of the Queue Size subfield
+   */
+  uint8_t GetBufferStatus (uint8_t tid, Mac48Address address) const;
+  /**
+   * Store the value of the Queue Size subfield of the last QoS Data or QoS Null
+   * frame received from the station with the given MAC address and belonging to
+   * the given TID.
+   *
+   * \param tid the given TID
+   * \param address the given MAC address
+   * \param size the value of the Queue Size subfield
+   */
+  void SetBufferStatus (uint8_t tid, Mac48Address address, uint8_t size);
+  /**
+   * Return the maximum among the values of the Queue Size subfield of the last
+   * QoS Data or QoS Null frames received from the station with the given MAC address
+   * and belonging to any TID.
+   *
+   * \param address the given MAC address
+   * \return the maximum among the values of the Queue Size subfields
+   */
+  uint8_t GetMaxBufferStatus (Mac48Address address) const;
 
 private:
-  void Receive (Ptr<Packet> packet, const WifiMacHeader *hdr);
+  void Receive (Ptr<WifiMacQueueItem> mpdu);
   /**
    * The packet we sent was successfully received by the receiver
-   * (i.e. we received an ACK from the receiver).  If the packet
+   * (i.e. we received an Ack from the receiver).  If the packet
    * was an association response to the receiver, we record that
    * the receiver is now associated with us.
    *
-   * \param hdr the header of the packet that we successfully sent
+   * \param mpdu the MPDU that we successfully sent
    */
-  void TxOk (const WifiMacHeader &hdr);
+  void TxOk (Ptr<const WifiMacQueueItem> mpdu);
   /**
    * The packet we sent was successfully received by the receiver
-   * (i.e. we did not receive an ACK from the receiver).  If the packet
+   * (i.e. we did not receive an Ack from the receiver).  If the packet
    * was an association response to the receiver, we record that
    * the receiver is not associated with us yet.
    *
-   * \param hdr the header of the packet that we failed to sent
+   * \param timeoutReason the reason why the TX timer was started (\see WifiTxTimer::Reason)
+   * \param mpdu the MPDU that we failed to sent
+   * \param txVector the TX vector used to send the MPDU
    */
-  void TxFailed (const WifiMacHeader &hdr);
+  void TxFailed (uint8_t timeoutReason, Ptr<const WifiMacQueueItem> mpdu, const WifiTxVector& txVector);
 
   /**
    * This method is called to de-aggregate an A-MSDU and forward the
@@ -180,11 +188,9 @@ private:
    * here because, as an AP, we also need to think about redistributing
    * to other associated STAs.
    *
-   * \param aggregatedPacket the Packet containing the A-MSDU.
-   * \param hdr a pointer to the MAC header for \c aggregatedPacket.
+   * \param mpdu the MPDU containing the A-MSDU.
    */
-  void DeaggregateAmsduAndForward (Ptr<Packet> aggregatedPacket,
-                                   const WifiMacHeader *hdr);
+  void DeaggregateAmsduAndForward (Ptr<WifiMacQueueItem> mpdu);
   /**
    * Forward the packet down to DCF/EDCAF (enqueue the packet). This method
    * is a wrapper for ForwardDown with traffic id.
@@ -193,7 +199,7 @@ private:
    * \param from the address to be used for Address 3 field in the header
    * \param to the address to be used for Address 1 field in the header
    */
-  void ForwardDown (Ptr<const Packet> packet, Mac48Address from, Mac48Address to);
+  void ForwardDown (Ptr<Packet> packet, Mac48Address from, Mac48Address to);
   /**
    * Forward the packet down to DCF/EDCAF (enqueue the packet).
    *
@@ -202,7 +208,7 @@ private:
    * \param to the address to be used for Address 1 field in the header
    * \param tid the traffic id for the packet
    */
-  void ForwardDown (Ptr<const Packet> packet, Mac48Address from, Mac48Address to, uint8_t tid);
+  void ForwardDown (Ptr<Packet> packet, Mac48Address from, Mac48Address to, uint8_t tid);
   /**
    * Forward a probe response packet to the DCF. The standard is not clear on the correct
    * queue for management frames if QoS is supported. We always use the DCF.
@@ -224,18 +230,6 @@ private:
    * Forward a beacon packet to the beacon special DCF.
    */
   void SendOneBeacon (void);
-  /**
-   * Determine what is the next PCF frame and trigger its transmission.
-   */
-  void SendNextCfFrame (void);
-  /**
-   * Send a CF-Poll packet to the next polling STA.
-   */
-  void SendCfPoll (void);
-  /**
-   * Send a CF-End packet.
-   */
-  void SendCfEnd (void);
 
   /**
    * Return the Capability information of the current AP.
@@ -255,12 +249,6 @@ private:
    * \return the EDCA Parameter Set that we support
    */
   EdcaParameterSet GetEdcaParameterSet (void) const;
-  /**
-   * Return the CF parameter set of the current AP.
-   *
-   * \return the CF parameter set that we support
-   */
-  CfParameterSet GetCfParameterSet (void) const;
   /**
    * Return the HT operation of the current AP.
    *
@@ -305,18 +293,6 @@ private:
    *         false otherwise
    */
   bool GetUseNonErpProtection (void) const;
-  /**
-   * Return whether RIFS is allowed in the BSS.
-   *
-   * \return true if RIFS is allowed in the BSS,
-   *         false otherwise
-   */
-  bool GetRifsMode (void) const;
-  /**
-   * Increment the PCF polling list iterator to indicate
-   * that the next polling station can be polled.
-   */
-  void IncrementPollingListIterator (void);
 
   void DoDispose (void);
   void DoInitialize (void);
@@ -328,17 +304,21 @@ private:
 
   Ptr<Txop> m_beaconTxop;                    //!< Dedicated Txop for beacons
   bool m_enableBeaconGeneration;             //!< Flag whether beacons are being generated
+  Time m_beaconInterval;                     //!< Beacon interval
   EventId m_beaconEvent;                     //!< Event to generate one beacon
-  EventId m_cfpEvent;                        //!< Event to generate one PCF frame
   Ptr<UniformRandomVariable> m_beaconJitter; //!< UniformRandomVariable used to randomize the time of the first beacon
   bool m_enableBeaconJitter;                 //!< Flag whether the first beacon should be generated at random time
   std::map<uint16_t, Mac48Address> m_staList; //!< Map of all stations currently associated to the AP with their association ID
+  //!< Maps MAC addresses of associated stations to their association ID
+  std::unordered_map<Mac48Address, uint16_t, WifiAddressHash> m_addressIdMap;
   std::list<Mac48Address> m_nonErpStations;  //!< List of all non-ERP stations currently associated to the AP
   std::list<Mac48Address> m_nonHtStations;   //!< List of all non-HT stations currently associated to the AP
-  std::list<Mac48Address> m_cfPollingList;   //!< List of all PCF stations currently associated to the AP
-  std::list<Mac48Address>::iterator m_itCfPollingList; //!< Iterator to the list of all PCF stations currently associated to the AP
   bool m_enableNonErpProtection;             //!< Flag whether protection mechanism is used or not when non-ERP STAs are present within the BSS
-  bool m_disableRifs;                        //!< Flag whether to force RIFS to be disabled within the BSS If non-HT STAs are detected
+  Time m_bsrLifetime;                        //!< Lifetime of Buffer Status Reports
+  //!< store value and timestamp for each Buffer Status Report
+  typedef struct { uint8_t value; Time timestamp; } bsrType;
+  //!< Per (MAC address, TID) buffer status reports
+  std::unordered_map<WifiAddressTidPair, bsrType, WifiAddressTidHash> m_bufferStatus;
 };
 
 } //namespace ns3

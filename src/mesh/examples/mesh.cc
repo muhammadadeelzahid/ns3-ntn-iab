@@ -131,7 +131,7 @@ MeshTest::MeshTest () :
 void
 MeshTest::Configure (int argc, char *argv[])
 {
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("x-size", "Number of nodes in a row grid", m_xSize);
   cmd.AddValue ("y-size", "Number of rows in a grid", m_ySize);
   cmd.AddValue ("step",   "Size of edge in our grid (meters)", m_step);
@@ -163,7 +163,7 @@ MeshTest::CreateNodes ()
    */
   nodes.Create (m_ySize*m_xSize);
   // Configure YansWifiChannel
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
   /*

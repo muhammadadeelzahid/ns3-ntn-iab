@@ -124,8 +124,8 @@ int main(int argc, char *argv[])
 
     tcpCombinedLog.open("TcpSentReceivedCombined.txt");
 
-    Config::ConnectWithoutContext("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/Tx", MakeCallback(&TcpTxTrace));
-    Config::ConnectWithoutContext("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/Rx", MakeCallback(&TcpRxTrace));
+    Config::ConnectWithoutContextFailSafe("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/Tx", MakeCallback(&TcpTxTrace));
+    Config::ConnectWithoutContextFailSafe("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/Rx", MakeCallback(&TcpRxTrace));
 
     uint16_t basePort = 50000;
 

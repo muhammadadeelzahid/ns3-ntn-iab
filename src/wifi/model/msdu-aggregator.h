@@ -25,14 +25,17 @@
 #include "ns3/nstime.h"
 #include "wifi-mode.h"
 #include "qos-utils.h"
+#include "wifi-mac-queue-item.h"
+#include <map>
 
 namespace ns3 {
 
-class AmsduSubframeHeader;
 class Packet;
 class QosTxop;
-class WifiMacQueueItem;
 class WifiTxVector;
+class RegularWifiMac;
+class HtFrameExchangeManager;
+class WifiTxParameters;
 
 /**
  * \brief Aggregator used to construct A-MSDUs
@@ -41,10 +44,6 @@ class WifiTxVector;
 class MsduAggregator : public Object
 {
 public:
-  /// DeaggregatedMsdus typedef
-  typedef std::list<std::pair<Ptr<Packet>, AmsduSubframeHeader> > DeaggregatedMsdus;
-  /// DeaggregatedMsdusCI typedef
-  typedef std::list<std::pair<Ptr<Packet>, AmsduSubframeHeader> >::const_iterator DeaggregatedMsdusCI;
   /// EDCA queues typedef
   typedef std::map<AcIndex, Ptr<QosTxop> > EdcaQueues;
 
@@ -58,58 +57,50 @@ public:
   virtual ~MsduAggregator ();
 
   /**
-   * Aggregate an MSDU to an A-MSDU.
-   *
-   * \param msdu the MSDU.
-   * \param amsdu the A-MSDU.
-   * \param src the source address.
-   * \param dest the destination address
-   */
-  void Aggregate (Ptr<const Packet> msdu, Ptr<Packet> amsdu,
-                  Mac48Address src, Mac48Address dest) const;
-
-  /**
    * Compute the size of the A-MSDU resulting from the aggregation of an MSDU of
    * size <i>msduSize</i> and an A-MSDU of size <i>amsduSize</i>.
    * Note that only the basic A-MSDU subframe format (section 9.3.2.2.2 of IEEE
    * 802.11-2016) is supported.
    *
-   * \param msduSize the MSDU size.
-   * \param amsduSize the A-MSDU size.
-   * \return the size of the resulting A-MSDU.
+   * \param msduSize the MSDU size in bytes.
+   * \param amsduSize the A-MSDU size in bytes.
+   * \return the size of the resulting A-MSDU in bytes.
    */
   static uint16_t GetSizeIfAggregated (uint16_t msduSize, uint16_t amsduSize);
 
   /**
-   * Dequeue MSDUs to be transmitted to a given station and belonging to a
-   * given TID from the corresponding EDCA queue and aggregate them to form
-   * an A-MSDU that meets the following constraints:
+   * Attempt to aggregate other MSDUs to the given A-MSDU while meeting the
+   * following constraints:
    *
    * - the A-MSDU size does not exceed the maximum A-MSDU size as determined for
    * the modulation class indicated by the given TxVector
    *
    * - the size of the A-MPDU resulting from the aggregation of the MPDU in which
-   * the A-MSDU will be embedded and an existing A-MPDU of the given size
-   * (possibly null) does not exceed the maximum A-MPDU size as determined for
+   * the A-MSDU will be embedded and the current A-MPDU (as specified by the given
+   * TX parameters) does not exceed the maximum A-MPDU size as determined for
    * the modulation class indicated by the given TxVector
    *
    * - the time to transmit the resulting PPDU, according to the given TxVector,
-   * does not exceed both the maximum PPDU duration allowed by the corresponding
-   * modulation class (if any) and the given PPDU duration limit (if non null)
+   * does not exceed the maximum PPDU duration allowed by the corresponding
+   * modulation class (if any)
+   *
+   * - the time to transmit the resulting PPDU and to carry out protection and
+   * acknowledgment, as specified by the given TX parameters, does not exceed the
+   * given available time (if distinct from Time::Min ())
    *
    * If it is not possible to aggregate at least two MSDUs, no MSDU is dequeued
    * from the EDCA queue and a null pointer is returned.
    *
-   * \param recipient the receiver station address.
-   * \param tid the TID.
-   * \param txVector the TxVector used to transmit the frame
-   * \param ampduSize the size of the existing A-MPDU
-   * \param ppduDurationLimit the limit on the PPDU duration
-   * \return the resulting A-MSDU, if aggregation is possible, 0 otherwise.
+   * \param peekedItem the MSDU which we attempt to aggregate other MSDUs to
+   * \param txParams the TX parameters for the current frame
+   * \param availableTime the time available for the frame exchange
+   * \param[out] queueIt a QueueIteratorPair pointing to the queue item following the
+   *                     last item used to prepare the returned A-MSDU, if any; otherwise,
+   *                     its value is unchanged
+   * \return the resulting A-MSDU, if aggregation is possible, a null pointer otherwise.
    */
-  Ptr<WifiMacQueueItem> GetNextAmsdu (Mac48Address recipient, uint8_t tid,
-                                      WifiTxVector txVector, uint32_t ampduSize = 0,
-                                      Time ppduDurationLimit = Seconds (0)) const;
+  Ptr<WifiMacQueueItem> GetNextAmsdu (Ptr<const WifiMacQueueItem> peekedItem, WifiTxParameters& txParams,
+                                      Time availableTime, WifiMacQueueItem::QueueIteratorPair& queueIt) const;
 
   /**
    * Determine the maximum size for an A-MSDU of the given TID that can be sent
@@ -118,7 +109,7 @@ public:
    * \param recipient the receiver station address.
    * \param tid the TID.
    * \param modulation the modulation class.
-   * \return the maximum A-MSDU size.
+   * \return the maximum A-MSDU size in bytes.
    */
   uint16_t GetMaxAmsduSize (Mac48Address recipient, uint8_t tid,
                             WifiModulationClass modulation) const;
@@ -128,16 +119,15 @@ public:
    * \param aggregatedPacket the aggregated packet.
    * \returns DeaggregatedMsdus.
    */
-  static DeaggregatedMsdus Deaggregate (Ptr<Packet> aggregatedPacket);
+  static WifiMacQueueItem::DeaggregatedMsdus Deaggregate (Ptr<Packet> aggregatedPacket);
 
   /**
-   * Set the map of EDCA queues.
+   * Set the MAC layer to use.
    *
-   * \param map the map of EDCA queues.
+   * \param mac the MAC layer to use
    */
-  void SetEdcaQueues (EdcaQueues map);
+  void SetWifiMac (const Ptr<RegularWifiMac> mac);
 
-private:
   /**
    * Calculate how much padding must be added to the end of an A-MSDU of the
    * given size if a new MSDU is added.
@@ -149,7 +139,12 @@ private:
    */
   static uint8_t CalculatePadding (uint16_t amsduSize);
 
-  EdcaQueues m_edca;   //!< the map of EDCA queues
+protected:
+  virtual void DoDispose ();
+
+private:
+  Ptr<RegularWifiMac> m_mac;            //!< the MAC of this station
+  Ptr<HtFrameExchangeManager> m_htFem;  //!< the HT Frame Exchange Manager of this station
 };
 
 } //namespace ns3

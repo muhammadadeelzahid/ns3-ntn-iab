@@ -81,7 +81,7 @@ public:
    *
    * @return a Ptr to the associated MobilityModel instance
    */
-  virtual Ptr<MobilityModel> GetMobility () = 0;
+   virtual Ptr<MobilityModel> GetMobility () = 0;
 
   /**
    * Set the channel attached to this device.

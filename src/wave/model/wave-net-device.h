@@ -84,7 +84,7 @@ struct TxInfo
    * \param preamble the preamble
    * \param powerLevel the power level
    */
-  TxInfo (uint32_t channel, uint32_t prio = 7, WifiMode rate = WifiMode (), WifiPreamble preamble = WIFI_PREAMBLE_NONE, uint32_t powerLevel = 8)
+  TxInfo (uint32_t channel, uint32_t prio = 7, WifiMode rate = WifiMode (), WifiPreamble preamble = WIFI_PREAMBLE_LONG, uint32_t powerLevel = 8)
     : channelNumber (channel),
       priority (prio),
       dataRate (rate),
@@ -343,8 +343,6 @@ public:
   virtual Address GetMulticast (Ipv4Address multicastGroup) const;
   virtual bool IsPointToPoint (void) const;
   virtual bool IsBridge (void) const;
-  virtual Ptr<Node> GetNode (void) const;
-  virtual void SetNode (Ptr<Node> node);
   virtual bool NeedsArp (void) const;
   virtual void SetReceiveCallback (NetDevice::ReceiveCallback cb);
   virtual Address GetMulticast (Ipv6Address addr) const;
@@ -376,7 +374,7 @@ private:
    * \param from
    * \param to
    */
-  void ForwardUp (Ptr<Packet> packet, Mac48Address from, Mac48Address to);
+  void ForwardUp (Ptr<const Packet> packet, Mac48Address from, Mac48Address to);
 
   /// MacEntities typedef
   typedef std::map<uint32_t, Ptr<OcbWifiMac> > MacEntities;
@@ -401,7 +399,6 @@ private:
   TracedCallback<Address, Address> m_addressChange;
 
   // copy from WifiNetDevice
-  Ptr<Node> m_node; ///< the node
   NetDevice::ReceiveCallback m_forwardUp; ///< forward up receive callback
   NetDevice::PromiscReceiveCallback m_promiscRx; ///< promiscious receive callback
   uint32_t m_ifIndex; ///< IF index

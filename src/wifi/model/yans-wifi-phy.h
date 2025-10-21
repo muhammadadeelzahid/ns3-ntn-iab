@@ -56,6 +56,12 @@ public:
   YansWifiPhy ();
   virtual ~YansWifiPhy ();
 
+  // Implementation of pure virtual method.
+  void StartTx (Ptr<WifiPpdu> ppdu) override;
+  virtual Ptr<Channel> GetChannel (void) const override;
+  uint16_t GetGuardBandwidth (uint16_t currentChannelWidth) const override;
+  std::tuple<double, double, double> GetTxMaskRejectionParams (void) const override;
+
   /**
    * Set the YansWifiChannel this YansWifiPhy is to be connected to.
    *
@@ -63,21 +69,9 @@ public:
    */
   void SetChannel (const Ptr<YansWifiChannel> channel);
 
-  /**
-   * \param packet the packet to send
-   * \param txVector the TXVECTOR that has tx parameters such as mode, the transmission mode to use to send
-   *        this packet, and txPowerLevel, a power level to use to send this packet. The real transmission
-   *        power is calculated as txPowerMin + txPowerLevel * (txPowerMax - txPowerMin) / nTxLevels
-   * \param txDuration duration of the transmission.
-   */
-  void StartTx (Ptr<Packet> packet, WifiTxVector txVector, Time txDuration);
-
-  virtual Ptr<Channel> GetChannel (void) const;
-
-
 protected:
   // Inherited
-  virtual void DoDispose (void);
+  virtual void DoDispose (void) override;
 
 
 private:

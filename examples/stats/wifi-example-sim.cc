@@ -76,7 +76,7 @@ int main (int argc, char *argv[]) {
   }
 
   // Set up command line parameters used to control the experiment.
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("distance", "Distance apart to place nodes (in meters).",
                 distance);
   cmd.AddValue ("format", "Format to use for data output.",
@@ -121,7 +121,7 @@ int main (int argc, char *argv[]) {
   WifiHelper wifi;
   WifiMacHelper wifiMac;
   wifiMac.SetType ("ns3::AdhocWifiMac");
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
   NetDeviceContainer nodeDevices = wifi.Install (wifiPhy, wifiMac, nodes);

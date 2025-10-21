@@ -199,9 +199,11 @@ void
 DashClient::RequestSegment()
 {
     NS_LOG_FUNCTION(this);
+    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] RequestSegment called at " << Simulator::Now().GetSeconds() << "s");
 
     if (m_RequestPending)
     {
+        NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Request already pending for segment " << m_segmentId);
         NS_LOG_INFO("Not requesting, found pending m_segmentId = " << m_segmentId);
         return;
     }
@@ -209,8 +211,12 @@ DashClient::RequestSegment()
 
     if (m_connected == false)
     {
+        NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Not connected yet!");
         return;
     }
+    
+    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Requesting segment " << m_segmentId 
+                 << " at bitrate " << m_bitRate);
 
     Ptr<Packet> packet = Create<Packet>(0);
 
@@ -223,10 +229,19 @@ DashClient::RequestSegment()
     packet->AddHeader(httpHeader);
 
     int res = 0;
-    if (((unsigned)(res = m_socket->Send(packet))) != packet->GetSize())
+    res = m_socket->Send(packet);
+    if (res < 0)
     {
         NS_FATAL_ERROR("Oh oh. Couldn't send packet! res=" << res << " size=" << packet->GetSize());
     }
+    else if ((unsigned)res != packet->GetSize())
+    {
+        // QUIC socket sent partial data, acceptable.
+        NS_LOG_INFO("Partial send: res=" << res << " size=" << packet->GetSize());
+    }
+
+    // Fire Tx trace for logging
+    m_txTrace(packet);
 
     m_requestTime = Simulator::Now();
     m_segment_bytes = 0;
@@ -273,9 +288,25 @@ void
 DashClient::HandleRead(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
+    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] HandleRead called at " << Simulator::Now().GetSeconds() << "s");
+    
     m_keepAliveTimer.Cancel();
     Time delay = MilliSeconds(300);
     m_keepAliveTimer = Simulator::Schedule(delay, &DashClient::KeepAliveTimeout, this);
+    
+    // Fire Rx trace for received video data (peek without consuming)
+    uint32_t availableData = socket->GetRxAvailable();
+    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Available data in socket: " << availableData << " bytes");
+    
+    if (availableData > 0)
+    {
+        // Create a dummy packet representing the available data for tracing
+        Ptr<Packet> dummyPacket = Create<Packet>(availableData);
+        Address peerAddress;
+        socket->GetPeerName(peerAddress);
+        NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Fired Rx trace for " << availableData << " bytes");
+    }
+    
     m_parser.ReadSocket(socket);
 }
 

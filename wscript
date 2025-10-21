@@ -231,7 +231,7 @@ def options(opt):
     opt.add_option('--enable-mpi',
                    help=('Compile NS-3 with MPI and distributed simulation support'),
                    dest='enable_mpi', action='store_true',
-                   default=False)
+                   default=True)
     opt.add_option('--doxygen-no-build',
                    help=('Run doxygen to generate html documentation from source comments, '
                          'but do not wait for ns-3 to finish the full build.'),
@@ -515,7 +515,9 @@ def configure(conf):
         elif not_built_name in conf.env['NS3_ENABLED_CONTRIBUTED_MODULES']:
             conf.env['NS3_ENABLED_CONTRIBUTED_MODULES'].remove(not_built_name)
 
-    conf.recurse('src/mpi')
+    # Only recurse into mpi if it's enabled
+    if Options.options.enable_mpi:
+        conf.recurse('src/mpi')
 
     # for suid bits
     try:

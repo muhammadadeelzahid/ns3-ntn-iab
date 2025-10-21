@@ -27,9 +27,8 @@
 #include "ns3/event-id.h"
 #include "ns3/ptr.h"
 #include "ns3/address.h"
+#include "ns3/traced-callback.h"
 #include "packet-loss-counter.h"
-#include <iostream>
-#include <fstream>
 
 namespace ns3 {
 /**
@@ -104,9 +103,12 @@ private:
   uint64_t m_received; //!< Number of received packets
   PacketLossCounter m_lossCounter; //!< Lost packet counter
 
-  std::string m_outFilename;
-  std::ofstream m_outFile;
-  int firstWrite=1;
+  /// Callbacks for tracing the packet Rx events
+  TracedCallback<Ptr<const Packet> > m_rxTrace;
+
+  /// Callbacks for tracing the packet Rx events, includes source and destination addresses
+  TracedCallback<Ptr<const Packet>, const Address &, const Address &> m_rxTraceWithAddresses;
+
 };
 
 } // namespace ns3

@@ -103,7 +103,7 @@ int main (int argc, char *argv[])
   double txCurrent = 0.380; // Ampere
   bool verbose = false;
 
-  CommandLine cmd;
+  CommandLine cmd (__FILE__);
   cmd.AddValue ("dataRate", "Data rate", dataRate);
   cmd.AddValue ("packetSize", "size of application packet sent", packetSize);
   cmd.AddValue ("duration", "duration (seconds) of the experiment", duration);
@@ -127,9 +127,9 @@ int main (int argc, char *argv[])
     {
       wifi.EnableLogComponents ();  // Turn on all Wifi logging
     }
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+  wifi.SetStandard (WIFI_STANDARD_80211b);
 
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy;
   // ns-3 supports RadioTap and Prism tracing extensions for 802.11b
   wifiPhy.SetPcapDataLinkType (WifiPhyHelper::DLT_IEEE802_11_RADIO);
 

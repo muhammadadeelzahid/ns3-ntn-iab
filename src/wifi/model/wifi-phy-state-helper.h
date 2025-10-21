@@ -26,7 +26,8 @@
 #include "ns3/traced-callback.h"
 #include "ns3/nstime.h"
 #include "wifi-phy-state.h"
-#include "wifi-preamble.h"
+#include "wifi-phy-common.h"
+#include "wifi-ppdu.h"
 
 namespace ns3 {
 
@@ -34,22 +35,27 @@ class WifiPhyListener;
 class WifiTxVector;
 class WifiMode;
 class Packet;
+class WifiPsdu;
+struct RxSignalInfo;
 
 /**
- * Callback if packet successfully received
+ * Callback if PSDU successfully received (i.e. if aggregate,
+ * it means that at least one MPDU of the A-MPDU was received,
+ * considering that the per-MPDU reception status is also provided).
  *
- * arg1: packet received successfully
- * arg2: snr of packet
- * arg3: TXVECTOR of packet
- * arg4: type of preamble used for packet.
+ * arg1: PSDU received successfully
+ * arg2: info on the received signal (\see RxSignalInfo)
+ * arg3: TXVECTOR of PSDU
+ * arg4: vector of per-MPDU status of reception.
  */
-typedef Callback<void, Ptr<Packet>, double, WifiTxVector> RxOkCallback;
+typedef Callback<void, Ptr<WifiPsdu>, RxSignalInfo,
+                       WifiTxVector, std::vector<bool>> RxOkCallback;
 /**
- * Callback if packet unsuccessfully received
+ * Callback if PSDU unsuccessfully received
  *
- * arg1: packet received unsuccessfully
+ * arg1: PSDU received unsuccessfully
  */
-typedef Callback<void, Ptr<Packet>> RxErrorCallback;
+typedef Callback<void, Ptr<WifiPsdu>> RxErrorCallback;
 
 /**
  * \ingroup wifi
@@ -70,25 +76,25 @@ public:
   /**
    * Set a callback for a successful reception.
    *
-   * \param callback
+   * \param callback the RxOkCallback to set
    */
   void SetReceiveOkCallback (RxOkCallback callback);
   /**
    * Set a callback for a failed reception.
    *
-   * \param callback
+   * \param callback the RxErrorCallback to set
    */
   void SetReceiveErrorCallback (RxErrorCallback callback);
   /**
    * Register WifiPhyListener to this WifiPhyStateHelper.
    *
-   * \param listener
+   * \param listener the WifiPhyListener to register
    */
   void RegisterListener (WifiPhyListener *listener);
   /**
    * Remove WifiPhyListener from this WifiPhyStateHelper.
    *
-   * \param listener
+   * \param listener the WifiPhyListener to unregister
    */
   void UnregisterListener (WifiPhyListener *listener);
   /**
@@ -151,16 +157,22 @@ public:
    * \return the time the last RX start.
    */
   Time GetLastRxStartTime (void) const;
+  /**
+   * Return the time the last RX end.
+   *
+   * \return the time the last RX end.
+   */
+  Time GetLastRxEndTime (void) const;
 
   /**
    * Switch state to TX for the given duration.
    *
-   * \param txDuration the duration of the TX
-   * \param packet the packet
-   * \param txPowerDbm the nominal tx power in dBm
-   * \param txVector the tx vector of the packet
+   * \param txDuration the duration of the PPDU to transmit
+   * \param psdus the PSDUs in the transmitted PPDU (only one unless it is a MU PPDU)
+   * \param txPowerDbm the nominal TX power in dBm
+   * \param txVector the TX vector for the transmission
    */
-  void SwitchToTx (Time txDuration, Ptr<const Packet> packet, double txPowerDbm, WifiTxVector txVector);
+  void SwitchToTx (Time txDuration, WifiConstPsduMap psdus, double txPowerDbm, WifiTxVector txVector);
   /**
    * Switch state to RX for the given duration.
    *
@@ -174,20 +186,31 @@ public:
    */
   void SwitchToChannelSwitching (Time switchingDuration);
   /**
+   * Continue RX after the reception of an MPDU in an A-MPDU was successful.
+   *
+   * \param psdu the successfully received PSDU
+   * \param rxSignalInfo the info on the received signal (\see RxSignalInfo)
+   * \param txVector TXVECTOR of the PSDU
+   */
+  void ContinueRxNextMpdu (Ptr<WifiPsdu> psdu, RxSignalInfo rxSignalInfo, WifiTxVector txVector);
+  /**
    * Switch from RX after the reception was successful.
    *
-   * \param packet the successfully received packet
-   * \param snr the SNR of the received packet
-   * \param txVector TXVECTOR of the packet
+   * \param psdu the successfully received PSDU
+   * \param rxSignalInfo the info on the received signal (\see RxSignalInfo)
+   * \param txVector TXVECTOR of the PSDU
+   * \param staId the station ID of the PSDU (only used for MU)
+   * \param statusPerMpdu reception status per MPDU
    */
-  void SwitchFromRxEndOk (Ptr<Packet> packet, double snr, WifiTxVector txVector);
+  void SwitchFromRxEndOk (Ptr<WifiPsdu> psdu, RxSignalInfo rxSignalInfo, WifiTxVector txVector,
+                          uint16_t staId, std::vector<bool> statusPerMpdu);
   /**
    * Switch from RX after the reception failed.
    *
-   * \param packet the packet that we failed to received
-   * \param snr the SNR of the received packet
+   * \param psdu the PSDU that we failed to received
+   * \param snr the SNR of the received PSDU in linear scale
    */
-  void SwitchFromRxEndError (Ptr<Packet> packet, double snr);
+  void SwitchFromRxEndError (Ptr<WifiPsdu> psdu, double snr);
   /**
    * Switch to CCA busy.
    *
@@ -222,18 +245,18 @@ public:
   /**
    * TracedCallback signature for state changes.
    *
-   * \param [in] start Time when the \p state started.
+   * \param [in] start Time when the \pname{state} started.
    * \param [in] duration Amount of time we've been in (or will be in)
-   *             the \p state.
+   *             the \pname{state}.
    * \param [in] state The state.
    */
   typedef void (* StateTracedCallback)(Time start, Time duration, WifiPhyState state);
 
   /**
-   * TracedCallback signature for receive end ok event.
+   * TracedCallback signature for receive end OK event.
    *
    * \param [in] packet The received packet.
-   * \param [in] snr    The SNR of the received packet.
+   * \param [in] snr    The SNR of the received packet in linear scale.
    * \param [in] mode   The transmission mode of the packet.
    * \param [in] preamble The preamble of the packet.
    */
@@ -243,7 +266,7 @@ public:
    * TracedCallback signature for receive end error event.
    *
    * \param [in] packet       The received packet.
-   * \param [in] snr          The SNR of the received packet.
+   * \param [in] snr          The SNR of the received packet in linear scale.
    */
   typedef void (* RxEndErrorTracedCallback)(Ptr<const Packet> packet, double snr);
 
@@ -278,7 +301,7 @@ private:
    * Notify all WifiPhyListener that the transmission has started for the given duration.
    *
    * \param duration the duration of the transmission
-   * \param txPowerDbm the nominal tx power in dBm
+   * \param txPowerDbm the nominal TX power in dBm
    */
   void NotifyTxStart (Time duration, double txPowerDbm);
   /**
@@ -334,12 +357,11 @@ private:
    */
   TracedCallback<Time, Time, WifiPhyState> m_stateLogger;
 
-  bool m_rxing; ///< receiving
   bool m_sleeping; ///< sleeping
   bool m_isOff; ///< switched off
   Time m_endTx; ///< end transmit
   Time m_endRx; ///< end receive
-  Time m_endCcaBusy; ///< endn CCA busy
+  Time m_endCcaBusy; ///< end CCA busy
   Time m_endSwitching; ///< end switching
   Time m_startTx; ///< start transmit
   Time m_startRx; ///< start receive

@@ -27,6 +27,9 @@
 #include "ns3/minstrel-wifi-manager.h"
 #include "ns3/mesh-wifi-interface-mac.h"
 #include "ns3/wifi-helper.h"
+#include "ns3/frame-exchange-manager.h"
+#include "ns3/wifi-default-protection-manager.h"
+#include "ns3/wifi-default-ack-manager.h"
 
 namespace ns3
 {
@@ -34,7 +37,7 @@ MeshHelper::MeshHelper () :
   m_nInterfaces (1),
   m_spreadChannelPolicy (ZERO_CHANNEL),
   m_stack (0),
-  m_standard (WIFI_PHY_STANDARD_80211a)
+  m_standard (WIFI_STANDARD_80211a)
 {
 }
 MeshHelper::~MeshHelper ()
@@ -96,11 +99,11 @@ MeshHelper::Install (const WifiPhyHelper &phyHelper, NodeContainer c) const
           uint32_t channel = 0;
           if (m_spreadChannelPolicy == ZERO_CHANNEL)
             {
-              channel = 0;
+              channel = 100;
             }
           if (m_spreadChannelPolicy == SPREAD_CHANNELS)
             {
-              channel = i * 5;
+              channel = 100 + i * 5;
             }
           Ptr<WifiNetDevice> iface = CreateInterface (phyHelper, node, channel);
           mp->AddInterface (iface);
@@ -166,7 +169,7 @@ MeshHelper::SetRemoteStationManager (std::string type,
   m_stationManager.Set (n7, v7);
 }
 void 
-MeshHelper::SetStandard (enum WifiPhyStandard standard)
+MeshHelper::SetStandard (enum WifiStandard standard)
 {
   m_standard = standard;
 }
@@ -175,6 +178,13 @@ Ptr<WifiNetDevice>
 MeshHelper::CreateInterface (const WifiPhyHelper &phyHelper, Ptr<Node> node, uint16_t channelId) const
 {
   Ptr<WifiNetDevice> device = CreateObject<WifiNetDevice> ();
+
+  auto it = wifiStandards.find (m_standard);
+  if (it == wifiStandards.end ())
+    {
+      NS_FATAL_ERROR ("Selected standard is not defined!");
+      return device;
+    }
 
   Ptr<MeshWifiInterfaceMac> mac = m_mac.Create<MeshWifiInterfaceMac> ();
   NS_ASSERT (mac != 0);
@@ -185,12 +195,25 @@ MeshHelper::CreateInterface (const WifiPhyHelper &phyHelper, Ptr<Node> node, uin
   Ptr<WifiPhy> phy = phyHelper.Create (node, device);
   mac->SetAddress (Mac48Address::Allocate ());
   mac->ConfigureStandard (m_standard);
-  phy->ConfigureStandard (m_standard);
+  Ptr<RegularWifiMac> wifiMac = DynamicCast<RegularWifiMac> (mac);
+  Ptr<FrameExchangeManager> fem;
+  if (wifiMac != 0 && (fem = wifiMac->GetFrameExchangeManager ()) != 0)
+    {
+      Ptr<WifiProtectionManager> protectionManager = CreateObject<WifiDefaultProtectionManager> ();
+      protectionManager->SetWifiMac (wifiMac);
+      fem->SetProtectionManager (protectionManager);
+
+      Ptr<WifiAckManager> ackManager = CreateObject<WifiDefaultAckManager> ();
+      ackManager->SetWifiMac (wifiMac);
+      fem->SetAckManager (ackManager);
+    }
+  phy->ConfigureStandardAndBand (it->second.phyStandard, it->second.phyBand);
   device->SetMac (mac);
   device->SetPhy (phy);
   device->SetRemoteStationManager (manager);
   node->AddDevice (device);
   mac->SwitchFrequencyChannel (channelId);
+
   return device;
 }
 void

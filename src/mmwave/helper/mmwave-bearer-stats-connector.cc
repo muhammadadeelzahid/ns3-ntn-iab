@@ -340,64 +340,64 @@ MmWaveBearerStatsConnector::EnsureConnected ()
     {
       Config::Connect ("/NodeList/*/DeviceList/*/LteEnbRrc/NewUeContext",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyNewUeContextEnb, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/AccessRrc/NewUeContext", // IAB access
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/AccessRrc/NewUeContext", // IAB access (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyNewUeContextEnb, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteUeRrc/RandomAccessSuccessful",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyRandomAccessSuccessfulUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/BackhaulRrc/RandomAccessSuccessful", // IAB backhaul
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/BackhaulRrc/RandomAccessSuccessful", // IAB backhaul (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyRandomAccessSuccessfulUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/MmWaveUeRrc/RandomAccessSuccessful", // MC dev
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/MmWaveUeRrc/RandomAccessSuccessful", // MC dev (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyRandomAccessSuccessfulUe, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteEnbRrc/ConnectionReconfiguration",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyConnectionReconfigurationEnb, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/AccessRrc/ConnectionReconfiguration", // IAB access
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/AccessRrc/ConnectionReconfiguration", // IAB access (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyConnectionReconfigurationEnb, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteUeRrc/ConnectionReconfiguration",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyConnectionReconfigurationUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/MmWaveUeRrc/ConnectionReconfiguration", // MC dev
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/MmWaveUeRrc/ConnectionReconfiguration", // MC dev (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyConnectionReconfigurationUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/BackhaulRrc/ConnectionReconfiguration", // IAB backhaul
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/BackhaulRrc/ConnectionReconfiguration", // IAB backhaul (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyConnectionReconfigurationUe, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteEnbRrc/HandoverStart",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverStartEnb, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/AccessRrc/HandoverStart", // IAB access
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/AccessRrc/HandoverStart", // IAB access (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverStartEnb, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteUeRrc/HandoverStart",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverStartUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/MmWaveUeRrc/HandoverStart", // MC dev
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/MmWaveUeRrc/HandoverStart", // MC dev (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverStartUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/BackhaulRrc/HandoverStart", // IAB backhaul
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/BackhaulRrc/HandoverStart", // IAB backhaul (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverStartUe, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteEnbRrc/HandoverEndOk",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverEndOkEnb, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/AccessRrc/HandoverEndOk", // IAB access
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/AccessRrc/HandoverEndOk", // IAB access (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverEndOkEnb, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteUeRrc/HandoverEndOk",
 		       MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverEndOkUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/MmWaveUeRrc/HandoverEndOk", // MC dev
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/MmWaveUeRrc/HandoverEndOk", // MC dev (optional)
           MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverEndOkUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/BackhaulRrc/HandoverEndOk", // IAB backhaul
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/BackhaulRrc/HandoverEndOk", // IAB backhaul (optional)
           MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyHandoverEndOkUe, this));
 
       Config::Connect ("/NodeList/*/DeviceList/*/LteUeRrc/SwitchToMmWave",
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifySwitchToMmWaveUe, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/BackhaulRrc/SwitchToMmWave", // IAB backahi;
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/BackhaulRrc/SwitchToMmWave", // IAB backhaul (optional)
            MakeBoundCallback (&MmWaveBearerStatsConnector::NotifySwitchToMmWaveUe, this));
 
       // mmWave SINR from RT, LTE SINR from the PHY callbacks
       Config::Connect ("/NodeList/*/DeviceList/*/LteEnbRrc/NotifyMmWaveSinr",
           MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyMmWaveSinr, this));
-      Config::Connect ("/NodeList/*/DeviceList/*/AccessRrc/NotifyMmWaveSinr", // IAB access
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/AccessRrc/NotifyMmWaveSinr", // IAB access (optional)
           MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyMmWaveSinr, this));
 
-      Config::Connect ("/NodeList/*/DeviceList/*/LteUePhy/ReportCurrentCellRsrpSinr",
+      Config::ConnectFailSafe ("/NodeList/*/DeviceList/*/LteUePhy/ReportCurrentCellRsrpSinr", // LTE UE Phy (optional)
                    MakeBoundCallback (&MmWaveBearerStatsConnector::NotifyLteSinr, this));
 
       m_connected = true;
@@ -696,7 +696,7 @@ MmWaveBearerStatsConnector::StoreUeManagerPath (std::string context, uint16_t ce
   std::string filePathDrb = "DataRadioBearerCreatedTrace.txt";
   Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (filePathDrb, std::ios::app);
   // *stream1->GetStream () << "Time" << "\t" << "IMSI" << '\t' << "RNTI" << '\t' << "CellID" << std::endl;
-  Config::ConnectWithoutContext (path, MakeBoundCallback(&DataRadioBearerCreatedConsumer, stream1));
+  Config::ConnectWithoutContextFailSafe (path, MakeBoundCallback(&DataRadioBearerCreatedConsumer, stream1));
 
   // state transition trace
   std::ostringstream ueManagerPathState; 
@@ -707,7 +707,7 @@ MmWaveBearerStatsConnector::StoreUeManagerPath (std::string context, uint16_t ce
   std::string filePathState = "StateTransitionTrace.txt";
   Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (filePathState, std::ios::app);
   // *stream2->GetStream () << "Time" << "\t" << "IMSI" << '\t' << "RNTI" << '\t' << "CellID" << '\t' << "old" << '\t' << "new" << std::endl;
-  Config::ConnectWithoutContext (pathState, MakeBoundCallback(&StateTransitionConsumer, stream2)); 
+  Config::ConnectWithoutContextFailSafe (pathState, MakeBoundCallback(&StateTransitionConsumer, stream2)); 
 }
 
 void 
@@ -742,19 +742,19 @@ MmWaveBearerStatsConnector::ConnectSrb0Traces (std::string context, uint64_t ims
                           MakeBoundCallback (&UlRxPduCallback, arg));
 
       // connect SRB0 both at UE and eNB
-      Config::Connect (ueRrcPath + "/Srb0/LteRlc/TxPDU",
-                       MakeBoundCallback (&UlTxPduCallback, arg));
-      Config::Connect (ueRrcPath + "/Srb0/LteRlc/RxPDU",
-                       MakeBoundCallback (&DlRxPduCallback, arg));
-      Config::Connect (ueManagerPath + "/Srb0/LteRlc/TxPDU",
+      Config::ConnectFailSafe (ueRrcPath + "/Srb0/LteRlc/TxPDU",
+           MakeBoundCallback (&UlTxPduCallback, arg));
+      Config::ConnectFailSafe (ueRrcPath + "/Srb0/LteRlc/RxPDU",
+           MakeBoundCallback (&DlRxPduCallback, arg));
+      Config::ConnectFailSafe (ueManagerPath + "/Srb0/LteRlc/TxPDU",
                        MakeBoundCallback (&DlTxPduCallback, arg));
-      Config::Connect (ueManagerPath + "/Srb0/LteRlc/RxPDU",
+      Config::ConnectFailSafe (ueManagerPath + "/Srb0/LteRlc/RxPDU",
                        MakeBoundCallback (&UlRxPduCallback, arg));
 
       // connect SRB1 at eNB only (at UE SRB1 will be setup later)
-      Config::Connect (ueManagerPath + "/Srb1/LteRlc/TxPDU",
+      Config::ConnectFailSafe (ueManagerPath + "/Srb1/LteRlc/TxPDU",
                        MakeBoundCallback (&DlTxPduCallback, arg));
-      Config::Connect (ueManagerPath + "/Srb1/LteRlc/RxPDU",
+      Config::ConnectFailSafe (ueManagerPath + "/Srb1/LteRlc/RxPDU",
                        MakeBoundCallback (&UlRxPduCallback, arg));
       
       Config::Connect (ueManagerPath + "/SecondaryRlcCreated",
@@ -872,9 +872,9 @@ MmWaveBearerStatsConnector::ConnectSrb1TracesUe (std::string ueRrcPath, uint64_t
       arg->imsi = imsi;
       arg->cellId = cellId;
       arg->stats = m_rlcStats;
-      Config::Connect (ueRrcPath + "/Srb1/LteRlc/TxPDU",
+      Config::ConnectFailSafe (ueRrcPath + "/Srb1/LteRlc/TxPDU",
                        MakeBoundCallback (&UlTxPduCallback, arg));
-      Config::Connect (ueRrcPath + "/Srb1/LteRlc/RxPDU",
+      Config::ConnectFailSafe (ueRrcPath + "/Srb1/LteRlc/RxPDU",
                        MakeBoundCallback (&DlRxPduCallback, arg));
     }
   if (m_pdcpStats)
@@ -883,9 +883,9 @@ MmWaveBearerStatsConnector::ConnectSrb1TracesUe (std::string ueRrcPath, uint64_t
       arg->imsi = imsi;
       arg->cellId = cellId;
       arg->stats = m_pdcpStats;
-      Config::Connect (ueRrcPath + "/Srb1/LtePdcp/RxPDU",
+      Config::ConnectFailSafe (ueRrcPath + "/Srb1/LtePdcp/RxPDU",
            MakeBoundCallback (&DlRxPduCallback, arg));
-      Config::Connect (ueRrcPath + "/Srb1/LtePdcp/TxPDU",
+      Config::ConnectFailSafe (ueRrcPath + "/Srb1/LtePdcp/TxPDU",
            MakeBoundCallback (&UlTxPduCallback, arg));
     }
   if(m_mcStats)
@@ -913,13 +913,13 @@ MmWaveBearerStatsConnector::ConnectSrb1TracesEnb (std::string context, uint64_t 
       arg->imsi = imsi;
       arg->cellId = cellId;
       arg->stats = m_rlcStats;
-      Config::Connect (basePath.str () + "/Srb0/LteRlc/RxPDU",
+      Config::ConnectFailSafe (basePath.str () + "/Srb0/LteRlc/RxPDU",
            MakeBoundCallback (&UlRxPduCallback, arg));
-      Config::Connect (basePath.str () + "/Srb0/LteRlc/TxPDU",
+      Config::ConnectFailSafe (basePath.str () + "/Srb0/LteRlc/TxPDU",
            MakeBoundCallback (&DlTxPduCallback, arg));
-      Config::Connect (basePath.str () + "/Srb1/LteRlc/RxPDU",
+      Config::ConnectFailSafe (basePath.str () + "/Srb1/LteRlc/RxPDU",
            MakeBoundCallback (&UlRxPduCallback, arg));
-      Config::Connect (basePath.str () + "/Srb1/LteRlc/TxPDU",
+      Config::ConnectFailSafe (basePath.str () + "/Srb1/LteRlc/TxPDU",
            MakeBoundCallback (&DlTxPduCallback, arg));
     }
   if (m_pdcpStats)
@@ -928,9 +928,9 @@ MmWaveBearerStatsConnector::ConnectSrb1TracesEnb (std::string context, uint64_t 
       arg->imsi = imsi;
       arg->cellId = cellId;
       arg->stats = m_pdcpStats;
-      Config::Connect (basePath.str () + "/Srb1/LtePdcp/TxPDU",
+      Config::ConnectFailSafe (basePath.str () + "/Srb1/LtePdcp/TxPDU",
            MakeBoundCallback (&DlTxPduCallback, arg));
-      Config::Connect (basePath.str () + "/Srb1/LtePdcp/RxPDU",
+      Config::ConnectFailSafe (basePath.str () + "/Srb1/LtePdcp/RxPDU",
            MakeBoundCallback (&UlRxPduCallback, arg));
     }
 }

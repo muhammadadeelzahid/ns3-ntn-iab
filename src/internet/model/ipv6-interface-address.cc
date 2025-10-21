@@ -35,6 +35,7 @@ Ipv6InterfaceAddress::Ipv6InterfaceAddress ()
     m_prefix (Ipv6Prefix ()),
     m_state (TENTATIVE_OPTIMISTIC),
     m_scope (HOST),
+    m_onLink (true),
     m_nsDadUid (0)
 {
   NS_LOG_FUNCTION (this);
@@ -46,6 +47,7 @@ Ipv6InterfaceAddress::Ipv6InterfaceAddress (Ipv6Address address)
   m_prefix = Ipv6Prefix (64);
   SetAddress (address);
   SetState (TENTATIVE_OPTIMISTIC);
+  m_onLink = true;
   m_nsDadUid = 0;
 }
 
@@ -55,6 +57,17 @@ Ipv6InterfaceAddress::Ipv6InterfaceAddress (Ipv6Address address, Ipv6Prefix pref
   m_prefix = prefix;
   SetAddress (address);
   SetState (TENTATIVE_OPTIMISTIC);
+  m_onLink = true;
+  m_nsDadUid = 0;
+}
+
+Ipv6InterfaceAddress::Ipv6InterfaceAddress (Ipv6Address address, Ipv6Prefix prefix, bool onLink)
+{
+  NS_LOG_FUNCTION (this << address << prefix << onLink);
+  m_prefix = prefix;
+  SetAddress (address);
+  SetState (TENTATIVE_OPTIMISTIC);
+  m_onLink = onLink;
   m_nsDadUid = 0;
 }
 
@@ -63,18 +76,19 @@ Ipv6InterfaceAddress::Ipv6InterfaceAddress (const Ipv6InterfaceAddress& o)
     m_prefix (o.m_prefix),
     m_state (o.m_state),
     m_scope (o.m_scope),
+    m_onLink (o.m_onLink),
     m_nsDadUid (o.m_nsDadUid)
 {
 }
 
 Ipv6InterfaceAddress::~Ipv6InterfaceAddress ()
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 }
 
 Ipv6Address Ipv6InterfaceAddress::GetAddress () const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_address;
 }
 
@@ -109,7 +123,7 @@ void Ipv6InterfaceAddress::SetAddress (Ipv6Address address)
 
 Ipv6Prefix Ipv6InterfaceAddress::GetPrefix () const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_prefix;
 }
 
@@ -121,7 +135,7 @@ void Ipv6InterfaceAddress::SetState (Ipv6InterfaceAddress::State_e state)
 
 Ipv6InterfaceAddress::State_e Ipv6InterfaceAddress::GetState () const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_state;
 }
 
@@ -133,13 +147,13 @@ void Ipv6InterfaceAddress::SetScope (Ipv6InterfaceAddress::Scope_e scope)
 
 Ipv6InterfaceAddress::Scope_e Ipv6InterfaceAddress::GetScope () const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_scope;
 }
 
 bool Ipv6InterfaceAddress::IsInSameSubnet (Ipv6Address b) const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
 
   Ipv6Address aAddr = m_address;
   aAddr = aAddr.CombinePrefix (m_prefix);
@@ -183,7 +197,7 @@ std::ostream& operator<< (std::ostream& os, const Ipv6InterfaceAddress &addr)
 
 uint32_t Ipv6InterfaceAddress::GetNsDadUid () const
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   return m_nsDadUid;
 }
 
@@ -191,6 +205,18 @@ void Ipv6InterfaceAddress::SetNsDadUid (uint32_t nsDadUid)
 {
   NS_LOG_FUNCTION (this << nsDadUid);
   m_nsDadUid = nsDadUid;
+}
+
+bool Ipv6InterfaceAddress::GetOnLink () const
+{
+  NS_LOG_FUNCTION (this);
+  return m_onLink;
+}
+
+void Ipv6InterfaceAddress::SetOnLink (bool onLink)
+{
+  NS_LOG_FUNCTION (this << onLink);
+  m_onLink = onLink;
 }
 
 #if 0
@@ -205,7 +231,7 @@ void Ipv6InterfaceAddress::StartDadTimer (Ptr<Ipv6Interface> interface)
 
 void Ipv6InterfaceAddress::StopDadTimer ()
 {
-  NS_LOG_FUNCTION_NOARGS ();
+  NS_LOG_FUNCTION (this);
   m_dadTimer.Cancel ();
   Simulator::Cancel (m_dadId);
 }

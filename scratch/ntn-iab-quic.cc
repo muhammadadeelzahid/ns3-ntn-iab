@@ -329,8 +329,8 @@ main (int argc, char *argv[])
   uint32_t numRelays = 0;
   uint32_t rlcBufSize = 10;
   uint32_t interPacketInterval = 10000; 
-  uint32_t packetSize = 1200; //bytes // according to IETF, min size should be 1280 bytes
-  uint32_t maxPackets = 5000;
+  uint32_t packetSize = 800; //bytes // according to IETF, min size should be 1280 bytes
+  uint32_t maxPackets = 10000;
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
@@ -398,12 +398,12 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(maxPackets));
   Config::SetDefault("ns3::QuicClient::Interval", TimeValue(MicroSeconds(interPacketInterval)));
   
-  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(10048576));             // 1MB connection limit (RFC 9000)
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(1048576));       // 1MB per stream (RFC 9000)
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdBidi", UintegerValue(100));         // 100 bidirectional streams (RFC 9000)
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdUni", UintegerValue(100));          // 100 unidirectional streams (RFC 9000)
+  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(1048576));
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(1048576));
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdBidi", UintegerValue(100));
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdUni", UintegerValue(100));
   
-  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30)));         // 30 seconds (RFC 9000 typical)
+  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30)));
   
   Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(1)); // Lower reordering threshold for faster ACK
   Config::SetDefault("ns3::QuicSocketBase::kMaxTLPs", UintegerValue(2));                  // Max tail loss probes (2)
@@ -414,11 +414,11 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333))); // 333ms (RFC 9000 Section 6.2.2)
   
   // Additional QUIC configurations to improve connection establishment
-  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(65535)); // Large initial ssthresh
-  Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(1200)); // Larger initial packet size
-  Config::SetDefault("ns3::QuicSocketBase::MaxPacketSize", UintegerValue(1500)); // Larger max packet size
-  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(1048576)); // 1MB send buffer
-  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(1048576)); // 1MB receive buffer
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(65535));
+  Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(1200));
+  Config::SetDefault("ns3::QuicSocketBase::MaxPacketSize", UintegerValue(1500));
+  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(1048576));
+  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(1048576));
   
   
   // Enable multi-beam functionality

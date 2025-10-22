@@ -236,8 +236,6 @@ QuicL4Protocol::UdpBind (const Address &address, Ptr<QuicSocketBase> socket)
             {
               Ptr<Socket> udpSocket = CreateUdpSocket ();
               res = udpSocket->Bind (address);
-              NS_LOG_UNCOND ("UdpBind(v4): bind local to peer-param address=" << InetSocketAddress::ConvertFrom(address)
-                          << " result=" << res);
               item->m_budpSocket = udpSocket;
               break;
             }
@@ -255,8 +253,6 @@ QuicL4Protocol::UdpBind (const Address &address, Ptr<QuicSocketBase> socket)
             {
               Ptr<Socket> udpSocket6 = CreateUdpSocket ();
               res = udpSocket6->Bind (address);
-              NS_LOG_UNCOND ("UdpBind(v6): bind local to peer-param address=" << Inet6SocketAddress::ConvertFrom(address)
-                          << " result=" << res);
               item->m_budpSocket6 = udpSocket6;
               break;
             }
@@ -284,9 +280,6 @@ QuicL4Protocol::UdpConnect (const Address & address, Ptr<QuicSocketBase> socket)
               int cres = item->m_budpSocket->Connect (address);
               Address local;
               item->m_budpSocket->GetSockName(local);
-              NS_LOG_UNCOND ("UdpConnect(v4): local=" << InetSocketAddress::ConvertFrom(local)
-                           << " peer=" << InetSocketAddress::ConvertFrom(address)
-                           << " result=" << cres);
               return cres;
             }
         }
@@ -461,24 +454,8 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
 
   while ((packet = sock->RecvFrom (from)))
     {
-      NS_LOG_UNCOND ("Receiving packet on UDP socket");
-
       QuicHeader header;
       packet->RemoveHeader (header);
-      NS_LOG_UNCOND("Recv pkt pn=" << header.GetPacketNumber () 
-                <<" pathId: "<<header.GetPathId());
-      //  std::cout<<this<< " Recv pkt " << header.GetPacketNumber () 
-      //           <<" pathId: "<<header.GetPathId()
-      //           << " recv seq " << header.GetSeq () 
-      //           << " data size " << packet->GetSize () 
-      //           <<"\n";
-
-      // if (IsServer()){
-      //   std::cout<<"recv\t"
-      //           << (int)header.GetPathId() <<"\t"
-      //           << header.GetPacketNumber () <<"\t"
-      //           << Simulator::Now().GetSeconds()<< std::endl;
-      // }
 
       uint64_t connectionId;
       if (header.HasConnectionId ())

@@ -31,6 +31,7 @@
 #include "ns3/packet.h"
 #include "ns3/node.h"
 #include "ns3/simulator.h"
+#include <iomanip>
 // #include "ns3/ipv4-route.h"
 // #include "ns3/ipv6-route.h"
 
@@ -328,32 +329,84 @@ QuicL5Protocol::DisgregateSend (Ptr<Packet> data)
 
   uint32_t dataSizeByte = data->GetSize ();
   std::vector< Ptr<Packet> > disgregated;
-  //data->Print(std::cout);
 
   // Equally distribute load on all streams except on stream 0
   uint32_t loadPerStream = dataSizeByte / (m_streams.size () - 1);
   uint32_t remainingLoad = dataSizeByte - loadPerStream * (m_streams.size () - 1);
+  
   if (loadPerStream < 1)
     {
       loadPerStream = 1;
     }
-
+  
   for (uint32_t start = 0; start < dataSizeByte; start += loadPerStream)
     {
+      if (start >= dataSizeByte)
+      {
+        NS_LOG_UNCOND("[QUIC L5] Boundary check: Start (" << start << ") >= dataSizeByte (" << dataSizeByte << "), stopping fragmentation");
+        break;
+      }
+      
+      // Calculate actual fragment length based on remaining data
+      uint32_t actualFragmentLength;
+      
       if (remainingLoad > 0 && start + remainingLoad == dataSizeByte)
         {
-          Ptr<Packet> remainingfragment = data->CreateFragment (
-            start, remainingLoad);
-          disgregated.push_back (remainingfragment);
+          actualFragmentLength = remainingLoad;
         }
       else
         {
-          Ptr<Packet> fragment = data->CreateFragment (start, loadPerStream);
-          disgregated.push_back (fragment);
+          // Calculate how much data is actually available from this start position
+          uint32_t availableBytes = dataSizeByte - start;
+          actualFragmentLength = std::min(loadPerStream, availableBytes);
         }
-
+      
+      // Create the fragment with the calculated length
+      Ptr<Packet> fragment = data->CreateFragment (start, actualFragmentLength);
+      
+      // Safety check: ensure fragment was created successfully
+      if (fragment == nullptr)
+      {
+        break;
+      }
+      
+      disgregated.push_back (fragment);
+      
+      // If this was the last possible fragment, break
+      if (start + actualFragmentLength >= dataSizeByte)
+      {
+        NS_LOG_DEBUG("Reached end of packet data, stopping fragmentation");
+        break;
+      }
     }
+  
+  if (disgregated.empty())
+  {
+    NS_LOG_DEBUG("No fragments created! Creating single fragment with all data");
+    Ptr<Packet> singleFragment = data->CreateFragment(0, dataSizeByte);
+    if (singleFragment != nullptr)
+    {
+      disgregated.push_back(singleFragment);
+      NS_LOG_DEBUG("Created single fragment with size: " << singleFragment->GetSize());
+    }
+    else
+    {
+      NS_LOG_DEBUG("Failed to create single fragment!");
+    }
+  }
+    
+  // Verify total size of fragments matches original
+  uint32_t totalFragmentSize = 0;
+  for (uint32_t i = 0; i < disgregated.size(); i++)
+  {
+    totalFragmentSize += disgregated[i]->GetSize();
+  } 
 
+  if (totalFragmentSize != dataSizeByte)
+  {
+    NS_LOG_DEBUG("Size mismatch detected!");
+  }
+  
   return disgregated;
 }
 

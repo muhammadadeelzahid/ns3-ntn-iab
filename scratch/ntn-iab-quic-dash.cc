@@ -188,12 +188,19 @@ void DashServerRxTrace(Ptr<const Packet> packet, const Address& from)
 // QUIC Socket Base Tx callback
 void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
-  std::cout << "QUIC SOCKET TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
+  NS_LOG_UNCOND("QuicSocketTxCallback Time: " << Simulator::Now().GetSeconds() 
+            << "s, Packet size: " << packet->GetSize() 
+            << " bytes, packet_number: " << header.GetPacketNumber());
+  
+  // Log detailed packet information
+  NS_LOG_UNCOND("QuicSocketTxCallback Packet details - Size: " << packet->GetSize() 
+            << ", Header size: " << header.GetSerializedSize()
+            << ", Payload size: " << (packet->GetSize() - header.GetSerializedSize()));
+  
   if (!quicTxFile.is_open())
   {
     quicTxFile.open("quic_socket_tx.txt", std::ios::out);
-    std::cout << "QUIC SOCKET TX file opened" << std::endl;
+    NS_LOG_UNCOND("QUIC SOCKET TX file opened");
   }
   DumpPacketHex(quicTxFile, packet, "QUIC_SOCKET_TX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
   quicTxFile.flush();
@@ -202,12 +209,19 @@ void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Pt
 // QUIC Socket Base Rx callback
 void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
-  std::cout << "QUIC SOCKET RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber() << std::endl;
+  NS_LOG_UNCOND("QuicSocketRxCallback Time: " << Simulator::Now().GetSeconds() 
+            << "s, Packet size: " << packet->GetSize() 
+            << " bytes, packet_number: " << header.GetPacketNumber());
+  
+  // Log detailed packet information
+  NS_LOG_UNCOND("QuicSocketRxCallback Packet details - Size: " << packet->GetSize() 
+            << ", Header size: " << header.GetSerializedSize()
+            << ", Payload size: " << (packet->GetSize() - header.GetSerializedSize()));
+  
   if (!quicRxFile.is_open())
   {
     quicRxFile.open("quic_socket_rx.txt", std::ios::out);
-    std::cout << "QUIC SOCKET RX file opened" << std::endl;
+    NS_LOG_UNCOND("QUIC SOCKET RX file opened");
   }
   DumpPacketHex(quicRxFile, packet, "QUIC_SOCKET_RX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
   quicRxFile.flush();
@@ -283,11 +297,18 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart)
 
 void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
-  std::cout << "UDP L4 TX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
+  NS_LOG_UNCOND("UdpL4TxCallback Time: " << Simulator::Now().GetSeconds() 
+            << "s, Packet size: " << packet->GetSize() 
+            << " bytes, Interface: " << interface);
+  
+  // Log packet buffer state before processing
+  NS_LOG_UNCOND("UdpL4TxCallback Packet buffer state - Size: " << packet->GetSize() 
+            << ", Available: " << packet->GetSize());
+  
   if (!udpL4TxFile.is_open())
   {
     udpL4TxFile.open("udp_l4_tx.txt", std::ios::out);
-    std::cout << "UDP L4 TX file opened" << std::endl;
+    NS_LOG_UNCOND("UDP L4 TX file opened");
   }
   DumpPacketHex(udpL4TxFile, packet, "UDP_L4_TX Interface=" + std::to_string(interface));
   udpL4TxFile.flush();
@@ -295,11 +316,18 @@ void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interfac
 
 void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
-  std::cout << "UDP L4 RX CALLBACK TRIGGERED! Packet size: " << packet->GetSize() << " bytes" << std::endl;
+  NS_LOG_UNCOND("UdpL4RxCallback Time: " << Simulator::Now().GetSeconds() 
+            << "s, Packet size: " << packet->GetSize() 
+            << " bytes, Interface: " << interface);
+  
+  // Log packet buffer state before processing
+  NS_LOG_UNCOND("UdpL4RxCallback Packet buffer state - Size: " << packet->GetSize() 
+            << ", Available: " << packet->GetSize());
+  
   if (!udpL4RxFile.is_open())
   {
     udpL4RxFile.open("udp_l4_rx.txt", std::ios::out);
-    std::cout << "UDP L4 RX file opened" << std::endl;
+    NS_LOG_UNCOND("UDP L4 RX file opened");
   }
   DumpPacketHex(udpL4RxFile, packet, "UDP_L4_RX Interface=" + std::to_string(interface));
   udpL4RxFile.flush();
@@ -368,7 +396,18 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 }
 
 void PacketDropCallback(Ptr<const Packet> packet) {
-  std::cout << "Packet dropped at " << Simulator::Now().GetSeconds() << "s" << std::endl;
+  NS_LOG_UNCOND("PacketDropCallback Time: " << Simulator::Now().GetSeconds() 
+            << "s, Packet size: " << packet->GetSize() << " bytes");
+}
+
+// Custom packet trace callback to track buffer operations
+void PacketBufferTraceCallback(Ptr<const Packet> packet) {
+  NS_LOG_UNCOND("PacketBufferTraceCallback Time: " << Simulator::Now().GetSeconds() 
+            << "s, Packet size: " << packet->GetSize() << " bytes");
+  
+  // Log detailed buffer information
+  NS_LOG_UNCOND("PacketBufferTraceCallback Buffer details - Size: " << packet->GetSize() 
+            << ", Available: " << packet->GetSize());
 }
 
 int
@@ -381,8 +420,16 @@ main (int argc, char *argv[])
   LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
   
   // Enable QUIC socket logging to see connection events and data flow
-  LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);  // LOG_LEVEL_INFO to see data sending issues
-  LogComponentEnable("QuicL4Protocol", LOG_LEVEL_INFO);  // LOG_LEVEL_INFO to see packet flow
+  LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
+  LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
+  LogComponentEnable("QuicL5Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
+  LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see stream operations
+  LogComponentEnable("QuicStream", LOG_LEVEL_ALL);      // LOG_LEVEL_ALL to see stream data handling
+  
+  // Enable packet-level logging for debugging
+  LogComponentEnable("Packet", LOG_LEVEL_DEBUG);        // LOG_LEVEL_DEBUG to see packet operations
+  LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);     // LOG_LEVEL_DEBUG to see UDP operations
+  LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
   
   // Enable QUIC logging (safe - no wildcard traces that cause crash)
   // LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
@@ -542,15 +589,14 @@ main (int argc, char *argv[])
   uint32_t numRelays = 0;
   uint32_t numUes = 1;  // Number of UE nodes/users
   uint32_t rlcBufSize = 10;
-  uint32_t interPacketInterval = 5;
-  uint32_t throughput = 200;
-  uint32_t packetSize = 1400; //bytes
+  uint32_t interPacketInterval = 10000; 
+  uint32_t packetSize = 1500; //bytes // Increased to accommodate DASH frames
+  uint32_t maxPackets = 5000;
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
   cmd.AddValue("numUes", "Number of UE nodes/users", numUes);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
-  cmd.AddValue("throughput", "throughput [mbps]", throughput);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
   cmd.Parse(argc, argv);
 
@@ -611,9 +657,31 @@ main (int argc, char *argv[])
   
   // QUIC-specific configuration
   Config::SetDefault("ns3::QuicClient::PacketSize", UintegerValue(packetSize));
-  Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(500));
+  Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(maxPackets));
   Config::SetDefault("ns3::QuicClient::Interval", TimeValue(MicroSeconds(interPacketInterval)));
   
+  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(10048576));             // 1MB connection limit (RFC 9000)
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(1048576));       // 1MB per stream (RFC 9000)
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdBidi", UintegerValue(100));         // 100 bidirectional streams (RFC 9000)
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdUni", UintegerValue(100));          // 100 unidirectional streams (RFC 9000)
+  
+  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30)));         // 30 seconds (RFC 9000 typical)
+  
+  Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(1)); // Lower reordering threshold for faster ACK
+  Config::SetDefault("ns3::QuicSocketBase::kMaxTLPs", UintegerValue(2));                  // Max tail loss probes (2)
+  Config::SetDefault("ns3::QuicSocketBase::kMinTLPTimeout", TimeValue(MilliSeconds(10))); // Min TLP timeout (10ms)
+  Config::SetDefault("ns3::QuicSocketBase::kMinRTOTimeout", TimeValue(MilliSeconds(200))); // Min RTO timeout (200ms)
+  Config::SetDefault("ns3::QuicSocketBase::kDelayedAckTimeout", TimeValue(MilliSeconds(5))); // Reduced ACK delay timeout (5ms)
+  
+  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333))); // 333ms (RFC 9000 Section 6.2.2)
+  
+  // Additional QUIC configurations to improve connection establishment
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(10)); // Conservative initial threshold for DASH
+  Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(1500)); // Increased for DASH frames
+  Config::SetDefault("ns3::QuicSocketBase::MaxPacketSize", UintegerValue(2000)); // Increased to accommodate multiple DASH frames
+  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(1048576)); // 1MB send buffer (matches DASH bufferSpace)
+  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(1048576)); // 1MB receive buffer (matches DASH bufferSpace)
+
   // Enable multi-beam functionality
 //  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
@@ -642,7 +710,7 @@ main (int argc, char *argv[])
   inputConfig.ConfigureDefaults();
   // parse again so you can override default values from the command line
   cmd.Parse(argc, argv);
-  NS_LOG_UNCOND("Throughput: "<<throughput<<" Inter-packet interval: "<<interPacketInterval);
+  NS_LOG_UNCOND("Inter-packet interval: "<<interPacketInterval<<" us, Packet size: "<<packetSize<<" bytes");
  
   Ptr<Node> pgw = epcHelper->GetPgwNode ();
   // Create a single RemoteHost
@@ -653,10 +721,9 @@ main (int argc, char *argv[])
   // Install QUIC stack on remote host (instead of Internet stack)
   QuicHelper quicHelper;
 
-  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 25));  // 32 MB
-  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 25));  // 32 MB
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 25));  // 32 MB
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 25));  // 32 MB
+  // QUIC stream buffer configuration - aligned with DASH buffer space
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1048576));  // 1MB (matches DASH bufferSpace)
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1048576));  // 1MB (matches DASH bufferSpace)
  
   quicHelper.InstallQuic (remoteHostContainer);
   // Create the Internet
@@ -857,9 +924,9 @@ main (int argc, char *argv[])
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   
-  // DASH over QUIC configuration
+  // DASH over QUIC configuration - aligned with QUIC packet size limits
   double target_dt = 0.1;  // Target buffering time
-  uint32_t bufferSpace = 20000000;  // 20 MB buffer
+  uint32_t bufferSpace = 1048576;  // 1MB buffer (matches QUIC socket buffer size)
   std::string window = "1s";  // Throughput measurement window
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
@@ -996,6 +1063,48 @@ main (int argc, char *argv[])
     uint32_t nodeId = ueNodes.Get(u)->GetId();
     Simulator::Schedule(clientTraceTime + Seconds(u * 0.1), &Traces, nodeId, "./client", ".txt");
     NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (client) at t=" << (clientTraceTime + Seconds(u * 0.1)).GetSeconds() << "s");
+  }
+  
+  // Add QUIC socket callback connections for debugging
+  NS_LOG_UNCOND("\n=== Adding QUIC Socket Callback Connections ===");
+  
+  // Connect QUIC socket callbacks for all nodes
+  for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
+  {
+    Ptr<Node> node = *it;
+    uint32_t nodeId = node->GetId();
+    
+    // Connect QUIC socket Tx/Rx traces
+    std::ostringstream quicTxPath;
+    quicTxPath << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Tx";
+    Config::ConnectWithoutContextFailSafe(quicTxPath.str(), MakeCallback(&QuicSocketTxCallback));
+    
+    std::ostringstream quicRxPath;
+    quicRxPath << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
+    Config::ConnectWithoutContextFailSafe(quicRxPath.str(), MakeCallback(&QuicSocketRxCallback));
+    
+    NS_LOG_UNCOND("  Added QUIC socket traces for Node " << nodeId);
+  }
+  
+  // Add packet buffer monitoring traces
+  NS_LOG_UNCOND("\n=== Adding Packet Buffer Monitoring Traces ===");
+  
+  // Monitor packet operations on all nodes
+  for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
+  {
+    Ptr<Node> node = *it;
+    uint32_t nodeId = node->GetId();
+    
+    // Connect packet traces for debugging
+    std::ostringstream packetTxPath;
+    packetTxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Tx";
+    Config::ConnectWithoutContextFailSafe(packetTxPath.str(), MakeCallback(&PacketBufferTraceCallback));
+    
+    std::ostringstream packetRxPath;
+    packetRxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Rx";
+    Config::ConnectWithoutContextFailSafe(packetRxPath.str(), MakeCallback(&PacketBufferTraceCallback));
+    
+    NS_LOG_UNCOND("  Added packet buffer traces for Node " << nodeId);
   }
     
   std::string tracePrefix = "ntn_iab_quic_dash";  // Keep variable for log statements

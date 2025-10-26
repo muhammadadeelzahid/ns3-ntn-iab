@@ -30,6 +30,7 @@
  *                 Integrating NTNs & Multilayer support with IAB and quic derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn and signetlabdei/ns3-mmwave-hbf and signetlabdei/quic-ns-3
  *                  
  */
+#include <cstdint>
 #include <ns3/buildings-module.h>
 #include "ns3/log.h"
 #include "ns3/mmwave-helper.h"
@@ -173,19 +174,19 @@ main (int argc, char *argv[])
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
 
   // Enable QUIC logs to investigate packet flow stopping
-  LogComponentEnable("QuicClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see client sending issues
-  LogComponentEnable("QuicServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see server reception issues
-  LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see socket state changes
-  LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see protocol layer issues
-  LogComponentEnable("QuicL5Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see application layer issues
-  LogComponentEnable("QuicStreamBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see stream-specific issues
+  LogComponentEnable("QuicClient",  (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicServer",  (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSocketBase",  (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicL4Protocol",  (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicL5Protocol",  (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicStreamBase",  (LOG_LEVEL_ALL));
 
-  LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  LogComponentEnable("QuicStreamTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicStream", (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicStreamTxBuffer", (LOG_LEVEL_ALL));
   LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  LogComponentEnable("QuicSocketTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  LogComponentEnable("QuicSocketRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  LogComponentEnable("QuicSocket",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see socket-level issues
+  LogComponentEnable("QuicSocketTxBuffer", (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSocketRxBuffer", (LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSocket",  (LOG_LEVEL_ALL));
 
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
@@ -301,9 +302,11 @@ main (int argc, char *argv[])
   bool rlcAm = false;
   uint32_t numRelays = 0;
   uint32_t rlcBufSize = 10;
-  uint32_t interPacketInterval = 10000; 
-  uint32_t packetSize = 800; //bytes // according to IETF, min size should be 1280 bytes
-  uint32_t maxPackets = 10000;
+  uint32_t interPacketInterval = 1000; 
+  uint32_t packetSize = 1400; //bytes // according to IETF, min size should be 1280 bytes
+  int endDataTime = 60;
+  uint32_t maxPackets = endDataTime/(interPacketInterval/1000000.0);
+  NS_LOG_UNCOND("Max packets: " << maxPackets);
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
@@ -371,23 +374,26 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(maxPackets));
   Config::SetDefault("ns3::QuicClient::Interval", TimeValue(MicroSeconds(interPacketInterval)));
   
-  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(1048576));
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(1048576));
+  // RFC 9000 compliant flow control parameters (adjusted for high-throughput NTN scenarios)
+  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(104857600)); // 100MB 
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(10485760)); // 10MB per stream
   Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdBidi", UintegerValue(100));
   Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdUni", UintegerValue(100));
   
   Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30)));
   
-  Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(1)); // Lower reordering threshold for faster ACK
-  Config::SetDefault("ns3::QuicSocketBase::kMaxTLPs", UintegerValue(2));                  // Max tail loss probes (2)
-  Config::SetDefault("ns3::QuicSocketBase::kMinTLPTimeout", TimeValue(MilliSeconds(10))); // Min TLP timeout (10ms)
-  Config::SetDefault("ns3::QuicSocketBase::kMinRTOTimeout", TimeValue(MilliSeconds(200))); // Min RTO timeout (200ms)
-  Config::SetDefault("ns3::QuicSocketBase::kDelayedAckTimeout", TimeValue(MilliSeconds(5))); // Reduced ACK delay timeout (5ms)
+  // RFC 9002 compliant loss recovery parameters
   
-  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333))); // 333ms (RFC 9000 Section 6.2.2)
+  Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(3)); // RFC 9002 Section 6.1.1 (packet threshold)
+  Config::SetDefault("ns3::QuicSocketBase::kTimeReorderingFraction", DoubleValue(9.0/8.0)); // RFC 9002 Section 6.1.2 (time threshold)
+  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333))); // RFC 9002 Section 6.2.2
   
-  // Additional QUIC configurations to improve connection establishment
-  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(65535));
+  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(3)); // RFC 9000 Section 18.2 (default)
+  // QUIC Congestion Control Configuration
+  Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
+  Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(false)); // Use QUIC-specific congestion control  
+  
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(INT32_MAX));
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(1200));
   Config::SetDefault("ns3::QuicSocketBase::MaxPacketSize", UintegerValue(1500));
   Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(1048576));
@@ -692,23 +698,23 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("=======================\n");
     
   mmwaveHelper->EnableTraces ();
-  serverApps.Start (Seconds (0.2));
-  clientApps.Start (Seconds (0.3));
-  clientApps.Stop (Seconds (10.0));
-  serverApps.Stop (Seconds (10.0));
+  serverApps.Start (Seconds (0.1));
+  clientApps.Start (Seconds (0.2));
+  clientApps.Stop (Seconds (60.0));
+  serverApps.Stop (Seconds (61.0));
   
   // Schedule trace connections for each UE (server) and remote host (client)
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
     Ptr<Node> ueNode = ueNodes.Get (u);
-    Time t = Seconds(0.31);
+    Time t = Seconds(0.21);
     Simulator::Schedule (t, &Traces, ueNode->GetId(), 
           "./server", ".txt");
     Simulator::Schedule (t, &Traces, remoteHost->GetId(), 
           "./client", ".txt");
   }
 
-  Simulator::Stop (Seconds (10.2));
+  Simulator::Stop (Seconds (62));
   
   Simulator::Run();
   /*GtkConfigStore config;

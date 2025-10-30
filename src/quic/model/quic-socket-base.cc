@@ -429,6 +429,7 @@ QuicSocketState::QuicSocketState ()
       MilliSeconds (333)),                // 333ms default (IETF RFC 9000)
     m_kMaxPacketsReceivedBeforeAckSend (20)
 {
+  m_initialCWnd = 10 * m_segmentSize;
   m_lossDetectionAlarm.Cancel ();
 }
 
@@ -475,6 +476,7 @@ QuicSocketState::QuicSocketState (const QuicSocketState &other)
       other.m_kDefaultInitialRtt),
     m_kMaxPacketsReceivedBeforeAckSend (other.m_kMaxPacketsReceivedBeforeAckSend)
 {
+  m_initialCWnd = 10 * m_segmentSize;
   m_lossDetectionAlarm.Cancel ();
 }
 
@@ -1291,6 +1293,7 @@ QuicSocketBase::SendDataPacket (SequenceNumber32 packetNumber, uint32_t maxSize,
   else
     {
       NS_LOG_LOGIC (this << " SendDataPacket - sending packet " << packetNumber.GetValue () << " of size " << maxSize << " at time " << Simulator::Now ().GetSeconds ());
+      m_idleTimeoutEvent.Cancel ();
       m_idleTimeoutEvent = Simulator::Schedule (m_idleTimeout, &QuicSocketBase::Close, this);
       p = m_txBuffer->NextSequence (maxSize, packetNumber, pathId);
     }

@@ -99,7 +99,7 @@ MpQuicSubFlow::SetSegSize (uint32_t size)
   NS_LOG_FUNCTION (this << size);
 
   m_tcb->m_segmentSize = size;
-  m_tcb->m_initialCWnd = 2 * size;
+  m_tcb->m_initialCWnd = 10 * size;
   m_tcb->m_kMinimumWindow = 2 * size;
 }
 

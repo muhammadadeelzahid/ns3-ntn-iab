@@ -333,6 +333,10 @@ QuicSocketBase::GetTypeId (void)
                      "Receive QUIC packet from UDP protocol",
                      MakeTraceSourceAccessor (&QuicSocketBase::m_rxTrace),
                      "ns3::QuicSocketBase::QuicTxRxTracedCallback")
+    .AddTraceSource ("PacketLoss",
+                     "QUIC packet loss detection (packetNumber, packetSize, pathId)",
+                     MakeTraceSourceAccessor (&QuicSocketBase::m_packetLossTrace),
+                     "ns3::QuicSocketBase::PacketLossTracedCallback")
     
   ;
   return tid;
@@ -527,7 +531,8 @@ QuicSocketBase::QuicSocketBase (void)
     m_enableMultipath(false),
     m_pathManager(0),
     m_scheduler (0),
-    m_subflows (0)
+    m_subflows (0),
+    m_appCloseSentListNoEmpty (false)
 {
   NS_LOG_FUNCTION (this);
 
@@ -601,7 +606,8 @@ QuicSocketBase::QuicSocketBase (const QuicSocketBase& sock)   // Copy constructo
     m_enableMultipath(sock.m_enableMultipath),
     m_pathManager(sock.m_pathManager),
     m_scheduler (sock.m_scheduler),
-    m_subflows (sock.m_subflows)
+    m_subflows (sock.m_subflows),
+    m_appCloseSentListNoEmpty (sock.m_appCloseSentListNoEmpty)
 {
   NS_LOG_FUNCTION (this);
 
@@ -1484,6 +1490,15 @@ QuicSocketBase::DoRetransmit (std::vector<Ptr<QuicSocketTxItem> > lostPackets, u
                                << " BufferedSize " << m_txBuffer->AppSize ()
                                << " MaxPacketSize " << GetSegSize ());
 
+  if (toRetx > 0 && !lostPackets.empty())
+  {
+    // Use the first lost packet from the list (the one being retransmitted)
+    Ptr<QuicSocketTxItem> lostPkt = lostPackets[0];
+    m_packetLossTrace (lostPkt->m_packetNumber.GetValue (), 
+                       lostPkt->m_packet->GetSize (), 
+                       pathId);
+  }
+
   // Send the retransmitted data
   NS_LOG_INFO ("Retransmitted packet, next sequence number " << m_subflows[pathId]->m_tcb->m_nextTxSequence);
   SendDataPacket (next, toRetx, m_connected,pathId);
@@ -1697,7 +1712,12 @@ QuicSocketBase::Close (void)
   if (m_idleTimeoutEvent.IsRunning () and m_socketState != IDLE
       and m_socketState != CLOSING)   //Connection Close from application signal
     {
-      if(!m_txBuffer->SentListIsEmpty()) {
+      NS_LOG_DEBUG ("Application close signal detected - checking sent list");
+      bool sentListEmpty = m_txBuffer->SentListIsEmpty();
+      NS_LOG_DEBUG ("SentListIsEmpty() returned: " << sentListEmpty);
+      
+      if(!sentListEmpty) {
+        NS_LOG_DEBUG ("Sent list NOT empty - setting m_appCloseSentListNoEmpty = true");
         m_appCloseSentListNoEmpty = true;
       } else {
         m_appCloseSentListNoEmpty = false;
@@ -2340,7 +2360,14 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
   // Find lost packets
   std::vector<Ptr<QuicSocketTxItem> > lostPackets = m_txBuffer->DetectLostPackets (pathId);
 
-  if (m_appCloseSentListNoEmpty && m_txBuffer->SentListIsEmpty()){
+  NS_LOG_UNCOND ("[TEMP_LOGS] Checking close condition after ACK processing:");
+  NS_LOG_UNCOND ("[TEMP_LOGS] m_appCloseSentListNoEmpty = " << m_appCloseSentListNoEmpty);
+  bool sentListEmpty = m_txBuffer->SentListIsEmpty();
+  NS_LOG_UNCOND ("[TEMP_LOGS] SentListIsEmpty() = " << sentListEmpty);
+  NS_LOG_UNCOND ("[TEMP_LOGS] Close condition: " << m_appCloseSentListNoEmpty << " && " << sentListEmpty << " = " << (m_appCloseSentListNoEmpty && sentListEmpty));
+
+  if (m_appCloseSentListNoEmpty && sentListEmpty){
+    NS_LOG_UNCOND ("[TEMP_LOGS] *** TRIGGERING CLOSE *** - All packets ACKed, closing connection");
     Close();
   }
 

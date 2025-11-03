@@ -1341,6 +1341,8 @@ protected:
   TracedCallback<Ptr<const Packet>, const TcpHeader&,
                  Ptr<const TcpSocketBase> > m_rxTrace; //!< Trace of received packets
 
+  TracedCallback<uint32_t, uint32_t> m_packetLossTrace; //!< Trace of packet losses (seqNum, packetSize)
+
   // Pacing related variable
   Timer m_pacingTimer {Timer::CANCEL_ON_DESTROY}; //!< Pacing Event
 
@@ -1349,6 +1351,15 @@ protected:
   TracedValue<SequenceNumber32> m_ecnCESeq   {0};      //!< Sequence number of the last received Congestion Experienced
   TracedValue<SequenceNumber32> m_ecnCWRSeq  {0};      //!< Sequence number of the last sent CWR
 };
+
+/**
+ * \ingroup tcp
+ * TracedCallback signature for TCP packet loss
+ *
+ * \param [in] seqNum sequence number of the lost packet
+ * \param [in] packetSize size of the lost packet in bytes
+ */
+typedef void (* PacketLossTracedCallback)(uint32_t seqNum, uint32_t packetSize);
 
 /**
  * \ingroup tcp

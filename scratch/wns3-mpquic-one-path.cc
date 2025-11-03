@@ -40,10 +40,94 @@
 #include <iostream>
 #include "ns3/flow-monitor-module.h"
 #include "ns3/gnuplot.h"
+#include "ns3/quic-header.h"
+#include "ns3/quic-socket-base.h"
+#include <algorithm>
+#include <cctype>
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("wns3-mpquic-one-path");
+
+// Trace callbacks for CWND, RTT, and Rx data
+static void
+CwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
+}
+
+static void
+RttChange (Ptr<OutputStreamWrapper> stream, Time oldRtt, Time newRtt)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldRtt.GetSeconds () << "\t" << newRtt.GetSeconds () << std::endl;
+}
+
+static void
+Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, Ptr<const QuicSocketBase> qsb)
+{
+  uint32_t nodeId = qsb->GetNode()->GetId();
+  uint32_t packetSize = p->GetSize();
+  
+  // Log with node and packet information
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
+                       << "\tNode:" << nodeId << std::endl;
+}
+
+// Helper function to convert string to lowercase for case-insensitive comparison
+std::string toLowercase(const std::string& str) {
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+    return result;
+}
+
+// Helper function to get QUIC congestion control type from algorithm name
+int getQuicCcType(const std::string& ccName) {
+    std::string name = toLowercase(ccName);
+    
+    if (name == "newreno" || name == "quicnewreno") {
+        return QuicSocketBase::QuicNewReno;
+    } else if (name == "olia") {
+        return QuicSocketBase::OLIA;
+    } else {
+        NS_LOG_WARN("Unknown QUIC congestion control algorithm: " << ccName << ". Using QuicNewReno as default.");
+        return QuicSocketBase::QuicNewReno;
+    }
+}
+
+// Function to set up traces for a given node
+void
+Traces(uint32_t nodeId, std::string pathPrefix, std::string finalPart)
+{
+  AsciiTraceHelper asciiTraceHelper;
+
+  std::ostringstream pathCW;
+  pathCW << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/CongestionWindow";
+  NS_LOG_INFO("Matches cw " << Config::LookupMatches(pathCW.str().c_str()).GetN());
+
+  std::ostringstream fileCW;
+  fileCW << pathPrefix << "QUIC-cwnd-change" << nodeId << finalPart;
+
+  std::ostringstream pathRTT;
+  pathRTT << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RTT";
+
+  std::ostringstream fileRTT;
+  fileRTT << pathPrefix << "QUIC-rtt" << nodeId << finalPart;
+
+  std::ostringstream fileName;
+  fileName << pathPrefix << "QUIC-rx-data" << nodeId << finalPart;
+  std::ostringstream pathRx;
+  pathRx << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
+  NS_LOG_INFO("Matches rx " << Config::LookupMatches(pathRx.str().c_str()).GetN());
+
+  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
+  Config::ConnectWithoutContext (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
+
+  Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
+  Config::ConnectWithoutContext (pathCW.str ().c_str (), MakeBoundCallback(&CwndChange, stream1));
+
+  Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
+  Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
+}
 
 void ThroughputMonitor (FlowMonitorHelper *fmhelper, Ptr<FlowMonitor> flowMon, Ptr<OutputStreamWrapper> stream)
 {
@@ -69,25 +153,27 @@ main (int argc, char *argv[])
 {
     int schedulerType = MpQuicScheduler::PEEKABOO;
     
-    string myRandomNo = "5242880";
+    string myRandomNo = "52428800";
     string lossrate = "0.0000";
 
-    double rate0a = 5.0;
-    double rate1a = 10.0;
-    double delay0a = 50.0;
-    double delay1a = 10.0;
-    double rate0b = 5.0;
-    double rate1b = 10.0;
-    double delay0b = 50.0;
-    double delay1b = 10.0;    
+    double rate0a = 120.0;
+    double rate1a = 150.0;
+    double delay0a = 2.0;
+    double delay1a = 1.0;
+    double rate0b = 150.0;
+    double rate1b = 150.0;
+    double delay0b = 5.0;
+    double delay1b = 2.0;    
 
     int bVar = 2;
     int bLambda = 100;
     int mrate = 52428800;
-    int ccType = QuicSocketBase::OLIA;
+    std::string ccAlgorithm = "newreno";
     int mselect = 3;
     int seed = 1;
-    TypeId ccTypeId = MpQuicCongestionOps::GetTypeId ();
+    int ccType = QuicSocketBase::QuicNewReno;  // Will be set from ccAlgorithm
+    TypeId ccTypeId = QuicCongestionOps::GetTypeId ();  // Will be set based on ccType
+    double throughputMax = 0.0;  // Maximum achievable throughput (Mbps)
     CommandLine cmd;
 
 
@@ -107,8 +193,19 @@ main (int argc, char *argv[])
     cmd.AddValue ("Seed", "e.g. 80", seed);
     cmd.AddValue ("LossRate", "e.g. 0.0001", lossrate);
     cmd.AddValue ("Select", "e.g. 0.0001", mselect);
-    cmd.AddValue ("CcType", "in use congestion control type (0 - QuicNewReno, 1 - OLIA)", ccType);
+    cmd.AddValue ("CcAlgorithm", "Congestion control algorithm (newreno, olia) - case insensitive", ccAlgorithm);
+    cmd.AddValue ("Throughput", "Maximum achievable throughput in Mbps (e.g. 100)", throughputMax);
     cmd.Parse (argc, argv);
+    
+    // If throughputMax is specified, use it to set rate0a and rate0b
+    if (throughputMax > 0.0) {
+        rate0a = throughputMax;  // Set minimum to the specified throughput
+        rate0b = throughputMax;  // Set maximum to the specified throughput
+        NS_LOG_INFO("Throughput set to " << throughputMax << " Mbps. Rate range: " << rate0a << "-" << rate0b << " Mbps");
+    }
+
+    // Convert algorithm name to ccType after parsing command line
+    ccType = getQuicCcType(ccAlgorithm);
 
     NS_LOG_INFO("\n\n#################### SIMULATION SET-UP ####################\n\n\n");
     
@@ -121,27 +218,42 @@ main (int argc, char *argv[])
 
     RngSeedManager::SetSeed (seed);  
 
+    // Set ccTypeId based on ccType
     if (ccType == QuicSocketBase::OLIA){
         ccTypeId = MpQuicCongestionOps::GetTypeId ();
+        NS_LOG_INFO("Using QUIC congestion control algorithm: OLIA");
     }
-    if(ccType == QuicSocketBase::QuicNewReno){
+    else if(ccType == QuicSocketBase::QuicNewReno){
         ccTypeId = QuicCongestionOps::GetTypeId ();
+        NS_LOG_INFO("Using QUIC congestion control algorithm: QuicNewReno");
+    }
+    else {
+        // Default fallback
+        ccTypeId = QuicCongestionOps::GetTypeId ();
+        NS_LOG_WARN("Unknown ccType, defaulting to QuicNewReno");
     }
 
-    Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize",UintegerValue (40000000));
-    Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize",UintegerValue (40000000));
-    Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize",UintegerValue (40000000));
-    Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize",UintegerValue (40000000));
+    // Increased buffer sizes to support higher throughput (100Mbps links)
+    Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize",UintegerValue (100000000));  // 100MB
+    Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize",UintegerValue (100000000));  // 100MB
+    Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize",UintegerValue (100000000));  // 100MB
+    Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize",UintegerValue (100000000));  // 100MB
 
+    // QUIC optimizations for high-speed networks (matching TCP optimizations for fair comparison)
+    Config::SetDefault ("ns3::QuicSocketBase::MaxData", UintegerValue (UINT32_MAX));
+    Config::SetDefault ("ns3::QuicSocketBase::MaxStreamData", UintegerValue (UINT32_MAX));
+    Config::SetDefault ("ns3::QuicSocketBase::MaxPacketSize", UintegerValue (1448));  // Match TCP segment size (Ethernet MTU - headers)
+    Config::SetDefault ("ns3::QuicSocketBase::InitialPacketSize", UintegerValue (1448));  // Larger initial packet size
+    Config::SetDefault ("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue (UINT32_MAX));  // High initial threshold for high BDP
 
-    Config::SetDefault ("ns3::QuicSocketBase::EnableMultipath",BooleanValue(true));
+    Config::SetDefault ("ns3::QuicSocketBase::EnableMultipath",BooleanValue(false));
     Config::SetDefault ("ns3::QuicSocketBase::CcType",IntegerValue(ccType));
-    Config::SetDefault ("ns3::QuicL4Protocol::SocketType",TypeIdValue (ccTypeId));
-    Config::SetDefault ("ns3::MpQuicScheduler::SchedulerType", IntegerValue(schedulerType));   
-    Config::SetDefault ("ns3::MpQuicScheduler::BlestVar", UintegerValue(bVar));   
-    Config::SetDefault ("ns3::MpQuicScheduler::BlestLambda", UintegerValue(bLambda));     
-    Config::SetDefault ("ns3::MpQuicScheduler::MabRate", UintegerValue(mrate)); 
-    Config::SetDefault ("ns3::MpQuicScheduler::Select", UintegerValue(mselect)); 
+    // Config::SetDefault ("ns3::QuicL4Protocol::SocketType",TypeIdValue (ccTypeId));
+    // Config::SetDefault ("ns3::MpQuicScheduler::SchedulerType", IntegerValue(schedulerType));   
+    // Config::SetDefault ("ns3::MpQuicScheduler::BlestVar", UintegerValue(bVar));   
+    // Config::SetDefault ("ns3::MpQuicScheduler::BlestLambda", UintegerValue(bLambda));     
+    // Config::SetDefault ("ns3::MpQuicScheduler::MabRate", UintegerValue(mrate)); 
+    // Config::SetDefault ("ns3::MpQuicScheduler::Select", UintegerValue(mselect)); 
 
     
     Ptr<RateErrorModel> em = CreateObjectWithAttributes<RateErrorModel> (
@@ -162,7 +274,7 @@ main (int argc, char *argv[])
     int simulationEndTime = 30;
     int start_time = 1;
 
-    uint32_t maxBytes = stoi(myRandomNo);
+    uint32_t maxBytes = UINT32_MAX;
     
     NS_LOG_INFO ("Create nodes.");
     NodeContainer c;
@@ -193,7 +305,7 @@ main (int argc, char *argv[])
     NetDeviceContainer d1d8 = p2p.Install (n1n8);
     d1d8.Get (1)->SetAttribute ("ReceiveErrorModel", PointerValue (em));
 
-    p2p.SetDeviceAttribute ("DataRate", StringValue ("100Mbps"));
+    p2p.SetDeviceAttribute ("DataRate", StringValue ("1000Mbps"));
     p2p.SetChannelAttribute ("Delay", StringValue ("0ms"));
     NetDeviceContainer d4d1 = p2p.Install (n4n1);
     NetDeviceContainer d0d1 = p2p.Install (n0n1);
@@ -261,6 +373,11 @@ main (int argc, char *argv[])
     Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
     ThroughputMonitor(&flowmon, monitor, stream); 
     
+    // Schedule trace connections for QUIC sender (node 4) and receiver (node 5)
+    // Trace connections should be scheduled after applications are installed
+    Time traceStartTime = Seconds(start_time + 0.1);
+    Simulator::Schedule (traceStartTime, &Traces, c.Get(4)->GetId(), "./sender", ".txt");
+    Simulator::Schedule (traceStartTime, &Traces, c.Get(5)->GetId(), "./receiver", ".txt");
 
     for (double i = 1; i < simulationEndTime; i = i+0.1){
         Simulator::Schedule (Seconds (i), &ModifyLinkRate, &d1d8  , DataRate(std::to_string(rateVal0->GetValue())+"Mbps"),  Time::FromInteger(delayVal0->GetValue(), Time::MS));

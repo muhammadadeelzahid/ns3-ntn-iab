@@ -402,6 +402,28 @@ void
 MpQuicScheduler::PeekabooReward(uint8_t pathId, Time lastActTime)
 {
   NS_LOG_FUNCTION (this);
+  // Refresh subflows to ensure up-to-date view during ACK handling
+  if (!m_socket)
+    {
+      NS_LOG_WARN ("PeekabooReward called with null socket");
+      return;
+    }
+
+  m_subflows = m_socket->GetActiveSubflows ();
+
+  // Guard against empty or out-of-range access before dereferencing
+  if (m_subflows.empty () || pathId >= m_subflows.size ())
+    {
+      NS_LOG_WARN ("PeekabooReward: invalid subflow access, pathId=" << (uint32_t)pathId
+                   << ", activeSubflows=" << m_subflows.size ());
+      return;
+    }
+
+  if (m_subflows[pathId] == 0)
+    {
+      NS_LOG_WARN ("PeekabooReward: subflow pointer is null for pathId=" << (uint32_t)pathId);
+      return;
+    }
   
   rtt[pathId] = m_subflows[pathId]->m_tcb->m_lastRtt.Get().GetDouble();
   if (rtt[0]==0) rtt[0] = 10;     // initialize rtt0 with 20ms

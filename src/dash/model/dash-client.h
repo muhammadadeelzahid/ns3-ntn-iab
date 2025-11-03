@@ -172,6 +172,7 @@ class DashClient : public Application
 
     TypeId m_tid;
     TracedCallback<Ptr<const Packet>> m_txTrace;
+    TracedCallback<Ptr<const Packet>> m_rxTrace;
     uint32_t m_videoId;     // The Id of the video that is requested
     Time m_started;         // Time of application starting
     Time m_sumDt;           // Used for calculating the average buffering time

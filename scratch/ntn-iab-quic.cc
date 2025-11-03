@@ -41,6 +41,8 @@
 #include "ns3/internet-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/applications-module.h"
+#include "ns3/packet-sink-helper.h"
+#include "ns3/mpquic-bulk-send-helper.h"
 #include "ns3/point-to-point-helper.h"
 #include "ns3/config-store.h"
 #include "ns3/mmwave-point-to-point-epc-helper.h"
@@ -51,6 +53,7 @@
 #include <fstream>
 #include <string>
 #include <map>
+#include <sstream>
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabMpquic");
@@ -90,6 +93,50 @@ Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, P
                 << Simulator::Now().GetSeconds() << "s");
 }
 
+// Callback for packet losses
+static void
+PacketLoss (Ptr<OutputStreamWrapper> stream, uint32_t packetNumber, uint32_t packetSize, uint8_t pathId, uint32_t nodeId)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" 
+                       << packetNumber << "\t" 
+                       << packetSize << "\t"
+                       << (int)pathId << "\t"
+                       << nodeId << std::endl;
+  
+  NS_LOG_UNCOND("PACKET_LOSS: Node " << nodeId 
+                << " pathId=" << (int)pathId
+                << " packetNum=" << packetNumber
+                << " size=" << packetSize 
+                << " at time=" << Simulator::Now().GetSeconds() << "s");
+}
+
+// Global map to track packet loss files per node
+static std::map<uint32_t, std::string> packetLossFiles;
+
+// Wrapper callback that will be used to capture packet loss events
+static void
+PacketLossWrapper (uint32_t packetNumber, uint32_t packetSize, uint8_t pathId)
+{
+  // Try to determine nodeId from the packetNumber context
+  // For now, we'll write to all registered files
+  for (auto& pair : packetLossFiles)
+  {
+    uint32_t nodeId = pair.first;
+    std::string filename = pair.second;
+    
+    std::ofstream outFile(filename, std::ios::app);
+    if (outFile.is_open())
+    {
+      outFile << Simulator::Now().GetSeconds() << "\t" 
+              << packetNumber << "\t" 
+              << packetSize << "\t"
+              << (int)pathId << "\t"
+              << nodeId << std::endl;
+      outFile.close();
+    }
+  }
+}
+
 static void
 Traces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
 {
@@ -108,29 +155,115 @@ Traces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
   std::ostringstream fileRTT;
   fileRTT << pathVersion << "QUIC-rtt"  << nodeId << "" << finalPart;
 
+
   // std::ostringstream pathRCWnd;
   // pathRCWnd<< "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RWND";
 
   // std::ostringstream fileRCWnd;
   // fileRCWnd<<pathVersion << "QUIC-rwnd-change"  << nodeId << "" << finalPart;
 
-  std::ostringstream fileName;
-  fileName << pathVersion << "QUIC-rx-data" << nodeId << "" << finalPart;
-  std::ostringstream pathRx;
-  pathRx << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
-  NS_LOG_INFO("Matches rx " << Config::LookupMatches(pathRx.str().c_str()).GetN());
-
-  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
-  Config::ConnectWithoutContext (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
-
+  // Connect traces
   Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
   Config::ConnectWithoutContext (pathCW.str ().c_str (), MakeBoundCallback(&CwndChange, stream1));
 
   Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
   Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
 
+  // Connect QUIC socket Rx traces - use this for actual data packets
+  std::ostringstream fileName;
+  fileName << pathVersion << "QUIC-rx-data" << nodeId << "" << finalPart;
+  std::ostringstream pathRx;
+  pathRx << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
+  NS_LOG_UNCOND("Matches rx " << Config::LookupMatches(pathRx.str().c_str()).GetN());
+
+  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
+  Config::ConnectWithoutContext (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
+
+  // Create packet loss file upfront regardless of matches
+  std::ostringstream fileLoss;
+  fileLoss << pathVersion << "QUIC-packet-loss" << nodeId << "" << finalPart;
+  std::string filename = fileLoss.str();
+  packetLossFiles[nodeId] = filename;
+  
+  std::ofstream outFile(filename, std::ios::out);
+  if (outFile.is_open())
+  {
+    outFile << "Time\tPacketNumber\tPacketSize\tPathId\tNodeId\n";
+    outFile.close();
+    NS_LOG_UNCOND("Packet loss file created: " << filename);
+  }
+  
+  // Connect packet loss trace - write to a dedicated loss file
+  std::ostringstream pathLoss;
+  pathLoss << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/PacketLoss";
+  
+  // Try to connect the trace source
+  Config::ConnectWithoutContext (pathLoss.str ().c_str (), 
+                                 MakeCallback (&PacketLossWrapper));
+  NS_LOG_UNCOND("Packet loss trace connected for node " << nodeId);
+
   // Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileRCWnd.str ().c_str ());
   // Config::ConnectWithoutContext (pathRCWnd.str ().c_str (), MakeBoundCallback(&CwndChange, stream4));
+}
+
+static void
+QuicSocketTraces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
+{
+  AsciiTraceHelper asciiTraceHelper;
+
+  // QUIC Congestion Window trace
+  std::ostringstream pathCW;
+  pathCW << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/CongestionWindow";
+  NS_LOG_INFO("Matches cw " << Config::LookupMatches(pathCW.str().c_str()).GetN());
+
+  std::ostringstream fileCW;
+  fileCW << pathVersion << "QUIC-cwnd-change" << nodeId << "" << finalPart;
+
+  // QUIC RTT trace
+  std::ostringstream pathRTT;
+  pathRTT << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RTT";
+
+  std::ostringstream fileRTT;
+  fileRTT << pathVersion << "QUIC-rtt" << nodeId << "" << finalPart;
+
+  // Connect traces (no PacketSink traces for client nodes)
+  Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
+  Config::ConnectWithoutContext (pathCW.str ().c_str (), MakeBoundCallback(&CwndChange, stream1));
+
+  Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
+  Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
+
+  // Connect QUIC socket Rx traces
+  std::ostringstream fileName;
+  fileName << pathVersion << "QUIC-rx-data-socket" << nodeId << "" << finalPart;
+  std::ostringstream pathRx;
+  pathRx << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
+  NS_LOG_INFO("Matches rx " << Config::LookupMatches(pathRx.str().c_str()).GetN());
+
+  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
+  Config::ConnectWithoutContext (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
+  
+  // Create packet loss file upfront for client node
+  std::ostringstream fileLoss;
+  fileLoss << pathVersion << "QUIC-packet-loss" << nodeId << "" << finalPart;
+  std::string filename = fileLoss.str();
+  packetLossFiles[nodeId] = filename;
+  
+  std::ofstream outFile(filename, std::ios::out);
+  if (outFile.is_open())
+  {
+    outFile << "Time\tPacketNumber\tPacketSize\tPathId\tNodeId\n";
+    outFile.close();
+    NS_LOG_UNCOND("Packet loss file created: " << filename);
+  }
+  
+  // Connect packet loss trace
+  std::ostringstream pathLoss;
+  pathLoss << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/PacketLoss";
+  
+  Config::ConnectWithoutContext (pathLoss.str ().c_str (), 
+                                 MakeCallback (&PacketLossWrapper));
+  NS_LOG_UNCOND("Packet loss trace connected for node " << nodeId);
 }
 
 void
@@ -174,19 +307,19 @@ main (int argc, char *argv[])
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
 
   // Enable QUIC logs to investigate packet flow stopping
-  LogComponentEnable("QuicClient",  (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicServer",  (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicSocketBase",  (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicL4Protocol",  (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicL5Protocol",  (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicStreamBase",  (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicClient",  (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicServer",  (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketBase",  (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL4Protocol",  (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL5Protocol",  (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamBase",  (LOG_LEVEL_ALL));
 
-  LogComponentEnable("QuicStream", (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicStreamTxBuffer", (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  LogComponentEnable("QuicSocketTxBuffer", (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicSocketRxBuffer", (LOG_LEVEL_ALL));
-  LogComponentEnable("QuicSocket",  (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStream", (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamTxBuffer", (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketTxBuffer", (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketRxBuffer", (LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocket",  (LOG_LEVEL_ALL));
 
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
@@ -292,6 +425,7 @@ main (int argc, char *argv[])
   // LogComponentEnable("MmWaveEnbNetDevice", LOG_LEVEL_FUNCTION);
   // //LogComponentEnable("MmWaveUeNetDevice", LOG_LEVEL_FUNCTION);
   // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_FUNCTION);
+  LogComponentEnable("MpQuicScheduler", LOG_LEVEL_ALL);
   
   // Network Devices
   // LogComponentEnable("PointToPointNetDevice", LOG_LEVEL_FUNCTION);
@@ -302,16 +436,13 @@ main (int argc, char *argv[])
   bool rlcAm = false;
   uint32_t numRelays = 0;
   uint32_t rlcBufSize = 10;
-  uint32_t interPacketInterval = 1000; 
   uint32_t packetSize = 1400; //bytes // according to IETF, min size should be 1280 bytes
-  int endDataTime = 60;
-  uint32_t maxPackets = endDataTime/(interPacketInterval/1000000.0);
-  NS_LOG_UNCOND("Max packets: " << maxPackets);
+  uint32_t maxBytes = 1024 * 1024 * 1024;
+  NS_LOG_UNCOND("Max bytes to send: " << maxBytes / 1024 / 1024 / 1024 << " GB");
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
-  cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
   cmd.Parse(argc, argv);
 
   //   if(rlcAm)
@@ -369,18 +500,10 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
   
-  // QUIC-specific configuration
-  Config::SetDefault("ns3::QuicClient::PacketSize", UintegerValue(packetSize));
-  Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(maxPackets));
-  Config::SetDefault("ns3::QuicClient::Interval", TimeValue(MicroSeconds(interPacketInterval)));
   
-  // RFC 9000 compliant flow control parameters (adjusted for high-throughput NTN scenarios)
-  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(104857600)); // 100MB 
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(10485760)); // 10MB per stream
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdBidi", UintegerValue(100));
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdUni", UintegerValue(100));
   
-  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30)));
+  // Align QUIC timers/buffers with TCP scenario
+  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(2.0)));
   
   // RFC 9002 compliant loss recovery parameters
   
@@ -389,15 +512,20 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333))); // RFC 9002 Section 6.2.2
   
   Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(3)); // RFC 9000 Section 18.2 (default)
+  // Match TCP delayed ACK timing
+  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(25)));
   // QUIC Congestion Control Configuration
-  Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
-  Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(false)); // Use QUIC-specific congestion control  
+  Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::OLIA)); // Use New Reno
   
   Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(INT32_MAX));
-  Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(1200));
+  // Match TCP segment size (packetSize) and MTU (1500)
+  Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
   Config::SetDefault("ns3::QuicSocketBase::MaxPacketSize", UintegerValue(1500));
-  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(1048576));
-  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(1048576));
+  // Match TCP send/receive buffer sizes
+  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize",UintegerValue (100000000));  // 100MB
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize",UintegerValue (100000000));  // 100MB
+  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize",UintegerValue (100000000));  // 100MB
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize",UintegerValue (100000000));  // 100MB
   
   
   // Enable multi-beam functionality
@@ -438,11 +566,11 @@ main (int argc, char *argv[])
   // Install QUIC stack on remote host (instead of Internet stack)
   QuicHelper quicHelper;
 
-  // Increase socket buffer sizes to prevent buffer overflow
-  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1 << 24));
-  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1 << 24));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1 << 24));
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1 << 24));
+  // Keep QUIC buffer sizes aligned with TCP (override any larger defaults)
+  Config::SetDefault ("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue (1048576));
+  Config::SetDefault ("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue (1048576));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1048576));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1048576));
   
   // Log QUIC congestion control parameters
   NS_LOG_UNCOND("\n=== QUIC CONGESTION CONTROL CONFIGURATION (RFC 9002) ===");
@@ -643,14 +771,14 @@ main (int argc, char *argv[])
   ApplicationContainer serverApps;
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
-    // DL QUIC
-    QuicServerHelper dlPacketSinkHelper (dlPort);
-    dlPacketSinkHelper.SetAttribute ("OutputFilename", StringValue ("QuicServerRx_" + std::to_string(u) + ".txt"));
+    // DL QUIC Server (PacketSink)
+    PacketSinkHelper dlPacketSinkHelper ("ns3::QuicSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), dlPort));
     serverApps.Add (dlPacketSinkHelper.Install (ueNodes.Get(u)));
-    QuicClientHelper dlClient (ueIpIface.GetAddress (u), dlPort);
-    dlClient.SetAttribute ("Interval", TimeValue (MicroSeconds(interPacketInterval)));
-    dlClient.SetAttribute ("PacketSize", UintegerValue(packetSize));
-    dlClient.SetAttribute ("MaxPackets", UintegerValue(maxPackets));
+    
+    // DL QUIC Client (MpquicBulkSendApplication)
+    MpquicBulkSendHelper dlClient ("ns3::QuicSocketFactory", InetSocketAddress (ueIpIface.GetAddress (u), dlPort));
+    dlClient.SetAttribute ("MaxBytes", UintegerValue(maxBytes)); // Send data based on max bytes
+    dlClient.SetAttribute ("SendSize", UintegerValue(packetSize));
     clientApps.Add (dlClient.Install (remoteHost));
     dlPort++;
   }
@@ -700,21 +828,25 @@ main (int argc, char *argv[])
   mmwaveHelper->EnableTraces ();
   serverApps.Start (Seconds (0.1));
   clientApps.Start (Seconds (0.2));
-  clientApps.Stop (Seconds (60.0));
-  serverApps.Stop (Seconds (61.0));
+  clientApps.Stop (Seconds (30.0));
+  serverApps.Stop (Seconds (31.0));
   
   // Schedule trace connections for each UE (server) and remote host (client)
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
     Ptr<Node> ueNode = ueNodes.Get (u);
     Time t = Seconds(0.21);
+    
+    // Connect traces for UE node (server) - includes PacketSink traces
     Simulator::Schedule (t, &Traces, ueNode->GetId(), 
           "./server", ".txt");
-    Simulator::Schedule (t, &Traces, remoteHost->GetId(), 
+    
+    // Connect traces for remote host (client) - only QUIC socket traces, no PacketSink
+    Simulator::Schedule (t, &QuicSocketTraces, remoteHost->GetId(), 
           "./client", ".txt");
   }
 
-  Simulator::Stop (Seconds (62));
+  Simulator::Stop (Seconds (32));
   
   Simulator::Run();
   /*GtkConfigStore config;

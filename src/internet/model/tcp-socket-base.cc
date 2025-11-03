@@ -237,6 +237,10 @@ TcpSocketBase::GetTypeId (void)
                      "Sequence of last received CWR",
                      MakeTraceSourceAccessor (&TcpSocketBase::m_ecnCWRSeq),
                      "ns3::SequenceNumber32TracedValueCallback")
+    .AddTraceSource ("PacketLoss",
+                     "TCP packet loss detection (seqNum, packetSize)",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_packetLossTrace),
+                     "ns3::TcpSocketBase::PacketLossTracedCallback")
   ;
   return tid;
 }
@@ -1611,6 +1615,8 @@ TcpSocketBase::EnterRecovery (uint32_t currentDelivered)
       // One segment has left the network, PLUS the head is lost
       m_txBuffer->AddRenoSack ();
       m_txBuffer->MarkHeadAsLost ();
+      SequenceNumber32 lostSeq = m_txBuffer->HeadSequence ();
+      m_packetLossTrace (lostSeq.GetValue (), m_tcb->m_segmentSize);
     }
   else
     {
@@ -1620,6 +1626,8 @@ TcpSocketBase::EnterRecovery (uint32_t currentDelivered)
           // (received less than 3 SACK block ahead).
           // Manually set it as lost.
           m_txBuffer->MarkHeadAsLost ();
+          SequenceNumber32 lostSeq = m_txBuffer->HeadSequence ();
+          m_packetLossTrace (lostSeq.GetValue (), m_tcb->m_segmentSize);
         }
     }
 
@@ -3702,6 +3710,10 @@ TcpSocketBase::ReTxTimeout ()
   // will be retransmitted, if the receiver renegotiate the SACK blocks
   // that we received.
   m_txBuffer->SetSentListLost (resetSack);
+
+  // Emit packet loss trace for the head packet (RTO timeout)
+  SequenceNumber32 lostSeq = m_txBuffer->HeadSequence ();
+  m_packetLossTrace (lostSeq.GetValue (), m_tcb->m_segmentSize);
 
   // From RFC 6675, Section 5.1
   // If an RTO occurs during loss recovery as specified in this document,

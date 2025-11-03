@@ -48,6 +48,7 @@
 #include "ns3/trace-helper.h"
 #include "ns3/bulk-send-helper.h"
 #include "ns3/packet-sink-helper.h"
+#include "ns3/tcp-congestion-ops.h"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -56,6 +57,9 @@
 using namespace ns3;
  
  NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabTcp");
+
+// Global map to track packet loss files per node
+static std::map<uint32_t, std::string> tcpPacketLossFiles;
  
  void
  ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
@@ -76,7 +80,20 @@ using namespace ns3;
      // Close the file
      outFile.close();
  }
-// PacketSink trace callback
+
+// TCP Trace callbacks similar to QUIC implementation
+static void
+TcpCwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
+}
+
+static void
+TcpRttChange (Ptr<OutputStreamWrapper> stream, Time oldRtt, Time newRtt)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldRtt.GetSeconds () << "\t" << newRtt.GetSeconds () << std::endl;
+}
+
 static void
 PacketSinkRx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> packet, const Address &from)
 {
@@ -84,36 +101,135 @@ PacketSinkRx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> packet, const A
   
   // Log packet reception from PacketSink
   *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
-                       << "\tPacketSink" << std::endl;
+                       << "\tTCP" << std::endl;
   
   // Print to console for real-time monitoring
-  NS_LOG_UNCOND("PacketSink Rx: received " << packetSize << " bytes at " 
+  NS_LOG_UNCOND("TCP Rx: received " << packetSize << " bytes at " 
                 << Simulator::Now().GetSeconds() << "s");
 }
 
 static void
-Traces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
+TcpPacketLoss (Ptr<OutputStreamWrapper> stream, uint32_t seqNum, uint32_t pktSize)
+{
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << seqNum << "\t" 
+                        << pktSize << "\t0" << std::endl;
+}
+
+
+static void
+TcpTraces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
 {
   AsciiTraceHelper asciiTraceHelper;
 
-  // PacketSink traces
+  // TCP Congestion Window trace
+  std::ostringstream pathCW;
+  pathCW << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/0/CongestionWindow";
+  NS_LOG_INFO("Matches TCP cw " << Config::LookupMatches(pathCW.str().c_str()).GetN());
+
+  std::ostringstream fileCW;
+  fileCW << pathVersion << "TCP-cwnd-change" << nodeId << "" << finalPart;
+
+  // TCP RTT trace
+  std::ostringstream pathRTT;
+  pathRTT << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/0/RTT";
+
+  std::ostringstream fileRTT;
+  fileRTT << pathVersion << "TCP-rtt" << nodeId << "" << finalPart;
+
+  // PacketSink Rx data trace (for received data)
   std::ostringstream pathPacketSinkRx;
   pathPacketSinkRx << "/NodeList/" << nodeId << "/ApplicationList/*/$ns3::PacketSink/Rx";
   uint32_t packetSinkMatches = Config::LookupMatches(pathPacketSinkRx.str().c_str()).GetN();
   NS_LOG_INFO("Matches PacketSink rx " << packetSinkMatches);
-  NS_LOG_UNCOND("Node " << nodeId << " - PacketSink matches: " << packetSinkMatches);
 
   std::ostringstream filePacketSinkRx;
-  filePacketSinkRx << pathVersion << "PacketSink-rx-data" << nodeId << "" << finalPart;
+  filePacketSinkRx << pathVersion << "TCP-rx-data" << nodeId << "" << finalPart;
 
-  // Connect PacketSink traces
-  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (filePacketSinkRx.str ().c_str ());
-  Config::ConnectWithoutContext (pathPacketSinkRx.str ().c_str (), MakeBoundCallback (&PacketSinkRx, stream));
+  // Connect traces
+  Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
+  Config::ConnectWithoutContext (pathCW.str ().c_str (), MakeBoundCallback(&TcpCwndChange, stream1));
+
+  Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
+  Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&TcpRttChange, stream2));
+
+  // Connect PacketSink traces for rx data
+  Ptr<OutputStreamWrapper> stream3 = asciiTraceHelper.CreateFileStream (filePacketSinkRx.str ().c_str ());
+  Config::ConnectWithoutContext (pathPacketSinkRx.str ().c_str (), MakeBoundCallback (&PacketSinkRx, stream3));
+  
+  // Connect packet loss trace - write to a dedicated loss file
+  std::ostringstream fileLoss;
+  fileLoss << pathVersion << "TCP-packet-loss" << nodeId << "" << finalPart;
+  std::string filename = fileLoss.str();
+  tcpPacketLossFiles[nodeId] = filename;
+  
+  std::ofstream outFile(filename, std::ios::out);
+  if (outFile.is_open())
+  {
+    outFile << "Time\tPacketNumber\tPacketSize\tPathId\tNodeId\n";
+    outFile.close();
+    NS_LOG_UNCOND("TCP packet loss file created: " << filename);
+  }
+  
+  // Connect packet loss trace - write to a dedicated loss file
+  std::ostringstream pathLoss;
+  pathLoss << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/*/PacketLoss";
+  
+  // Connect packet loss trace
+  Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileLoss.str ().c_str ());
+  Config::ConnectWithoutContext (pathLoss.str ().c_str (), MakeBoundCallback(&TcpPacketLoss, stream4));
+  NS_LOG_UNCOND("TCP packet loss trace connected for node " << nodeId);
 }
 
-void PacketDropCallback(Ptr<const Packet> packet) {
-  std::cout << "Packet dropped at " << Simulator::Now().GetSeconds() << "s" << std::endl;
+static void
+TcpSocketTraces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
+{
+  AsciiTraceHelper asciiTraceHelper;
+
+  // TCP Congestion Window trace
+  std::ostringstream pathCW;
+  pathCW << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/0/CongestionWindow";
+  NS_LOG_INFO("Matches TCP cw " << Config::LookupMatches(pathCW.str().c_str()).GetN());
+
+  std::ostringstream fileCW;
+  fileCW << pathVersion << "TCP-cwnd-change" << nodeId << "" << finalPart;
+
+  // TCP RTT trace
+  std::ostringstream pathRTT;
+  pathRTT << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/0/RTT";
+
+  std::ostringstream fileRTT;
+  fileRTT << pathVersion << "TCP-rtt" << nodeId << "" << finalPart;
+
+  Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
+  Config::ConnectWithoutContext (pathCW.str ().c_str (), MakeBoundCallback(&TcpCwndChange, stream1));
+
+  Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
+  Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&TcpRttChange, stream2));
+  
+  // Connect packet loss trace - write to a dedicated loss file
+  std::ostringstream fileLoss;
+  fileLoss << pathVersion << "TCP-packet-loss" << nodeId << "" << finalPart;
+  std::string filename = fileLoss.str();
+  tcpPacketLossFiles[nodeId] = filename;
+  
+  std::ofstream outFile(filename, std::ios::out);
+  if (outFile.is_open())
+  {
+    outFile << "Time\tPacketNumber\tPacketSize\tPathId\tNodeId\n";
+    outFile.close();
+    NS_LOG_UNCOND("TCP packet loss file created: " << filename);
+  }
+  
+  // Connect packet loss trace - write to a dedicated loss file
+  std::ostringstream pathLoss;
+  pathLoss << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/*/PacketLoss";
+  
+  // Connect packet loss trace
+  Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileLoss.str ().c_str ());
+  Config::ConnectWithoutContext (pathLoss.str ().c_str (), MakeBoundCallback(&TcpPacketLoss, stream4));
+  NS_LOG_UNCOND("TCP packet loss trace connected for node " << nodeId);
 }
+
  int
  main (int argc, char *argv[])
  {
@@ -190,15 +306,17 @@ void PacketDropCallback(Ptr<const Packet> packet) {
    bool rlcAm = false;
    uint32_t numRelays = 0;
    uint32_t rlcBufSize = 10;
-   uint32_t interPacketInterval = 5;
    uint32_t packetSize = 1400; //bytes
+   // For BulkSend, we send a fixed amount of data
+   uint32_t maxBytes = 1024 * 1024 * 1024;
+   NS_LOG_UNCOND("Max bytes to send: " << maxBytes / 1024 / 1024 << " MB");
    cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
    cmd.AddValue("am", "RLC AM if true", rlcAm);
    cmd.AddValue("numRelay", "Number of relays", numRelays);
    cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
-   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
+   cmd.AddValue("maxBytes", "Maximum bytes to send [MB]", maxBytes);
    cmd.Parse(argc, argv);
- 
+
    //   if(rlcAm)
    // {
    //LogComponentEnable("LteRlcAm", LOG_LEVEL_LOGIC); 
@@ -256,13 +374,16 @@ void PacketDropCallback(Ptr<const Packet> packet) {
   
   // TCP Configuration
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(packetSize));
-  Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(1 << 24));  // 16MB receive buffer
-  Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(1 << 24));  // 16MB send buffer
+  Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(100000000));  // 100MB receive buffer
+  Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(100000000));  // 100MB send buffer
   Config::SetDefault("ns3::TcpSocket::InitialCwnd", UintegerValue(10));      // Initial congestion window
   Config::SetDefault("ns3::TcpSocket::ConnTimeout", TimeValue(Seconds(6.0))); // Connection timeout
   Config::SetDefault("ns3::TcpSocket::DataRetries", UintegerValue(6));       // Data retries
   Config::SetDefault("ns3::TcpSocket::DelAckTimeout", TimeValue(MilliSeconds(25))); // Delayed ACK timeout
   Config::SetDefault("ns3::TcpSocket::TcpNoDelay", BooleanValue(true));       // Disable Nagle's algorithm
+
+  Config::SetDefault ("ns3::TcpL4Protocol::SocketType",
+                      TypeIdValue (TcpNewReno::GetTypeId ()));
    
    // Enable multi-beam functionality
  //  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
@@ -292,7 +413,6 @@ void PacketDropCallback(Ptr<const Packet> packet) {
    inputConfig.ConfigureDefaults();
    // parse again so you can override default values from the command line
    cmd.Parse(argc, argv);
-   NS_LOG_UNCOND("Inter-packet interval: "<<interPacketInterval);
   
    Ptr<Node> pgw = epcHelper->GetPgwNode ();
    // Create a single RemoteHost
@@ -493,9 +613,9 @@ void PacketDropCallback(Ptr<const Packet> packet) {
     PacketSinkHelper dlPacketSinkHelper ("ns3::TcpSocketFactory", InetSocketAddress (Ipv4Address::GetAny (), dlPort));
     serverApps.Add (dlPacketSinkHelper.Install (ueNodes.Get(u)));
     
-    // DL TCP Client (BulkSend)
+    // DL TCP Client (BulkSendApplication)
     BulkSendHelper dlClient ("ns3::TcpSocketFactory", InetSocketAddress (ueIpIface.GetAddress (u), dlPort));
-    dlClient.SetAttribute ("MaxBytes", UintegerValue(0)); // Send unlimited data
+    dlClient.SetAttribute ("MaxBytes", UintegerValue(maxBytes)); // Send data based on max bytes
     dlClient.SetAttribute ("SendSize", UintegerValue(packetSize));
     clientApps.Add (dlClient.Install (remoteHost));
     dlPort++;
@@ -543,24 +663,26 @@ void PacketDropCallback(Ptr<const Packet> packet) {
    }
    NS_LOG_UNCOND("=======================\n");
   mmwaveHelper->EnableTraces ();
-  serverApps.Start (Seconds (0.2));
-  clientApps.Start (Seconds (0.3));
-  clientApps.Stop (Seconds (2.0));
-  serverApps.Stop (Seconds (2.0));
+  serverApps.Start (Seconds (0.1));
+  clientApps.Start (Seconds (0.2));
+  clientApps.Stop (Seconds (30.0));
+  serverApps.Stop (Seconds (30.0));
   
   // Schedule trace connections for each UE (server) and remote host (client)
   // Schedule after applications start to ensure TCP sockets are created
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
     Ptr<Node> ueNode = ueNodes.Get (u);
-    Time t = Seconds(0.4); // Schedule after applications start
-    Simulator::Schedule (t, &Traces, ueNode->GetId(), 
+    Time t = Seconds(0.21); // Schedule after applications start
+    Simulator::Schedule (t, &TcpTraces, ueNode->GetId(), 
           "./server", ".txt");
-    Simulator::Schedule (t, &Traces, remoteHost->GetId(), 
+    
+    // Connect traces for remote host (client) - only TCP socket traces, no PacketSink
+    Simulator::Schedule (t, &TcpSocketTraces, remoteHost->GetId(), 
           "./client", ".txt");
   }
   
-  Simulator::Stop (Seconds (2.2));
+  Simulator::Stop (Seconds (30.2));
    
    Simulator::Run();
    /*GtkConfigStore config;

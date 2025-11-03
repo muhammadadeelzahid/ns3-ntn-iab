@@ -77,6 +77,10 @@ DashClient::GetTypeId(void)
                             .AddTraceSource("Tx",
                                             "A new packet is created and is sent",
                                             MakeTraceSourceAccessor(&DashClient::m_txTrace),
+                                            "ns3::Packet::TracedCallback")
+                            .AddTraceSource("Rx",
+                                            "A video segment (MPEG frame) has been received",
+                                            MakeTraceSourceAccessor(&DashClient::m_rxTrace),
                                             "ns3::Packet::TracedCallback");
     return tid;
 }
@@ -266,7 +270,23 @@ void
 DashClient::CheckBuffer()
 {
     NS_LOG_FUNCTION(this);
-    m_parser.ReadSocket(m_socket);
+    if (m_socket && m_connected)
+    {
+        // Check if socket has data available even if callback didn't fire
+        uint32_t available = m_socket->GetRxAvailable();
+        if (available > 0)
+        {
+            NS_LOG_INFO("CheckBuffer: Socket has " << available << " bytes available");
+            m_parser.ReadSocket(m_socket);
+        }
+        
+        // Schedule periodic check to ensure we don't miss data if callback stops firing
+        // This is a safety mechanism when socket callbacks fail (e.g., buffer full)
+        if (m_socket && m_connected)
+        {
+            Simulator::Schedule(MilliSeconds(50), &DashClient::CheckBuffer, this);
+        }
+    }
 }
 
 void
@@ -318,6 +338,10 @@ DashClient::ConnectionSucceeded(Ptr<Socket> socket)
     m_connected = true;
     socket->SetCloseCallbacks(MakeCallback(&DashClient::ConnectionNormalClosed, this),
                               MakeCallback(&DashClient::ConnectionErrorClosed, this));
+
+    // Start periodic CheckBuffer to ensure we read data even if callbacks stop firing
+    // This is critical because socket recv callbacks may not fire when socket buffer is full
+    Simulator::Schedule(MilliSeconds(50), &DashClient::CheckBuffer, this);
 
     RequestSegment();
 }
@@ -372,6 +396,10 @@ DashClient::MessageReceived(Packet message)
 
     MPEGHeader mpegHeader;
     HTTPHeader httpHeader;
+
+    // Fire Rx trace for received video segment
+    Ptr<const Packet> packet = Create<Packet>(message);
+    m_rxTrace(packet);
 
     // Send the frame to the player
     // If it doesn't fit in the buffer, don't continue

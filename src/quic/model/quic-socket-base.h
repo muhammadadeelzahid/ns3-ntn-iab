@@ -948,6 +948,9 @@ protected:
   TracedCallback<Ptr<const Packet>, const QuicHeader&,
                  Ptr<const QuicSocketBase> > m_rxTrace; //!< Trace of received packets
 
+  typedef void (*PacketLossTracedCallback)(uint32_t pktNum, uint32_t pktSize, uint8_t pathId);
+  TracedCallback<uint32_t, uint32_t, uint8_t> m_packetLossTrace; //!< Trace of packet losses (pktNum, pktSize, pathId)
+
 
   // Protected: ------------ For Multipath Implementation -------------
   
@@ -970,7 +973,7 @@ protected:
   double GetOliaAlpha(uint8_t pathId);
   
   void UpdateReward (uint32_t oldValue, uint32_t newValue);
-  int m_appCloseSentListNoEmpty;
+  bool m_appCloseSentListNoEmpty;
   Time lastAckTime;
 };
 

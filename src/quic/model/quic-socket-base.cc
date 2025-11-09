@@ -1057,14 +1057,7 @@ QuicSocketBase::SendPendingData (bool withAck)
   for (uint8_t sendingPathId = 0; sendingPathId < sendP.size(); sendingPathId++)
   {
     uint32_t availableWindow = AvailableWindow (sendingPathId);
-    uint32_t sendSize = m_txBuffer->AppSize () * sendP[sendingPathId];
-    uint32_t sendNumber = sendSize/GetSegSize();
-    if (sendSize > availableWindow)
-    {
-      sendNumber = availableWindow/GetSegSize();
-    } 
-
-    while (sendNumber > 0 and availableWindow > 0 and m_txBuffer->AppSize () > 0)
+    while (availableWindow > 0 and m_txBuffer->AppSize () > 0)
       {
         // check draining period
         if (m_drainingPeriodEvent.IsRunning ())

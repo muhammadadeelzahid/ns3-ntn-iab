@@ -158,7 +158,7 @@ DashClient::StartApplication(void) // Called at time specified by Start
         if (m_maxVideoDuration.GetSeconds() > 0)
         {
             double frameDurationSeconds = MPEG_TIME_BETWEEN_FRAMES / 1000.0;  // Convert ms to seconds
-            double segmentDurationSeconds = (MPEG_FRAMES_PER_SEGMENT * frameDurationSeconds;
+            double segmentDurationSeconds = (1.0 * MPEG_FRAMES_PER_SEGMENT * frameDurationSeconds);
             double totalFrames = m_maxVideoDuration.GetSeconds() / frameDurationSeconds;
             
             double segmentsNeeded = m_maxVideoDuration.GetSeconds() / segmentDurationSeconds;

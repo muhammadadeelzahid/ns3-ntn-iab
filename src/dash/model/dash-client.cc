@@ -74,6 +74,11 @@ DashClient::GetTypeId(void)
                                           UintegerValue(30000000),
                                           MakeUintegerAccessor(&DashClient::m_bufferSpace),
                                           MakeUintegerChecker<uint32_t>())
+                            .AddAttribute("MaxVideoDuration",
+                                          "Maximum video duration - stops requesting segments after this time",
+                                          TimeValue(Seconds(0)),  // 0 = unlimited
+                                          MakeTimeAccessor(&DashClient::m_maxVideoDuration),
+                                          MakeTimeChecker())
                             .AddTraceSource("Tx",
                                             "A new packet is created and is sent",
                                             MakeTraceSourceAccessor(&DashClient::m_txTrace),
@@ -103,7 +108,10 @@ DashClient::DashClient()
       m_segment_bytes(0),
       m_bitRate(45000),
       m_window(Seconds(10)),
-      m_segmentFetchTime(Seconds(0))
+      m_segmentFetchTime(Seconds(0)),
+      m_keepAliveTimer(),
+      m_maxVideoDuration(Seconds(0)),
+      m_maxSegments(0)
 {
     NS_LOG_FUNCTION(this);
     m_parser.SetApp(this); // So the parser knows where to send the received messages
@@ -146,6 +154,23 @@ DashClient::StartApplication(void) // Called at time specified by Start
         NS_LOG_INFO("m_socket is null");
 
         m_started = Simulator::Now();
+
+        if (m_maxVideoDuration.GetSeconds() > 0)
+        {
+            double frameDurationSeconds = MPEG_TIME_BETWEEN_FRAMES / 1000.0;  // Convert ms to seconds
+            double segmentDurationSeconds = (MPEG_FRAMES_PER_SEGMENT * frameDurationSeconds;
+            double totalFrames = m_maxVideoDuration.GetSeconds() / frameDurationSeconds;
+            
+            double segmentsNeeded = m_maxVideoDuration.GetSeconds() / segmentDurationSeconds;
+            m_maxSegments = static_cast<uint32_t>(std::ceil(segmentsNeeded));
+            
+            NS_LOG_INFO("Maximum video duration: " << m_maxVideoDuration.GetSeconds() << "s, segmentsNeeded: " << segmentsNeeded);
+            NS_LOG_DEBUG("Frame duration: " << frameDurationSeconds << "s, segment duration: " << segmentDurationSeconds << "s, total frames: " << totalFrames);
+        }
+        else
+        {
+            m_maxSegments = 0;  // Unlimited
+        }
 
         m_socket = Socket::CreateSocket(GetNode(), m_tid);
 
@@ -219,7 +244,16 @@ DashClient::RequestSegment()
         return;
     }
     
-    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Requesting segment " << m_segmentId 
+    if (m_maxSegments > 0)
+    {
+        if (m_segmentId >= m_maxSegments)
+        {
+            NS_LOG_INFO("Maximum segments reached, not requesting more segments.");
+            return;
+        }
+    }
+
+    NS_LOG_DEBUG("[DASH CLIENT " << m_id << "] Requesting segment " << m_segmentId 
                  << " at bitrate " << m_bitRate);
 
     Ptr<Packet> packet = Create<Packet>(0);
@@ -270,23 +304,7 @@ void
 DashClient::CheckBuffer()
 {
     NS_LOG_FUNCTION(this);
-    if (m_socket && m_connected)
-    {
-        // Check if socket has data available even if callback didn't fire
-        uint32_t available = m_socket->GetRxAvailable();
-        if (available > 0)
-        {
-            NS_LOG_INFO("CheckBuffer: Socket has " << available << " bytes available");
-            m_parser.ReadSocket(m_socket);
-        }
-        
-        // Schedule periodic check to ensure we don't miss data if callback stops firing
-        // This is a safety mechanism when socket callbacks fail (e.g., buffer full)
-        if (m_socket && m_connected)
-        {
-            Simulator::Schedule(MilliSeconds(50), &DashClient::CheckBuffer, this);
-        }
-    }
+    m_parser.ReadSocket(m_socket);
 }
 
 void
@@ -409,6 +427,10 @@ DashClient::MessageReceived(Packet message)
     }
     m_segment_bytes += message.GetSize();
     m_totBytes += message.GetSize();
+
+    // Fire Rx trace for received video segment
+    Ptr<const Packet> packet = message.Copy();
+    m_rxTrace(packet);
 
     message.RemoveHeader(httpHeader);
     message.RemoveHeader(mpegHeader);

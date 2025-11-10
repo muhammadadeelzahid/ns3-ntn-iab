@@ -27,10 +27,6 @@ def build(bld):
     else:
         print("Warning: Eigen not found. Please install libeigen3-dev or specify include path manually.")
 
-def build(bld):
-    module = bld.create_ns3_module('quic', ['internet', 'applications', 'flow-monitor', 'point-to-point'])
-    module.includes = '/opt/homebrew/opt/eigen/include/eigen3'
-    module.export_includes = '/opt/homebrew/opt/eigen/include/eigen3'
     module.source = [
         'model/quic-congestion-ops.cc',
         'model/quic-socket.cc',
@@ -97,6 +93,3 @@ def build(bld):
 
     if bld.env.ENABLE_EXAMPLES:
         bld.recurse('examples')
-
-    # bld.ns3_python_bindings()
-

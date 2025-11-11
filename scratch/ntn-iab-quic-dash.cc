@@ -30,6 +30,7 @@
  *                 Integrating NTNs & Multilayer support with IAB with MPEG-DASH video streaming with quic derived from signetlabdei/ns3-mmwave-iab, Mattia Sandri/ns3-ntn, signetlabdei/ns3-mmwave-hbf, signetlabdei/quic-ns-3 and ssjShirley/mpquic-ns3
  *                  
  */
+#include <cstdint>
 #include <ns3/buildings-module.h>
 #include "ns3/log.h"
 #include "ns3/mmwave-helper.h"
@@ -40,6 +41,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/applications-module.h"
+#include "ns3/nstime.h"
 #include "ns3/point-to-point-helper.h"
 #include "ns3/config-store.h"
 #include "ns3/mmwave-point-to-point-epc-helper.h"
@@ -411,29 +413,35 @@ int
 main (int argc, char *argv[])
 {
   // Enable DASH logging for debugging
-  LogComponentEnable("DashClient", LOG_LEVEL_LOGIC);  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
-  LogComponentEnable("DashServer", LOG_LEVEL_INFO);
-  LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
-  LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
+  // LogComponentEnable("DashClient", LOG_LEVEL_ALL);  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
+  // LogComponentEnable("DashServer", LOG_LEVEL_ALL);
+  // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
+  LogComponentEnable("MpegPlayer", LOG_LEVEL_ALL);
   
   // Enable QUIC socket logging to see connection events and data flow
-  LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
-  LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
-  LogComponentEnable("QuicL5Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
-  LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see stream operations
-  LogComponentEnable("QuicStream", LOG_LEVEL_ALL);      // LOG_LEVEL_ALL to see stream data handling
+  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
+  // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
+  // LogComponentEnable("QuicL5Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
+  // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);      // LOG_LEVEL_ALL to see stream data handling
   
   // Enable packet-level logging for debugging
-  LogComponentEnable("Packet", LOG_LEVEL_DEBUG);        // LOG_LEVEL_DEBUG to see packet operations
-  LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);     // LOG_LEVEL_DEBUG to see UDP operations
-  LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
+  // LogComponentEnable("Packet", LOG_LEVEL_DEBUG);        // LOG_LEVEL_DEBUG to see packet operations
+  // LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);     // LOG_LEVEL_DEBUG to see UDP operations
+  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
   
-  // Enable QUIC logging (safe - no wildcard traces that cause crash)
-  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
-  // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_INFO);
-  // LogComponentEnable("QuicStreamBase", LOG_LEVEL_INFO);
-  LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
-  LogComponentEnable("MpQuicScheduler", LOG_LEVEL_ALL);
+    // LogComponentEnable("DashServer", LOG_LEVEL_ALL);
+    // LogComponentEnable("DashClient", LOG_LEVEL_ALL);
+    // LogComponentEnable("QuicSocketTxBuffer", LOG_LEVEL_INFO);
+    // LogComponentEnable("QuicSocketRxBuffer", LOG_LEVEL_INFO);
+    // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
+    // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
+    // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);
+    // LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
+    // LogComponentEnable("QuicSocket", LOG_LEVEL_ALL);
+    // LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
+  // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
+  // LogComponentEnable("MpQuicScheduler", LOG_LEVEL_ALL);
   // LogComponentEnableAll (LOG_PREFIX_TIME);
   // LogComponentEnableAll (LOG_PREFIX_FUNC);
   // LogComponentEnableAll (LOG_PREFIX_NODE);
@@ -530,7 +538,6 @@ main (int argc, char *argv[])
   // LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
     
   // Enable additional QUIC classes that might be missing
-  // LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicStreamTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicSocketTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
@@ -589,7 +596,6 @@ main (int argc, char *argv[])
   uint32_t rlcBufSize = 10;
   uint32_t interPacketInterval = 10000; 
   uint32_t packetSize = 1500; //bytes // Increased to accommodate DASH frames
-  uint32_t maxPackets = 5000;
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
@@ -655,29 +661,115 @@ main (int argc, char *argv[])
   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
   
   // QUIC-specific configuration
-  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(2.0)));
+  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30.0)));
   
-  // RFC 9002 compliant loss recovery parameters
+  // ============================================================================
+  // ACKNOWLEDGMENT GAP ELIMINATION PARAMETERS
+  // ============================================================================
+  // These parameters are optimized to eliminate gaps in acknowledgments and
+  // improve loss detection responsiveness
+  // Values are tuned for significant improvement while remaining realistic for NTN
   
-  Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(3)); // RFC 9002 Section 6.1.1 (packet threshold)
-  Config::SetDefault("ns3::QuicSocketBase::kTimeReorderingFraction", DoubleValue(9.0/8.0)); // RFC 9002 Section 6.1.2 (time threshold)
-  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333))); // RFC 9002 Section 6.2.2
+  // 1. Increase maximum tracked gaps (from default 20 to 100) - SIGNIFICANT IMPROVEMENT
+  //    Allows many more gaps to be reported in ACK frames, improving loss detection
+  //    Realistic: NTN links may have burst losses, so tracking more gaps is beneficial
+  Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(100));
   
-  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(3)); // RFC 9000 Section 18.2 (default)
-  // Match TCP delayed ACK timing (25 ms)
-  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(25)));
+  // 2. Reduce maximum packets before ACK send (from default 20 to 10) - SIGNIFICANT IMPROVEMENT
+  //    Forces much more frequent ACKs, significantly reducing gaps
+  //    Realistic: 10 packets is still reasonable and halves the gap window
+  Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(10));
+  
+  // 3. Reduce delayed ACK timeout (from default 25ms to 15ms) - SIGNIFICANT IMPROVEMENT
+  //    Sends ACKs more frequently, reducing acknowledgment delays by 40%
+  //    Realistic: 15ms is still safe for NTN (much larger than typical processing delays)
+  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(15)));
+  
+  // 4. Reduce ACK delay exponent (from default 3 to 2) - MODERATE IMPROVEMENT
+  //    Limits maximum encodable ACK delay, reducing delay variability
+  //    Realistic: Standard QUIC allows values 0-20, so 2 is well within range
+  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(2));
+  
+  // 5. DISABLE time-based loss detection to prevent premature timeout triggers
+  //    When enabled with aggressive reordering threshold, it can trigger timeouts
+  //    before packets are actually lost, causing empty vector crashes
+  //    Keeping at default (false) for stability - packet number-based detection is sufficient
+  // Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(true));
+  
+  // 6. Keep minimum TLP timeout at default (10ms)
+  //    Not changing this - 10ms is appropriate for NTN scenarios
+  // Config::SetDefault("ns3::QuicSocketState::kMinTLPTimeout", TimeValue(MilliSeconds(10)));
+  
+  // ============================================================================
+  // LOSS DETECTION PARAMETERS (RFC 9002 compliant)
+  // ============================================================================
+  
+  // Reordering threshold for loss detection (RFC 9002 Section 6.1.1)
+  // Using default value (3) to prevent premature loss detection
+  // When combined with time-based detection, lower values can cause empty vector issues
+  // Default (3) is safer and prevents false positives that trigger empty OnPacketsLost calls
+  // Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(2));
+  
+  // Time-based reordering fraction (RFC 9002 Section 6.1.2)
+  // Standard RFC 9002 value - keeps time-based detection conservative
+  Config::SetDefault("ns3::QuicSocketBase::kTimeReorderingFraction", DoubleValue(9.0/8.0));
+  
+  // Default initial RTT (RFC 9002 Section 6.2.2)
+  // RFC 9002 recommended value for initial RTT estimation
+  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333)));
+  
+  // ============================================================================
+  // CONGESTION CONTROL PARAMETERS
+  // ============================================================================
+  
   // QUIC Congestion Control Configuration
   Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
   Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(true)); // Use QUIC-specific congestion control  
   
-  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(INT32_MAX));
-  // Match TCP segment size (packetSize) and MTU (1500)
+  // Reduce initial slow start threshold to enter congestion avoidance sooner
+  // This prevents aggressive sending that can cause congestion
+  // Set to a reasonable value for NTN (128KB) - allows some growth but prevents excessive bursts
+  // Realistic: Still allows 85+ packets in slow start, but prevents unlimited growth
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(128*1024)); // 128 KB
+
+  // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
   Config::SetDefault("ns3::QuicSocketBase::MaxPacketSize", UintegerValue(1500));
-  // Match TCP send/receive buffer sizes
-  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(1048576));
-  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(1048576));
-
+  
+  // ============================================================================
+  // FLOW CONTROL PARAMETERS
+  // ============================================================================
+  // Reduce MaxDataInterval to send flow control updates more frequently
+  // This improves flow control responsiveness and prevents blocking
+  // Note: This is a counter (number of ACKs), not a time value
+  // Using 5 for very responsive flow control updates (every 5 ACKs)
+  // Realistic: Small overhead, significant improvement in flow control responsiveness
+  Config::SetDefault("ns3::QuicStreamBase::MaxDataInterval", UintegerValue(5)); // Reduced from default 15000
+  
+  // ============================================================================
+  // NOTE: Parameters Set in Constructors (Not Configurable via Config::SetDefault)
+  // ============================================================================
+  // The following parameters are set in constructors and cannot be changed via
+  // Config::SetDefault. To modify these, you would need to edit the source code:
+  //
+  // 1. m_kLossReductionFactor (default: 0.5)
+  //    Location: quic-socket-base.cc line 418
+  //    Description: Reduction factor applied to congestion window on loss detection
+  //    Impact: Decreasing makes congestion response more aggressive
+  //
+  // 2. m_initialCWnd (default: 10 * segmentSize)
+  //    Location: quic-socket-base.cc line 436, mp-quic-subflow.cc line 102
+  //    Description: Initial congestion window size
+  //    Impact: Decreasing makes initial sending more conservative
+  //
+  // 3. m_kMinimumWindow (default: 2 * segmentSize)
+  //    Location: quic-socket-base.cc line 416-417, mp-quic-subflow.cc line 103
+  //    Description: Minimum congestion window size
+  //    Impact: Increasing prevents window from getting too small after losses
+  //
+  // For MP-QUIC: These values are set when MpQuicSubFlow creates QuicSocketState
+  // objects (see mp-quic-subflow.cc lines 76-79, 102-103)
+ 
   // Enable multi-beam functionality
 //  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
@@ -717,10 +809,6 @@ main (int argc, char *argv[])
   // Install QUIC stack on remote host (instead of Internet stack)
   QuicHelper quicHelper;
 
-  // QUIC stream buffer configuration - aligned with DASH buffer space
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (1048576));  // 1MB (matches DASH bufferSpace)
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (1048576));  // 1MB (matches DASH bufferSpace)
- 
   quicHelper.InstallQuic (remoteHostContainer);
   // Create the Internet
   PointToPointHelper p2ph;
@@ -918,12 +1006,53 @@ main (int argc, char *argv[])
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   
+  // QUIC Socket buffer configuration - must be large enough for high bitrate segments
+  // For 66 Mbps: average segment ~15.74 MB, max segment ~31.47 MB
+  // Set to hold at least 2 full segments to prevent blocking
+  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
+  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
+
+  // QUIC stream buffer configuration - must hold multiple large frames (up to 330 KB each)
+  // At 66 Mbps, frames accumulate faster than they can be transmitted
+  // Buffer was 98.5% full (7.88 MB used) with only 127 KB available, but frames are 156 KB
+  // Set to 32 MB to handle burst accumulation and prevent blocking
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (32*1024*1024));  // 32 MB (96x max frame)
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (32*1024*1024));  // 32 MB (96x max frame)
+
   // DASH over QUIC configuration - aligned with QUIC packet size limits
-  double target_dt = 0.1;  // Target buffering time
-  uint32_t bufferSpace = 10485760;  // 1MB buffer (matches QUIC socket buffer size)
-  std::string window = "1s";  // Throughput measurement window
+  double target_dt = 100;  // Target buffering time
+  // DASH bufferSpace: should hold multiple segments for smooth playback
+  // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
+  uint32_t bufferSpace = 200*1024*1024;  // 200 MB (10+ segments at 66 Mbps)
+  double window = 5000;  // Throughput measurement window in milliseconds
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
+  // Video duration configuration
+  double desiredVideoDuration = 30.0;  // Desired video duration in seconds
+  
+  // Calculate minimum simulation duration
+  // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
+  double initialSetupTime = 1.5;  // Buffer time in seconds (handshake + initial buffering + cleanup + 1s app stop buffer)
+  double minSimulationDuration = desiredVideoDuration + initialSetupTime;
+  
+  // Get current stopTime (line 1024)
+  double stopTime = 30.0;  // Minimal time for testing
+  
+  // Check if current stopTime is less than minimum, and adjust if needed
+  if (stopTime < minSimulationDuration)
+  {
+      NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
+                   << minSimulationDuration << "s (required for video duration " 
+                   << desiredVideoDuration << "s)");
+      stopTime = minSimulationDuration;
+  }
+  else
+  {
+      NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
+                   << desiredVideoDuration << "s, minimum required: " 
+                   << minSimulationDuration << "s)");
+  }
+
   // Create a DASH server on each UE (listening on port 80)
   DashServerHelper dashServer ("ns3::QuicSocketFactory",
                                 InetSocketAddress(Ipv4Address::GetAny(), 80));
@@ -940,9 +1069,10 @@ main (int argc, char *argv[])
                                   InetSocketAddress(ueIpIface.GetAddress(u), 80),
                                   algorithm);
     dashClient.SetAttribute ("VideoId", UintegerValue(u + 1));
-    dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
-    dashClient.SetAttribute ("window", TimeValue(Time(window)));
+    dashClient.SetAttribute ("TargetDt", TimeValue(MilliSeconds(target_dt)));
+    dashClient.SetAttribute ("window", TimeValue(MilliSeconds(window)));
     dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
+    dashClient.SetAttribute ("MaxVideoDuration", TimeValue(Seconds(desiredVideoDuration)));  // Add this line
     
     clientApps.Add (dashClient.Install (remoteHost));
     NS_LOG_UNCOND("DASH Client " << u << " installed on remoteHost (IP=" << remoteHostAddr 
@@ -1019,29 +1149,30 @@ main (int argc, char *argv[])
   for (uint32_t i = 0; i < serverApps.GetN(); ++i)
   {
     serverApps.Get(i)->SetStartTime(Seconds(0.2 + i * 0.1));
+    // Stop apps 1 second before simulation stops to allow cleanup
+    serverApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
   
   // Clients start after servers with additional delay for QUIC handshake
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
     clientApps.Get(i)->SetStartTime(Seconds(0.3 + i * 0.1));
+    // Stop apps 1 second before simulation stops to allow cleanup
+    clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
   
-  double stopTime = 6.0;  // Minimal time for testing
-  clientApps.Stop (Seconds (stopTime));
-  serverApps.Stop (Seconds (stopTime + 1.0));
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections ===");
   
   // Connect traces for remote host (now QUIC client) - schedule after app start
   uint32_t clientNodeId = remoteHost->GetId();
-  Time clientTraceTimeSched = Seconds(0.35);  // After clients start at 0.3s
+  Time clientTraceTimeSched = Seconds(0.417614);  // After clients start at 0.3s
   Simulator::Schedule(clientTraceTimeSched, &Traces, clientNodeId, "./client", ".txt");
   NS_LOG_UNCOND("  Scheduled QUIC traces for Client Node " << clientNodeId << " at t=" << clientTraceTimeSched.GetSeconds() << "s");
   
   // Connect traces for each UE node (now QUIC servers)
-  Time serverTraceTimeSched = Seconds(0.25);  // After server apps start at 0.2s
+  Time serverTraceTimeSched = Seconds(0.45);  // After server apps start at 0.2s
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     uint32_t nodeId = ueNodes.Get(u)->GetId();
@@ -1106,7 +1237,7 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("Number of UEs: " << ueNodes.GetN());
   NS_LOG_UNCOND("Simulation time: " << stopTime << " seconds");
   NS_LOG_UNCOND("DASH algorithm: " << algorithm);
-  NS_LOG_UNCOND("Target buffering time: " << target_dt << " seconds");
+  NS_LOG_UNCOND("Target buffering time: " << target_dt << " milliseconds");
   NS_LOG_UNCOND("Expected video segments: ~" << (int)(stopTime/2));
   NS_LOG_UNCOND("Expected video frames: ~" << (int)(stopTime * 50));
   

@@ -415,10 +415,6 @@ DashClient::MessageReceived(Packet message)
     MPEGHeader mpegHeader;
     HTTPHeader httpHeader;
 
-    // Fire Rx trace for received video segment
-    Ptr<const Packet> packet = Create<Packet>(message);
-    m_rxTrace(packet);
-
     // Send the frame to the player
     // If it doesn't fit in the buffer, don't continue
     if (!m_player.ReceiveFrame(&message))

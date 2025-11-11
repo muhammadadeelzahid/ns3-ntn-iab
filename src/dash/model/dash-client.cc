@@ -529,6 +529,11 @@ DashClient::CalcNextSegment(uint32_t currRate, uint32_t& nextRate, Time& delay)
 void
 DashClient::GetStats()
 {
+    // Finalize interruption time if player is still paused
+    // This handles the case where the simulation ends while the player is paused
+    // and the interruption time wasn't recorded because playback never resumed
+    m_player.FinalizeInterruptionTime();
+    
     std::cout << " InterruptionTime: " << m_player.m_interruption_time.GetSeconds()
               << " interruptions: " << m_player.m_interrruptions
               << " avgRate: " << (1.0 * m_player.m_totalRate) / m_player.m_framesPlayed

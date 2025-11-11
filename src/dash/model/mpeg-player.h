@@ -70,6 +70,13 @@ class MpegPlayer
     void Start();
 
     Time GetRealPlayTime(Time playTime);
+    
+    /**
+     * Finalize interruption time if player is still paused
+     * This should be called when collecting stats to account for interruptions
+     * that occurred but playback never resumed (e.g., simulation ended while paused)
+     */
+    void FinalizeInterruptionTime();
 
     void inline SchduleBufferWakeup(const Time t, DashClient* client)
     {

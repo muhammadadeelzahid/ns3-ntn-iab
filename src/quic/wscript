@@ -12,20 +12,25 @@ def build(bld):
 
     eigen_include = None
 
-    if os.path.exists('/usr/include/eigen3'):
-        eigen_include = '/usr/include/eigen3'
-    elif os.path.exists('/opt/homebrew/opt/eigen/include/eigen3'):
-        eigen_include = '/opt/homebrew/opt/eigen/include/eigen3'
-    elif os.path.exists('/usr/local/include/eigen3'):
-        eigen_include = '/usr/local/include/eigen3'
+    candidate_paths = [
+        '/usr/include/eigen3',
+        '/usr/local/include/eigen3',
+        '/opt/homebrew/opt/eigen/include/eigen3',
+        os.path.expanduser('~/local/include/eigen3'),
+        '/local/workspace01/zahidma/storage/include/eigen3',
+    ]
+
+    for path in candidate_paths:
+        if os.path.exists(path):
+            eigen_include = path
+            break
 
     if eigen_include:
         module.includes = eigen_include
         module.export_includes = eigen_include
         bld.env.INCLUDES_EIGEN3 = [eigen_include]
-        print("Eigen include path set to: %s" % eigen_include)
     else:
-        print("Warning: Eigen not found. Please install libeigen3-dev or specify include path manually.")
+        print("Warning: Eigen not found. Please install Eigen or specify include path manually.")
 
     module.source = [
         'model/quic-congestion-ops.cc',

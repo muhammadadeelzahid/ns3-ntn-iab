@@ -354,8 +354,9 @@ DashServer::SendSegment(uint32_t video_id,
     NS_LOG_UNCOND("[DASH SERVER] SendSegment START - VideoId: " << video_id 
                  << ", Resolution: " << resolution << ", SegmentId: " << segment_id);
     
-    int avg_packetsize = resolution / (50 * 8);
-    NS_LOG_UNCOND("[DASH SERVER] Average packet size: " << avg_packetsize << " bytes");
+    int fps = 1000 / MPEG_TIME_BETWEEN_FRAMES;
+    int avg_packetsize = resolution / (fps * 8);
+    NS_LOG_DEBUG("[DASH SERVER] Average packet size: " << avg_packetsize << " bytes");
 
     HTTPHeader http_header_tmp;
     MPEGHeader mpeg_header_tmp;
@@ -383,7 +384,7 @@ DashServer::SendSegment(uint32_t video_id,
         MPEGHeader mpeg_header;
         mpeg_header.SetFrameId(f_id);
         mpeg_header.SetPlaybackTime(MilliSeconds((f_id + (segment_id * MPEG_FRAMES_PER_SEGMENT)) *
-                                                 MPEG_TIME_BETWEEN_FRAMES)); // 50 fps
+                                                 MPEG_TIME_BETWEEN_FRAMES));
         mpeg_header.SetType('B');
         mpeg_header.SetSize(frame_size);
 

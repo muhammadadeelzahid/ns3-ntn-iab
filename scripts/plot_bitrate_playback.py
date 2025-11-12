@@ -235,12 +235,10 @@ def plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback):
         ax1.grid(True, alpha=0.3)
         ax1.legend()
         ax1.set_xlim(time_min, time_max)
-        ax1.tick_params(labelleft=False)  # Remove y-axis tick values
     else:
         ax1.text(0.5, 0.5, 'No bitrate data', ha='center', va='center', transform=ax1.transAxes)
         ax1.set_xlabel('Time (s)', fontsize=12)
         ax1.set_title('Bitrate Over Time: QUIC vs TCP', fontsize=13, fontweight='bold')
-        ax1.tick_params(labelleft=False)  # Remove y-axis tick values
     
     # Plot 2: QUIC Playback Status (full width)
     ax2 = fig.add_subplot(gs[1, 0])

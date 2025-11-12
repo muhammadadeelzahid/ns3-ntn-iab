@@ -251,8 +251,8 @@ def write_to_csv(results_dict, csv_file='analysis_results.csv'):
     base_fieldnames = [
         'timestamp',
         'protocol',
-        'server_file',
-        'client_file',
+        'receiver_file',
+        'sender_file',
         'rtt_file',
         'total_throughput_mbps',
         'total_bytes_received',
@@ -323,37 +323,37 @@ def process_protocol_data(protocol_name, server_node, client_node, use_p2p=False
     # Set file paths based on protocol and mode
     if use_p2p:
         # For p2p connection analysis wns3-tcp-one-path.cc and wns3-mpquic-one-path.cc
-        server_file = f"receiver{protocol_name}-rx-data{client_node}.txt"
-        client_file = f"sender{protocol_name}-cwnd-change{server_node}.txt"
+        receiver_file = f"receiver{protocol_name}-rx-data{client_node}.txt"
+        sender_file = f"sender{protocol_name}-cwnd-change{server_node}.txt"
         rtt_file = f"sender{protocol_name}-rtt{server_node}.txt"
     else:
         # For ntn-iab-tcp.cc and ntn-iab-quic.cc
         if protocol_name == "QUIC":
-            server_file = f"serverQUIC-rx-data{server_node}.txt"
-            client_file = f"clientQUIC-cwnd-change{client_node}.txt"
-            rtt_file = f"clientQUIC-rtt{client_node}.txt"
+            receiver_file = f"clientQUIC-rx-data{client_node}.txt"
+            sender_file = f"serverQUIC-cwnd-change{server_node}.txt"
+            rtt_file = f"serverQUIC-rtt{server_node}.txt"
         else:  # TCP
-            server_file = f"serverTCP-rx-data{server_node}.txt"
-            client_file = f"clientTCP-cwnd-change{client_node}.txt"
-            rtt_file = f"clientTCP-rtt{client_node}.txt"
+            receiver_file = f"clientTCP-rx-data{client_node}.txt"
+            sender_file = f"serverTCP-cwnd-change{server_node}.txt"
+            rtt_file = f"serverTCP-rtt{server_node}.txt"
     
     print(f"{protocol_name} Data Analysis")
-    print(f"  Reading server data from: {server_file}")
-    print(f"  Reading client data from: {client_file}")
+    print(f"  Reading server data from: {receiver_file}")
+    print(f"  Reading client data from: {sender_file}")
     print(f"  Reading RTT data from: {rtt_file}")
     
     # Read data
-    server_df = read_server_data(server_file)
-    client_df = read_client_data(client_file)
+    server_df = read_server_data(receiver_file)
+    client_df = read_client_data(sender_file)
     rtt_df = read_rtt_data(rtt_file)
     
     # Check if we have valid data
     if server_df is None or server_df.empty:
-        print(f"  Warning: Could not read server data from {server_file}")
+        print(f"  Warning: Could not read server data from {receiver_file}")
         return None
     
     if client_df is None or client_df.empty:
-        print(f"  Warning: Could not read client data from {client_file}")
+        print(f"  Warning: Could not read client data from {sender_file}")
         return None
     
     if rtt_df is None or rtt_df.empty:
@@ -368,8 +368,8 @@ def process_protocol_data(protocol_name, server_node, client_node, use_p2p=False
     
     return {
         'protocol': protocol_name,
-        'server_file': server_file,
-        'client_file': client_file,
+        'receiver_file': receiver_file,
+        'sender_file': sender_file,
         'rtt_file': rtt_file,
         'server_df': server_df,
         'client_df': client_df,
@@ -401,6 +401,8 @@ def main():
                        help='Congestion control algorithm used (optional, for CSV record)')
     parser.add_argument('--p2p', action='store_true',
                        help='Use p2p file naming (receiver/sender instead of server/client)')
+    parser.add_argument('--plot_file', type=str, default='',
+                       help='Output plot filename (default: auto-generated based on protocols)')
     
     args = parser.parse_args()
     
@@ -444,7 +446,7 @@ def main():
         return
     
     # Create plots with all protocols on the same graphs
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 24))
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12))
     
     # Color and marker mapping for each protocol
     protocol_styles = {
@@ -460,7 +462,7 @@ def main():
                     f"{style['marker']}-", color=style['color'], linewidth=2, markersize=4,
                     label=style['label'])
     ax1.set_ylabel('Data Rate (Mbps)', fontsize=12)
-    ax1.set_title('Data Rate', fontsize=14, pad=15)
+    ax1.set_title('Data Rate', fontsize=14, pad=8)
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc='upper right')
     ax1.tick_params(axis='x', labelsize=10)
@@ -473,7 +475,7 @@ def main():
                     f"{style['marker']}-", color=style['color'], linewidth=2, markersize=4,
                     label=style['label'])
     ax2.set_ylabel('Congestion Window (bytes)', fontsize=12)
-    ax2.set_title('Congestion Window', fontsize=14, pad=15)
+    ax2.set_title('Congestion Window', fontsize=14, pad=8)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc='upper right')
     ax2.tick_params(axis='x', labelsize=10)
@@ -487,13 +489,26 @@ def main():
                     label=style['label'])
     ax3.set_xlabel('Time (seconds)', fontsize=12, labelpad=10)
     ax3.set_ylabel('RTT (seconds)', fontsize=12)
-    ax3.set_title('Round Trip Time', fontsize=14, pad=15)
+    ax3.set_title('Round Trip Time', fontsize=14, pad=8)
     ax3.grid(True, alpha=0.3)
     ax3.legend(loc='upper right')
     ax3.tick_params(axis='x', labelsize=10)
     
-    # Adjust subplot spacing to prevent overlaps
-    plt.subplots_adjust(hspace=0.8, top=0.90, bottom=0.08, left=0.12, right=0.95)
+    # Adjust subplot spacing to maximize horizontal space and reduce vertical spacing
+    plt.subplots_adjust(hspace=0.3, top=0.95, bottom=0.08, left=0.06, right=0.98)
+    
+    # Determine output filename
+    if args.plot_file:
+        plot_filename = args.plot_file
+    else:
+        # Auto-generate filename based on protocols
+        protocol_str = '_'.join(protocols_to_process).lower()
+        plot_filename = f'tcp_quic_analysis_{protocol_str}.png'
+    
+    # Save plot to disk
+    plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+    print(f"\nPlot saved to: {plot_filename}")
+    
     plt.show()
     
     # Print statistics for each protocol
@@ -501,13 +516,13 @@ def main():
         print(f"\n{'=' * 70}")
         print(f"{data['protocol']} Statistics")
         print(f"{'=' * 70}")
-        print(f"{data['server_file']}:")
+        print(f"{data['receiver_file']}:")
         print(f"  Total throughput: {data['total_throughput']:.2f} Mbps")
         print(f"  Total bytes received: {data['server_df']['packet_size'].sum():,}")
         print(f"  Simulation duration: {data['server_df']['timestamp'].max() - data['server_df']['timestamp'].min():.2f} seconds")
         print(f"  Node ID: {data['server_df']['node_id'].iloc[0] if not data['server_df'].empty else 'Unknown'}")
         
-        print(f"\n{data['client_file']}:")
+        print(f"\n{data['sender_file']}:")
         print(f"  Initial congestion window: {data['client_df']['new_cwnd'].iloc[0]:,} bytes")
         print(f"  Final congestion window: {data['client_df']['new_cwnd'].iloc[-1]:,} bytes")
         print(f"  Max congestion window: {data['client_df']['new_cwnd'].max():,} bytes")
@@ -527,8 +542,8 @@ def main():
         results_dict = {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'protocol': data['protocol'],
-            'server_file': data['server_file'],
-            'client_file': data['client_file'],
+            'receiver_file': data['receiver_file'],
+            'sender_file': data['sender_file'],
             'rtt_file': data['rtt_file'],
             'total_throughput_mbps': f"{data['total_throughput']:.2f}",
             'total_bytes_received': f"{data['server_df']['packet_size'].sum():,}",

@@ -730,7 +730,7 @@ main (int argc, char *argv[])
   // This prevents aggressive sending that can cause congestion
   // Set to a reasonable value for NTN (128KB) - allows some growth but prevents excessive bursts
   // Realistic: Still allows 85+ packets in slow start, but prevents unlimited growth
-  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(128*1024)); // 128 KB
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(65535)); // Unlimited
 
   // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
@@ -1020,23 +1020,23 @@ main (int argc, char *argv[])
   Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (32*1024*1024));  // 32 MB (96x max frame)
 
   // DASH over QUIC configuration - aligned with QUIC packet size limits
-  double target_dt = 100;  // Target buffering time
+  double target_dt = 5.0;  // Target buffering time
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
   uint32_t bufferSpace = 200*1024*1024;  // 200 MB (10+ segments at 66 Mbps)
-  double window = 5000;  // Throughput measurement window in milliseconds
+  double window = 5;  // Throughput measurement window in milliseconds
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
   // Video duration configuration
-  double desiredVideoDuration = 30.0;  // Desired video duration in seconds
+  double desiredVideoDuration = 60.0;  // Desired video duration in seconds
   
   // Calculate minimum simulation duration
   // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
   double initialSetupTime = 1.5;  // Buffer time in seconds (handshake + initial buffering + cleanup + 1s app stop buffer)
-  double minSimulationDuration = desiredVideoDuration + initialSetupTime;
+  double minSimulationDuration = desiredVideoDuration*1.15;
   
   // Get current stopTime (line 1024)
-  double stopTime = 30.0;  // Minimal time for testing
+  double stopTime = 1.0;  // Minimal time for testing
   
   // Check if current stopTime is less than minimum, and adjust if needed
   if (stopTime < minSimulationDuration)
@@ -1069,7 +1069,7 @@ main (int argc, char *argv[])
                                   InetSocketAddress(ueIpIface.GetAddress(u), 80),
                                   algorithm);
     dashClient.SetAttribute ("VideoId", UintegerValue(u + 1));
-    dashClient.SetAttribute ("TargetDt", TimeValue(MilliSeconds(target_dt)));
+    dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
     dashClient.SetAttribute ("window", TimeValue(MilliSeconds(window)));
     dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
     dashClient.SetAttribute ("MaxVideoDuration", TimeValue(Seconds(desiredVideoDuration)));  // Add this line

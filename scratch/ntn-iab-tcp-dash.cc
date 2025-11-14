@@ -567,7 +567,7 @@ main (int argc, char *argv[])
   CommandLine cmd; 
   unsigned run = 0;
   bool rlcAm = false;
-  uint32_t numRelays = 0;
+  uint32_t numRelays = 1;
   uint32_t numUes = 1;  // Number of UE nodes/users
   uint32_t rlcBufSize = 10;
   uint32_t interPacketInterval = 10000; 
@@ -649,11 +649,11 @@ main (int argc, char *argv[])
   // ACKNOWLEDGMENT PARAMETERS
   // ============================================================================
   
-  // 1. Reduce delayed ACK timeout (from default 200ms to 15ms) - MATCHES QUIC
-  //    QUIC: kDelayedAckTimeout = 15ms
-  //    Sends ACKs more frequently, reducing acknowledgment delays by 40%
-  //    Realistic: 15ms is still safe for NTN (much larger than typical processing delays)
-  Config::SetDefault("ns3::TcpSocket::DelAckTimeout", TimeValue(MilliSeconds(15)));
+  // 1. Reduce delayed ACK timeout (from default 200ms to 10ms) - MATCHES QUIC CONGESTION AVOIDANCE
+  //    QUIC: kDelayedAckTimeout = 10ms (reduced from 15ms for congestion avoidance)
+  //    Sends ACKs much more frequently, reducing acknowledgment delays by 60% for faster congestion detection
+  //    Realistic: 10ms is still safe for NTN and critical for detecting congestion quickly
+  Config::SetDefault("ns3::TcpSocket::DelAckTimeout", TimeValue(MilliSeconds(10))); // REDUCED FROM 15ms TO 10ms
   
   // 2. Disable Nagle's algorithm for low latency (TCP-specific optimization)
   //    QUIC doesn't have Nagle's algorithm, so disabling it makes TCP more comparable
@@ -668,12 +668,12 @@ main (int argc, char *argv[])
   // QUIC: CcType = QuicNewReno
   Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpNewReno::GetTypeId()));
   
-  // Reduce initial slow start threshold to enter congestion avoidance sooner (MATCHES QUIC)
-  // QUIC: InitialSlowStartThreshold = 128 KB
-  // This prevents aggressive sending that can cause congestion
-  // Set to a reasonable value for NTN (128KB) - allows some growth but prevents excessive bursts
-  // Realistic: Still allows 85+ packets in slow start, but prevents unlimited growth
-  Config::SetDefault("ns3::TcpSocket::InitialSlowStartThreshold", UintegerValue(65535)); // Unlimited
+  // Reduce initial slow start threshold to enter congestion avoidance sooner (MATCHES QUIC CONGESTION AVOIDANCE)
+  // QUIC: InitialSlowStartThreshold = 32KB (reduced from unlimited for congestion avoidance)
+  // SIGNIFICANT CHANGE: Reduced from unlimited (65535) to 32KB (21 packets) for much more conservative behavior
+  // This forces the connection to exit slow start after ~21 packets, preventing congestion buildup
+  // Realistic: 32KB is conservative but prevents the exponential growth that causes congestion
+  Config::SetDefault("ns3::TcpSocket::InitialSlowStartThreshold", UintegerValue(32*1024)); // 32KB - SIGNIFICANTLY REDUCED
   
   // Initial congestion window (MATCHES QUIC)
   // QUIC: m_initialCWnd = 10 * segmentSize (default)
@@ -954,10 +954,10 @@ main (int argc, char *argv[])
   ApplicationContainer serverApps;
   
   // DASH over TCP configuration - aligned with TCP segment size limits
-  double target_dt = 5.0;
+  double target_dt = 10.0;
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 200*1024*1024;  // 200 MB (10+ segments at 66 Mbps)
+  uint32_t bufferSpace = 400*1024*1024;  // 200 MB (10+ segments at 66 Mbps)
   double window = 5;  // Throughput measurement window in milliseconds
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   

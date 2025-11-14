@@ -35,7 +35,7 @@ namespace ns3
  */
 
 #define MPEG_FRAMES_PER_SEGMENT 100
-#define MPEG_TIME_BETWEEN_FRAMES 20 // Miliseconds or 50 fps
+#define MPEG_TIME_BETWEEN_FRAMES 33
 
 class MPEGHeader : public Header
 {

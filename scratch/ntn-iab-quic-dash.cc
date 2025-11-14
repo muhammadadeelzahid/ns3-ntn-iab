@@ -591,7 +591,7 @@ main (int argc, char *argv[])
   CommandLine cmd; 
   unsigned run = 0;
   bool rlcAm = false;
-  uint32_t numRelays = 0;
+  uint32_t numRelays = 1;
   uint32_t numUes = 1;  // Number of UE nodes/users
   uint32_t rlcBufSize = 10;
   uint32_t interPacketInterval = 10000; 
@@ -675,15 +675,15 @@ main (int argc, char *argv[])
   //    Realistic: NTN links may have burst losses, so tracking more gaps is beneficial
   Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(100));
   
-  // 2. Reduce maximum packets before ACK send (from default 20 to 10) - SIGNIFICANT IMPROVEMENT
-  //    Forces much more frequent ACKs, significantly reducing gaps
-  //    Realistic: 10 packets is still reasonable and halves the gap window
-  Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(10));
+  // 2. Reduce maximum packets before ACK send (from default 20 to 5) - SIGNIFICANT IMPROVEMENT FOR CONGESTION AVOIDANCE
+  //    Forces much more frequent ACKs, significantly reducing gaps and detecting congestion faster
+  //    Realistic: 5 packets is aggressive but critical for congestion avoidance - detects losses 2x faster
+  Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(5)); // REDUCED FROM 10 TO 5
   
-  // 3. Reduce delayed ACK timeout (from default 25ms to 15ms) - SIGNIFICANT IMPROVEMENT
-  //    Sends ACKs more frequently, reducing acknowledgment delays by 40%
-  //    Realistic: 15ms is still safe for NTN (much larger than typical processing delays)
-  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(15)));
+  // 3. Reduce delayed ACK timeout (from default 25ms to 10ms) - SIGNIFICANT IMPROVEMENT FOR CONGESTION AVOIDANCE
+  //    Sends ACKs much more frequently, reducing acknowledgment delays by 60% for faster congestion detection
+  //    Realistic: 10ms is still safe for NTN and critical for detecting congestion quickly
+  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(10))); // REDUCED FROM 15ms TO 10ms
   
   // 4. Reduce ACK delay exponent (from default 3 to 2) - MODERATE IMPROVEMENT
   //    Limits maximum encodable ACK delay, reducing delay variability
@@ -728,9 +728,10 @@ main (int argc, char *argv[])
   
   // Reduce initial slow start threshold to enter congestion avoidance sooner
   // This prevents aggressive sending that can cause congestion
-  // Set to a reasonable value for NTN (128KB) - allows some growth but prevents excessive bursts
-  // Realistic: Still allows 85+ packets in slow start, but prevents unlimited growth
-  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(65535)); // Unlimited
+  // SIGNIFICANT CHANGE: Reduced from unlimited (65535) to 32KB (21 packets) for much more conservative behavior
+  // This forces the connection to exit slow start after ~21 packets, preventing congestion buildup
+  // Realistic: 32KB is conservative but prevents the exponential growth that causes congestion
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(32*1024)); // 32KB - SIGNIFICANTLY REDUCED
 
   // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
@@ -1020,10 +1021,10 @@ main (int argc, char *argv[])
   Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (32*1024*1024));  // 32 MB (96x max frame)
 
   // DASH over QUIC configuration - aligned with QUIC packet size limits
-  double target_dt = 5.0;  // Target buffering time
+  double target_dt = 10.0;  // Target buffering time
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 200*1024*1024;  // 200 MB (10+ segments at 66 Mbps)
+  uint32_t bufferSpace = 400*1024*1024;  // 200 MB (10+ segments at 66 Mbps)
   double window = 5;  // Throughput measurement window in milliseconds
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   

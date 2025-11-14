@@ -174,6 +174,12 @@ QuicL5Protocol::DispatchSend (Ptr<Packet> data)
 
   int sentData = 0;
 
+  // Log when DispatchSend is called with small packets (segment requests)
+  NS_LOG_DEBUG("[TEMP_LOGS] DISPATCHSEND_CALLED: at time=" << Simulator::Now().GetSeconds()
+                << " packetSize=" << data->GetSize()
+                << " numStreams=" << m_streams.size()
+                << " maxStreamId=" << m_socket->GetMaxStreamId());
+
   // if the streams are not created yet, open the streams
   if (m_streams.size () != m_socket->GetMaxStreamId ())
     {
@@ -343,7 +349,7 @@ QuicL5Protocol::DisgregateSend (Ptr<Packet> data)
     {
       if (start >= dataSizeByte)
       {
-        NS_LOG_UNCOND("[QUIC L5] Boundary check: Start (" << start << ") >= dataSizeByte (" << dataSizeByte << "), stopping fragmentation");
+        NS_LOG_DEBUG("[QUIC L5] Boundary check: Start (" << start << ") >= dataSizeByte (" << dataSizeByte << "), stopping fragmentation");
         break;
       }
       
@@ -497,7 +503,7 @@ void
 QuicL5Protocol::SignalAbortConnection (uint16_t transportErrorCode,
                                        const char* reasonPhrase)
 {
-  NS_LOG_FUNCTION (this);
+  NS_LOG_UNCOND (this);
   m_socket->AbortConnection (transportErrorCode, reasonPhrase);
 }
 

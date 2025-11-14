@@ -76,6 +76,8 @@ Ptr<MpQuicSubFlow>
 MpQuicPathManager::InitialSubflow0 (Address localAddress, Address peerAddress)
 {
   NS_LOG_FUNCTION(this);
+  NS_LOG_DEBUG("[TEMP_LOGS] InitialSubflow0: local=" << InetSocketAddress::ConvertFrom(localAddress)
+                 << " peer=" << InetSocketAddress::ConvertFrom(peerAddress));
 
   Ptr<MpQuicSubFlow> sFlow = CreateObject<MpQuicSubFlow> ();
   sFlow->m_flowId    = 0; 
@@ -85,6 +87,7 @@ MpQuicPathManager::InitialSubflow0 (Address localAddress, Address peerAddress)
   sFlow->SetSegSize(m_segSize);
   sFlow->m_tcb->m_initialSsThresh = m_initialSsThresh;
   m_socket->SubflowInsert(sFlow);
+  NS_LOG_DEBUG("[TEMP_LOGS] InitialSubflow0: inserted subflow0");
   bool ok;
   ok = sFlow->m_tcb->TraceConnectWithoutContext ("CongestionWindow", MakeCallback (&QuicSocketBase::UpdateCwnd, m_socket));
   NS_ASSERT_MSG (ok == true, "Failed connection to CWND0 trace");
@@ -101,6 +104,9 @@ MpQuicPathManager::AddSubflow(Address localAddress, Address peerAddress, uint8_t
 {
     
   NS_LOG_FUNCTION(this);
+  NS_LOG_DEBUG("[TEMP_LOGS] AddSubflow: pathId=" << (int)pathId
+                 << " local=" << InetSocketAddress::ConvertFrom(localAddress)
+                 << " peer=" << InetSocketAddress::ConvertFrom(peerAddress));
   Ptr<MpQuicSubFlow> sFlow = CreateObject<MpQuicSubFlow> ();
   sFlow->m_flowId    = pathId; 
   sFlow->m_localAddr = localAddress;
@@ -114,6 +120,7 @@ MpQuicPathManager::AddSubflow(Address localAddress, Address peerAddress, uint8_t
   m_socket->SubflowInsert(sFlow);
   m_socket->AddPath(localAddress, peerAddress, pathId);
   m_socket->SendAddAddress(localAddress, pathId);
+  NS_LOG_DEBUG("[TEMP_LOGS] AddSubflow: inserted pathId=" << (int)pathId);
   
   return sFlow;
 
@@ -124,6 +131,9 @@ Ptr<MpQuicSubFlow>
 MpQuicPathManager::AddSubflowWithPeerAddress(Address localAddress, Address peerAddress, uint8_t pathId)
 {
   NS_LOG_FUNCTION(this);
+  NS_LOG_DEBUG("[TEMP_LOGS] AddSubflowWithPeerAddress: pathId=" << (int)pathId
+                 << " local=" << InetSocketAddress::ConvertFrom(localAddress)
+                 << " peer=" << InetSocketAddress::ConvertFrom(peerAddress));
   Ptr<MpQuicSubFlow> sFlow = CreateObject<MpQuicSubFlow> ();
   sFlow->m_flowId     = pathId; 
   sFlow->m_localAddr  = localAddress;

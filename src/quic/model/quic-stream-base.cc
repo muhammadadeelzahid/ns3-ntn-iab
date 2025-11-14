@@ -131,8 +131,38 @@ QuicStreamBase::Send (Ptr<Packet> frame)
 
   if (m_streamStateSend == OPEN or m_streamStateSend == SEND)
     {
+      // Log when sending small packets (likely segment requests) on stream > 0
+      if (frame->GetSize() < 100 && m_streamId > 0)
+      {
+        static bool first_send_logged = false;
+        if (!first_send_logged)
+        {
+          NS_LOG_DEBUG("[TEMP_LOGS] STREAM_SEND_ATTEMPT: streamId=" << m_streamId 
+                       << " at time=" << Simulator::Now().GetSeconds()
+                       << " packetSize=" << frame->GetSize()
+                       << " StreamTxBufferSize=" << m_txBuffer->AppSize()
+                       << " StreamTxBufferAvailable=" << m_txBuffer->Available()
+                       << " StreamAvailableWindow=" << AvailableWindow());
+          first_send_logged = true;
+        }
+      }
+      
       int sent = AppendingTx (frame);
-
+      
+      // Log if AppendingTx failed
+      if (sent < 0 && frame->GetSize() < 100 && m_streamId > 0)
+      {
+        static bool first_append_fail_logged = false;
+        if (!first_append_fail_logged)
+        {
+          NS_LOG_DEBUG("[TEMP_LOGS] STREAM_APPENDTX_FAILED: streamId=" << m_streamId 
+                       << " at time=" << Simulator::Now().GetSeconds()
+                       << " packetSize=" << frame->GetSize()
+                       << " StreamTxBufferSize=" << m_txBuffer->AppSize()
+                       << " StreamTxBufferAvailable=" << m_txBuffer->Available());
+          first_append_fail_logged = true;
+        }
+      }
 
       NS_LOG_LOGIC ("Sending packets in stream. TxBufSize = " << m_txBuffer->AppSize () << " AvailableWindow = " << AvailableWindow () << " state " << QuicStreamStateName[m_streamStateSend]);
 
@@ -171,6 +201,14 @@ QuicStreamBase::AppendingTx (Ptr<Packet> frame)
 
   if (!m_txBuffer->Add (frame))
     {
+      // Log when stream buffer rejects packet - critical for segment requests
+      NS_LOG_DEBUG("[TEMP_LOGS] STREAM_TX_BUFFER_REJECT: streamId=" << m_streamId 
+                    << " time=" << Simulator::Now().GetSeconds()
+                    << " frameSize=" << frame->GetSize()
+                    << " StreamTxBufferMaxSize=" << m_txBuffer->GetMaxBufferSize()
+                    << " StreamTxBufferUsed=" << m_txBuffer->AppSize()
+                    << " StreamTxBufferAvailable=" << m_txBuffer->Available()
+                    << " BytesInFlight=" << m_txBuffer->BytesInFlight());
       NS_LOG_WARN ("Exceeding Stream Tx Buffer Size");
       //m_quicl5->SignalAbortConnection (QuicSubheader::TransportErrorCodes_t::PROTOCOL_VIOLATION,
       //                                     "Received RST_STREAM in Stream 0");
@@ -200,6 +238,35 @@ QuicStreamBase::SendPendingData (void)
 
   uint32_t nFrameSent = 0;
   uint32_t availableWindow = AvailableWindow ();
+  
+  // Log when stream SendPendingData is called for small packets (segment requests)
+  if (m_txBuffer->AppSize() < 100 && m_streamId > 0 && availableWindow == 0)
+  {
+    static bool first_blocked_logged = false;
+    if (!first_blocked_logged)
+    {
+      NS_LOG_DEBUG("[TEMP_LOGS] STREAM_SENDPENDINGDATA_BLOCKED: streamId=" << m_streamId 
+                   << " at time=" << Simulator::Now().GetSeconds()
+                   << " TxBufferSize=" << m_txBuffer->AppSize()
+                   << " AvailableWindow=0"
+                   << " StreamWindow=" << StreamWindow());
+      first_blocked_logged = true;
+    }
+  }
+  
+  // Log when stream SendPendingData is called successfully
+  if (m_txBuffer->AppSize() < 100 && m_streamId > 0 && availableWindow > 0)
+  {
+    static bool first_sendpending_logged = false;
+    if (!first_sendpending_logged)
+    {
+      NS_LOG_DEBUG("[TEMP_LOGS] STREAM_SENDPENDINGDATA_CALLED: streamId=" << m_streamId 
+                   << " at time=" << Simulator::Now().GetSeconds()
+                   << " TxBufferSize=" << m_txBuffer->AppSize()
+                   << " AvailableWindow=" << availableWindow);
+      first_sendpending_logged = true;
+    }
+  }
 
   while (availableWindow > 0 and m_txBuffer->AppSize () > 0)
     {
@@ -303,8 +370,28 @@ QuicStreamBase::StreamWindow () const
 {
   NS_LOG_FUNCTION (this);
   uint32_t inFlight = m_txBuffer->BytesInFlight ();
-
-  return (inFlight > m_maxStreamData) ? 0 : m_maxStreamData - inFlight;
+  uint32_t streamWindow = (inFlight > m_maxStreamData) ? 0 : m_maxStreamData - inFlight;
+  
+  if (streamWindow == 0 && m_maxStreamData > 0 && m_streamId != 0)
+  {
+    NS_LOG_DEBUG("[TEMP_LOGS] STREAM_MAX_DATA_HIT: streamId=" << m_streamId
+                  << " time=" << Simulator::Now().GetSeconds()
+                  << " m_maxStreamData=" << m_maxStreamData
+                  << " BytesInFlight=" << inFlight
+                  << " StreamWindow=0"
+                  << " (Stream-level flow control blocked)");
+  }
+  else if (streamWindow < m_quicl5->GetMaxPacketSize() && streamWindow > 0 && m_streamId != 0)
+  {
+    NS_LOG_DEBUG("[TEMP_LOGS] STREAM_MAX_DATA_LOW: streamId=" << m_streamId
+                  << " time=" << Simulator::Now().GetSeconds()
+                  << " m_maxStreamData=" << m_maxStreamData
+                  << " BytesInFlight=" << inFlight
+                  << " StreamWindow=" << streamWindow
+                  << " MaxPacketSize=" << m_quicl5->GetMaxPacketSize());
+  }
+  
+  return streamWindow;
 }
 
 int
@@ -412,6 +499,16 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
         }
 
       if (m_rxBuffer->Size () + sub.GetLength () > m_maxStreamData)
+      {
+        NS_LOG_DEBUG("[TEMP_LOGS] STREAM_RX_MAX_DATA_EXCEEDED: streamId=" << m_streamId
+                      << " time=" << Simulator::Now().GetSeconds()
+                      << " m_maxStreamData=" << m_maxStreamData
+                      << " rxBufferSize=" << m_rxBuffer->Size()
+                      << " frameLength=" << sub.GetLength()
+                      << " total=" << (m_rxBuffer->Size() + sub.GetLength())
+                      << " (Stream-level RX flow control limit exceeded)");
+      }
+      if (m_rxBuffer->Size () + sub.GetLength () > m_maxStreamData)
         {
           m_quicl5->SignalAbortConnection (QuicSubheader::TransportErrorCodes_t::FLOW_CONTROL_ERROR,
                                            "Received more data w.r.t. Max Stream Data limit");
@@ -455,6 +552,12 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
         {
 
           NS_LOG_INFO ("Received a frame with the correct order of size " << sub.GetLength ());
+          NS_LOG_DEBUG("[TEMP_LOGS] STREAM_IN_ORDER: streamId=" << m_streamId
+                       << " recvSize=" << m_recvSize
+                       << " frameOffset=" << sub.GetOffset()
+                       << " frameLength=" << sub.GetLength()
+                       << " streamBufferSize=" << m_rxBuffer->Size()
+                       << " time=" << Simulator::Now().GetSeconds());
          
           m_recvSize += sub.GetLength ();
 
@@ -472,6 +575,11 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
           // check if the packets in the RX buffer can be released (in order release)
           std::pair<uint64_t, uint64_t> offSetLength = m_rxBuffer->GetDeliverable (m_recvSize);
           NS_LOG_LOGIC ("Extracting " << offSetLength.second << " bytes from RxBuffer");
+          NS_LOG_DEBUG("[TEMP_LOGS] STREAM_GET_DELIVERABLE: streamId=" << m_streamId
+                       << " recvSize=" << m_recvSize
+                       << " deliverableLength=" << offSetLength.second
+                       << " streamBufferSize=" << m_rxBuffer->Size()
+                       << " time=" << Simulator::Now().GetSeconds());
           if (offSetLength.second > 0)
             {
               Ptr<Packet> payload = m_rxBuffer->Extract (offSetLength.second);
@@ -490,6 +598,9 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
                   SetMaxStreamData (sub.GetMaxStreamData ());
                   NS_LOG_LOGIC ("Received window set to offset " << sub.GetMaxStreamData ());
                 }
+              NS_LOG_DEBUG("[TEMP_LOGS] STREAM_CALLING_RECV: streamId=" << m_streamId
+                           << " frameSize=" << frame->GetSize()
+                           << " time=" << Simulator::Now().GetSeconds());
               m_quicl5->Recv (frame, address);
             }
           else
@@ -507,6 +618,13 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
               NS_LOG_LOGIC ("Received window set to offset " << sub.GetMaxStreamData ());
             }
           NS_LOG_INFO ("Buffering unordered received frame - offset " << m_recvSize << ", frame offset " << sub.GetOffset ());
+          NS_LOG_DEBUG("[TEMP_LOGS] STREAM_OUT_OF_ORDER: streamId=" << m_streamId
+                       << " recvSize=" << m_recvSize
+                       << " frameOffset=" << sub.GetOffset()
+                       << " frameLength=" << sub.GetLength()
+                       << " streamBufferSize=" << m_rxBuffer->Size()
+                       << " gap=" << (sub.GetOffset() > m_recvSize ? sub.GetOffset() - m_recvSize : m_recvSize - sub.GetOffset())
+                       << " time=" << Simulator::Now().GetSeconds());
           // std::cout<<"quic-stream-base.cc  Buffering unordered received frame of size " << sub.GetLength () <<" m_recvSize: "<<m_recvSize<< ", frame offset " << sub.GetOffset ()<<std::endl;
           if (!m_rxBuffer->Add (frame, sub) && frame->GetSize () > 0)
             {

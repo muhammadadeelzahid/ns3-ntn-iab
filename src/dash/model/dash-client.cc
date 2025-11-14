@@ -228,11 +228,11 @@ void
 DashClient::RequestSegment()
 {
     NS_LOG_FUNCTION(this);
-    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] RequestSegment called at " << Simulator::Now().GetSeconds() << "s");
+    NS_LOG_DEBUG("[DASH CLIENT " << m_id << "] RequestSegment called at " << Simulator::Now().GetSeconds() << "s");
 
     if (m_RequestPending)
     {
-        NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Request already pending for segment " << m_segmentId);
+        NS_LOG_DEBUG("[DASH CLIENT " << m_id << "] Request already pending for segment " << m_segmentId);
         NS_LOG_INFO("Not requesting, found pending m_segmentId = " << m_segmentId);
         return;
     }
@@ -240,7 +240,7 @@ DashClient::RequestSegment()
 
     if (m_connected == false)
     {
-        NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Not connected yet!");
+        NS_LOG_DEBUG("[DASH CLIENT " << m_id << "] Not connected yet!");
         return;
     }
     
@@ -326,7 +326,7 @@ void
 DashClient::HandleRead(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
-    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] HandleRead called at " << Simulator::Now().GetSeconds() << "s");
+    NS_LOG_DEBUG("[DASH CLIENT " << m_id << "] HandleRead called at " << Simulator::Now().GetSeconds() << "s");
     
     m_keepAliveTimer.Cancel();
     Time delay = MilliSeconds(300);
@@ -334,7 +334,7 @@ DashClient::HandleRead(Ptr<Socket> socket)
     
     // Fire Rx trace for received video data (peek without consuming)
     uint32_t availableData = socket->GetRxAvailable();
-    NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Available data in socket: " << availableData << " bytes");
+    NS_LOG_DEBUG("[DASH CLIENT " << m_id << "] Available data in socket: " << availableData << " bytes");
     
     if (availableData > 0)
     {
@@ -342,7 +342,7 @@ DashClient::HandleRead(Ptr<Socket> socket)
         Ptr<Packet> dummyPacket = Create<Packet>(availableData);
         Address peerAddress;
         socket->GetPeerName(peerAddress);
-        NS_LOG_UNCOND("[DASH CLIENT " << m_id << "] Fired Rx trace for " << availableData << " bytes");
+        NS_LOG_DEBUG("[DASH CLIENT " << m_id << "] Fired Rx trace for " << availableData << " bytes");
     }
     
     m_parser.ReadSocket(socket);

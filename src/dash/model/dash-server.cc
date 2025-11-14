@@ -161,7 +161,7 @@ void
 DashServer::HandleRead(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
-    NS_LOG_UNCOND("[DASH SERVER] HandleRead called at " << Simulator::Now().GetSeconds() << "s");
+    NS_LOG_DEBUG("[DASH SERVER] HandleRead called at " << Simulator::Now().GetSeconds() << "s");
     
     Ptr<Packet> packet;
     Address from;
@@ -169,7 +169,7 @@ DashServer::HandleRead(Ptr<Socket> socket)
     while ((packet = socket->RecvFrom(from)))
     {
         m_totalRx += packet->GetSize();
-        NS_LOG_UNCOND("[DASH SERVER] Received packet: " << packet->GetSize() << " bytes, total Rx: " << m_totalRx);
+        NS_LOG_DEBUG("[DASH SERVER] Received packet: " << packet->GetSize() << " bytes, total Rx: " << m_totalRx);
 
         if (!m_pending_packet)
         {
@@ -181,18 +181,18 @@ DashServer::HandleRead(Ptr<Socket> socket)
         }
 
         HTTPHeader header;
-        NS_LOG_UNCOND("[DASH SERVER] Pending packet size: " << m_pending_packet->GetSize() 
+        NS_LOG_DEBUG("[DASH SERVER] Pending packet size: " << m_pending_packet->GetSize() 
                      << ", header size: " << header.GetSerializedSize());
 
         while (m_pending_packet->GetSize() >= header.GetSerializedSize())
         {
             m_pending_packet->RemoveHeader(header);
-            NS_LOG_UNCOND("[DASH SERVER] Parsed header - Type: " << (int)header.GetMessageType() 
+            NS_LOG_DEBUG("[DASH SERVER] Parsed header - Type: " << (int)header.GetMessageType() 
                          << " (HTTP_REQUEST=" << (int)HTTP_REQUEST << ")");
             
             if (header.GetMessageType() == HTTP_REQUEST)
             {
-                NS_LOG_UNCOND("[DASH SERVER] Processing HTTP_REQUEST - VideoId: " << header.GetVideoId()
+                NS_LOG_DEBUG("[DASH SERVER] Processing HTTP_REQUEST - VideoId: " << header.GetVideoId()
                              << ", Resolution: " << header.GetResolution()
                              << ", SegmentId: " << header.GetSegmentId());
                 
@@ -203,7 +203,7 @@ DashServer::HandleRead(Ptr<Socket> socket)
             }
             else
             {
-                NS_LOG_UNCOND("[DASH SERVER] WARNING: Message type is NOT HTTP_REQUEST!");
+                NS_LOG_DEBUG("[DASH SERVER] WARNING: Message type is NOT HTTP_REQUEST!");
             }
         }
 
@@ -252,8 +252,8 @@ void
 DashServer::DataSend(Ptr<Socket> socket, uint32_t)
 {
     NS_LOG_FUNCTION(this);
-    NS_LOG_UNCOND("[DASH SERVER] DataSend called at " << Simulator::Now().GetSeconds() << "s");
-    NS_LOG_UNCOND("[DASH SERVER] Queue size: " << m_queues[socket].size() << " frames");
+    NS_LOG_DEBUG("[DASH SERVER] DataSend called at " << Simulator::Now().GetSeconds() << "s");
+    NS_LOG_DEBUG("[DASH SERVER] Queue size: " << m_queues[socket].size() << " frames");
 
     // for (std::map<Ptr<Socket>, std::queue<Packet>>::iterator iter = m_queues.begin ();
     //      iter != m_queues.end (); ++iter)
@@ -284,7 +284,7 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
 
         if (max_tx_size <= 0)
         {
-            NS_LOG_UNCOND("[DASH SERVER] Socket Send buffer is full! Frames remaining: " 
+            NS_LOG_DEBUG("[DASH SERVER] Socket Send buffer is full! Frames remaining: " 
                          << m_queues[socket].size());
             NS_LOG_INFO("Socket Send buffer is full");
             return;
@@ -292,7 +292,7 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
         
         if (frames_sent == 0)
         {
-            NS_LOG_UNCOND("[DASH SERVER] Socket Tx buffer available: " << max_tx_size << " bytes");
+            NS_LOG_DEBUG("[DASH SERVER] Socket Tx buffer available: " << max_tx_size << " bytes");
         }
 
         Ptr<Packet> frame = m_queues[socket].front().Copy();
@@ -318,14 +318,14 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
         bytes = socket->Send(frame);
         if (bytes < 0)
         {
-            NS_LOG_UNCOND("[DASH SERVER] ERROR: Send failed with bytes = " << bytes);
+            NS_LOG_DEBUG("[DASH SERVER] ERROR: Send failed with bytes = " << bytes);
             NS_FATAL_ERROR("Couldn't send packet, though space should be available, bytes = " << bytes);
             exit(1);
         }
         else if ((uint32_t)bytes < frame->GetSize())
         {
             // QUIC socket sent partial data, acceptable.
-            NS_LOG_UNCOND("[DASH SERVER] Partial send: " << bytes << " out of " << frame->GetSize());
+            NS_LOG_DEBUG("[DASH SERVER] Partial send: " << bytes << " out of " << frame->GetSize());
             frames_sent++;
             bytes_sent += bytes;
         }
@@ -335,12 +335,12 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
             bytes_sent += bytes;
             if (frames_sent <= 2 || frames_sent == MPEG_FRAMES_PER_SEGMENT)
             {
-                NS_LOG_UNCOND("[DASH SERVER] Frame sent successfully: " << bytes << " bytes");
+                NS_LOG_DEBUG("[DASH SERVER] Frame sent successfully: " << bytes << " bytes");
             }
         }
     }
     
-    NS_LOG_UNCOND("[DASH SERVER] DataSend COMPLETE - Sent " << frames_sent << " frames, " 
+    NS_LOG_DEBUG("[DASH SERVER] DataSend COMPLETE - Sent " << frames_sent << " frames, " 
                  << bytes_sent << " bytes, Queue remaining: " << m_queues[socket].size());
     
 }
@@ -351,7 +351,7 @@ DashServer::SendSegment(uint32_t video_id,
                         uint32_t segment_id,
                         Ptr<Socket> socket)
 {
-    NS_LOG_UNCOND("[DASH SERVER] SendSegment START - VideoId: " << video_id 
+    NS_LOG_DEBUG("[DASH SERVER] SendSegment START - VideoId: " << video_id 
                  << ", Resolution: " << resolution << ", SegmentId: " << segment_id);
     
     int fps = 1000 / MPEG_TIME_BETWEEN_FRAMES;
@@ -387,6 +387,12 @@ DashServer::SendSegment(uint32_t video_id,
                                                  MPEG_TIME_BETWEEN_FRAMES));
         mpeg_header.SetType('B');
         mpeg_header.SetSize(frame_size);
+        NS_LOG_DEBUG("[TEMP_LOGS] SERVER_SET_FRAME_SIZE: frame_id=" << f_id 
+                      << " segment_id=" << segment_id 
+                      << " frame_size=" << frame_size 
+                      << " resolution=" << resolution
+                      << " avg_packetsize=" << avg_packetsize
+                      << " time=" << Simulator::Now().GetSeconds());
 
         Ptr<Packet> frame = Create<Packet>(frame_size);
         frame->AddHeader(mpeg_header);
@@ -395,17 +401,17 @@ DashServer::SendSegment(uint32_t video_id,
         
         if (f_id == 0 || f_id == MPEG_FRAMES_PER_SEGMENT - 1)
         {
-            NS_LOG_UNCOND("[DASH SERVER] Frame " << f_id << " created: " << frame->GetSize() 
+            NS_LOG_DEBUG("[DASH SERVER] Frame " << f_id << " created: " << frame->GetSize() 
                          << " bytes (payload: " << frame_size << ")");
         }
 
         m_queues[socket].push_back(*frame);
     }
     
-    NS_LOG_UNCOND("[DASH SERVER] SendSegment COMPLETE - Created " << MPEG_FRAMES_PER_SEGMENT 
+    NS_LOG_DEBUG("[DASH SERVER] SendSegment COMPLETE - Created " << MPEG_FRAMES_PER_SEGMENT 
                  << " frames, total " << total_segment_bytes << " bytes");
-    NS_LOG_UNCOND("[DASH SERVER] Queue size for this socket: " << m_queues[socket].size() << " frames");
-    NS_LOG_UNCOND("[DASH SERVER] Calling DataSend to transmit queued frames...");
+    NS_LOG_DEBUG("[DASH SERVER] Queue size for this socket: " << m_queues[socket].size() << " frames");
+    NS_LOG_DEBUG("[DASH SERVER] Calling DataSend to transmit queued frames...");
     
     DataSend(socket, 0);
 }

@@ -805,7 +805,6 @@ MmWaveEnbMac::DoReportBufferStatus (LteMacSapProvider::ReportBufferStatusParamet
 	schedParams.m_arrivalRate = params.arrivalRate;
 
 	NS_LOG_LOGIC("ReportBufferStatus for lcid " << (uint16_t)params.lcid << " rnti " << params.rnti << " txPacketSizes " << params.txPacketSizes.size());
-	NS_LOG_DEBUG("[DEBUG] ReportBufferStatus: RNTI=" << params.rnti << ", LCID=" << (uint16_t)params.lcid << ", txQueueSize=" << params.txQueueSize << ", retxQueueSize=" << params.retxQueueSize << ", statusPduSize=" << params.statusPduSize);
 
 	m_macSchedSapProvider->SchedDlRlcBufferReq (schedParams);
 }
@@ -814,9 +813,6 @@ MmWaveEnbMac::DoReportBufferStatus (LteMacSapProvider::ReportBufferStatusParamet
 void
 MmWaveEnbMac::DoTransmitPdu (LteMacSapProvider::TransmitPduParameters params)
 {
-	if (params.lcid == 0) {
-		NS_LOG_DEBUG("[DEBUG-MAC] ENB TX SRB0: RNTI=" << params.rnti << ", LCID=" << (uint32_t)params.lcid << ", size=" << params.pdu->GetSize()<<" layer="<<(int)params.layer);
-	}
 	// TB UID passed back along with RLC data as HARQ process ID
 	uint32_t tbMapKey = ((params.rnti & 0xFFFF) << 8) | (params.harqProcessId & 0xFF);
 	NS_LOG_LOGIC ("Tx RLC PDU for rnti " << params.rnti << " lcid " << (uint32_t) params.lcid<<" layer= "<<(int)params.layer);

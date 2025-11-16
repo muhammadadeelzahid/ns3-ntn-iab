@@ -172,15 +172,6 @@ MPEGHeader::Deserialize(Buffer::Iterator start)
     m_type = i.ReadNtohU32();
     m_size = i.ReadNtohU32();
     
-    NS_LOG_DEBUG("[TEMP_LOGS] MPEG_DESERIALIZE: seq=" << m_seq
-                  << " ts=" << m_ts
-                  << " frame_id=" << m_frame_id
-                  << " playback_time=" << m_playback_time
-                  << " type=" << m_type
-                  << " size=" << m_size
-                  << " (0x" << std::hex << m_size << std::dec << ")"
-                  << " time=" << Simulator::Now().GetSeconds());
-    
     return GetSerializedSize();
 }
 

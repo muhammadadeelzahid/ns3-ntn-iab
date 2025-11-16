@@ -13,6 +13,7 @@ def build(bld):
     eigen_include = None
 
     candidate_paths = [
+        '/global/software/alma8/sb/opt/base/eigen/3.4.0/include/eigen3',
         '/usr/include/eigen3',
         '/usr/local/include/eigen3',
         '/opt/homebrew/opt/eigen/include/eigen3',

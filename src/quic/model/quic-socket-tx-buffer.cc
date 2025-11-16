@@ -298,15 +298,6 @@ bool QuicSocketTxBuffer::Add (Ptr<Packet> p)
           return false;
         }
     }
-  // Log when buffer rejects packet - critical for debugging segment requests
-  NS_LOG_DEBUG("[TEMP_LOGS] SOCKET_TX_BUFFER_REJECT: time=" << Simulator::Now().GetSeconds()
-                << " packetSize=" << p->GetSize()
-                << " Available=" << Available()
-                << " MaxBufferSize=" << GetMaxBufferSize()
-                << " AppSize=" << m_scheduler->AppSize()
-                << " Used=" << (GetMaxBufferSize() - Available())
-                << " streamId=" << (headerSize ? qsb.GetStreamId() : 0)
-                << " streamZeroSize=" << m_streamZeroSize);
   NS_LOG_WARN ("Rejected. Not enough room to buffer packet.");
   return false;
 }
@@ -373,11 +364,6 @@ Ptr<QuicSocketTxItem> QuicSocketTxBuffer::GetNewSegment (uint32_t numBytes, uint
   if (outItem->m_packet->GetSize () > 0)
     {
       NS_LOG_LOGIC ("Adding packet to sent buffer");
-      NS_LOG_DEBUG ("[TEMP_LOGS] PACKET_ADDED_TO_BUFFER: pathId=" << (int)pathId 
-                     << " packetNumber=" << outItem->m_packetNumber.GetValue()
-                     << " size=" << outItem->m_packet->GetSize()
-                     << " time=" << Simulator::Now().GetSeconds()
-                     << " totalSentSize=" << m_sentSizeList[pathId] + outItem->m_packet->GetSize());
       m_subflowSentList[pathId].insert (m_subflowSentList[pathId].end (), outItem);
 
       m_sentSizeList[pathId] += outItem->m_packet->GetSize ();
@@ -507,12 +493,6 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::OnAckUpdate (
                   lost = true;
                   NS_LOG_INFO (
                     "Largest ACK " << largestAcknowledged << ", lost packet " << (*sent_it)->m_packetNumber.GetValue () << " - reordering " << tcbd->m_kReorderingThreshold);
-                  NS_LOG_DEBUG ("[TEMP_LOGS] PACKET_MARKED_LOST_ACK: packetNumber=" << (*sent_it)->m_packetNumber.GetValue()
-                                 << " largestAck=" << largestAcknowledged
-                                 << " gap=" << gap
-                                 << " threshold=" << tcbd->m_kReorderingThreshold
-                                 << " time=" << Simulator::Now().GetSeconds()
-                                 << " pathId=" << (int)pathId);
                 }
               // Time-based detection (optional)
               if (tcbd->m_kUsingTimeLossDetection)
@@ -527,11 +507,6 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::OnAckUpdate (
                         "Largest ACK " << largestAcknowledged << ", lost packet " << (*sent_it)->m_packetNumber.GetValue () << " - time " << rhsComparison);
                       (*sent_it)->m_lost = true;
                       lost = true;
-                      NS_LOG_DEBUG ("[TEMP_LOGS] PACKET_MARKED_LOST_TIME: packetNumber=" << (*sent_it)->m_packetNumber.GetValue()
-                                     << " timeElapsed=" << lhsComparison
-                                     << " threshold=" << rhsComparison
-                                     << " time=" << Simulator::Now().GetSeconds()
-                                     << " pathId=" << (int)pathId);
                     }
                 }
             }
@@ -642,10 +617,6 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::DetectLostPackets (uint8
   NS_LOG_FUNCTION (this);
   std::vector<Ptr<QuicSocketTxItem> > lost;
 
-  NS_LOG_DEBUG ("[TEMP_LOGS] DETECT_LOST_PACKETS: Checking for lost packets on pathId=" << (int)pathId 
-                 << " time=" << Simulator::Now().GetSeconds()
-                 << " sentListSize=" << m_subflowSentList[pathId].size());
-
   for (auto sent_it = m_subflowSentList[pathId].begin ();
        sent_it != m_subflowSentList[pathId].end () and !m_subflowSentList[pathId].empty (); ++sent_it)
     {
@@ -653,16 +624,8 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::DetectLostPackets (uint8
         {
           lost.push_back ((*sent_it));
           NS_LOG_INFO ("Packet " << (*sent_it)->m_packetNumber << " is lost");
-          NS_LOG_DEBUG ("[TEMP_LOGS] PACKET_LOST: packetNumber=" << (*sent_it)->m_packetNumber.GetValue()
-                         << " size=" << (*sent_it)->m_packet->GetSize()
-                         << " pathId=" << (int)pathId
-                         << " time=" << Simulator::Now().GetSeconds()
-                         << " sacked=" << (*sent_it)->m_sacked
-                         << " acked=" << (*sent_it)->m_acked);
         }
     }
-  
-  NS_LOG_DEBUG ("[TEMP_LOGS] DETECT_LOST_PACKETS: Found " << lost.size() << " lost packets on pathId=" << (int)pathId);
   return lost;
 }
 

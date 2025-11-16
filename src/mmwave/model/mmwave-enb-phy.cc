@@ -1911,17 +1911,6 @@ MmWaveEnbPhy::SendDataChannels (Ptr<PacketBurst> pb, Time slotPrd, SlotAllocInfo
 {
   NS_LOG_FUNCTION (this);
 
-  NS_LOG_DEBUG("[DEBUG-ENB-PHY] SendDataChannels called: pb=" << pb << ", slotInfo.m_layerInd=" << (int)slotInfo.m_layerInd);
-
-  if (pb && pb->GetNPackets() > 0)
-  {
-    NS_LOG_DEBUG("[DEBUG-ENB-PHY] Transmitting packet burst with " << pb->GetNPackets() << " packets");
-  }
-  else
-  {
-    NS_LOG_DEBUG("[DEBUG-ENB-PHY] No packets to transmit (empty or null packet burst)");
-  }
-
 	if (slotInfo.m_isOmni)
 	{
 		Ptr<AntennaArrayModel> antennaArray = DynamicCast<AntennaArrayModel> (GetDlSpectrumPhyList ().at(0)->GetRxAntenna());
@@ -1975,7 +1964,6 @@ MmWaveEnbPhy::SendDataChannels (Ptr<PacketBurst> pb, Time slotPrd, SlotAllocInfo
 
 	std::list<Ptr<MmWaveControlMessage> > ctrlMsgs;
 	NS_LOG_INFO("Data layer index:" << (int)slotInfo.m_layerInd);
-	NS_LOG_DEBUG("[DEBUG] Starting data transmission on layer " << (int)slotInfo.m_layerInd << " with " << (pb ? pb->GetNPackets() : 0) << " packets");
 	//m_downlinkSpectrumPhy->StartTxDataFrames (pb, ctrlMsgs, slotPrd, slotInfo.m_slotIdx);
 	m_downlinkSpectrumPhyList.at(slotInfo.m_layerInd)->StartTxDataFrames (pb, ctrlMsgs, slotPrd, slotInfo.m_slotIdx);  
 }

@@ -54,6 +54,10 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuicDash");
 
+// Performance optimization: Set to false to disable expensive packet-level tracing/logging
+// This significantly speeds up simulations, especially for QUIC which generates more packets
+static bool g_enableVerbosePacketTracing = false;
+
 // Global file streams for each layer
 std::ofstream quicTxFile, quicRxFile;
 std::ofstream udpL4TxFile, udpL4RxFile;
@@ -187,6 +191,8 @@ void DashServerRxTrace(Ptr<const Packet> packet, const Address& from)
 // QUIC Socket Base Tx callback
 void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   NS_LOG_UNCOND("QuicSocketTxCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() 
             << " bytes, packet_number: " << header.GetPacketNumber());
@@ -208,6 +214,8 @@ void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Pt
 // QUIC Socket Base Rx callback
 void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   NS_LOG_UNCOND("QuicSocketRxCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() 
             << " bytes, packet_number: " << header.GetPacketNumber());
@@ -296,6 +304,8 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart)
 
 void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   NS_LOG_UNCOND("UdpL4TxCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() 
             << " bytes, Interface: " << interface);
@@ -315,6 +325,8 @@ void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interfac
 
 void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   NS_LOG_UNCOND("UdpL4RxCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() 
             << " bytes, Interface: " << interface);
@@ -335,6 +347,8 @@ void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interfac
 // IPv4 L3 layer callbacks
 void Ipv4L3TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   if (!ipv4L3TxFile.is_open())
   {
     ipv4L3TxFile.open("ipv4_l3_tx.txt", std::ios::out);
@@ -345,6 +359,8 @@ void Ipv4L3TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interfa
 
 void Ipv4L3RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   if (!ipv4L3RxFile.is_open())
   {
     ipv4L3RxFile.open("ipv4_l3_rx.txt", std::ios::out);
@@ -356,6 +372,8 @@ void Ipv4L3RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interfa
 // Point-to-Point NetDevice callbacks
 void P2PTxCallback(Ptr<const Packet> packet)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   if (!p2pTxFile.is_open())
   {
     p2pTxFile.open("p2p_tx.txt", std::ios::out);
@@ -366,6 +384,8 @@ void P2PTxCallback(Ptr<const Packet> packet)
 
 void P2PRxCallback(Ptr<const Packet> packet)
 {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   if (!p2pRxFile.is_open())
   {
     p2pRxFile.open("p2p_rx.txt", std::ios::out);
@@ -401,6 +421,8 @@ void PacketDropCallback(Ptr<const Packet> packet) {
 
 // Custom packet trace callback to track buffer operations
 void PacketBufferTraceCallback(Ptr<const Packet> packet) {
+  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  
   NS_LOG_UNCOND("PacketBufferTraceCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() << " bytes");
   

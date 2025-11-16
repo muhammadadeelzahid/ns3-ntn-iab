@@ -947,12 +947,6 @@ QuicSocketBase::AppendingTx (Ptr<Packet> frame)
       bool done = m_txBuffer->Add (frame);
       if (!done)
         {
-          NS_LOG_DEBUG("[TEMP_LOGS] SOCKET_APPENDINGTX_REJECT: time=" << Simulator::Now().GetSeconds()
-                       << " frameSize=" << frame->GetSize()
-                       << " SocketTxBufferSize=" << m_txBuffer->GetMaxBufferSize()
-                       << " SocketTxBufferUsed=" << m_txBuffer->AppSize()
-                       << " SocketTxBufferAvailable=" << (m_txBuffer->GetMaxBufferSize() - m_txBuffer->AppSize())
-                       << " socketState=" << QuicStateName[m_socketState]);
           NS_LOG_INFO ("Exceeding Socket Tx Buffer Size");
           m_errno = ERROR_MSGSIZE;
         }
@@ -1011,9 +1005,6 @@ QuicSocketBase::SendPendingData (bool withAck)
           SendConnectionClosePacket (0, "Scheduled connection close - no error");
         }
       NS_LOG_INFO ("Nothing to send");
-      NS_LOG_DEBUG("[TEMP_LOGS] SENDPENDINGDATA_NO_DATA: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                   << " time=" << Simulator::Now().GetSeconds()
-                   << " AppSize=0");
       return false;
     }
 
@@ -1071,12 +1062,6 @@ QuicSocketBase::SendPendingData (bool withAck)
   for (uint8_t sendingPathId = 0; sendingPathId < sendP.size(); sendingPathId++)
   {
     uint32_t availableWindow = AvailableWindow (sendingPathId);
-    
-    NS_LOG_DEBUG("[TEMP_LOGS] SENDPENDINGDATA_LOOP: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                 << " pathId=" << (int)sendingPathId
-                 << " availableWindow=" << availableWindow
-                 << " AppSize=" << m_txBuffer->AppSize()
-                 << " time=" << Simulator::Now().GetSeconds());
 
     while (availableWindow > 0 and m_txBuffer->AppSize () > 0)
       {
@@ -1117,11 +1102,6 @@ QuicSocketBase::SendPendingData (bool withAck)
         if (availableWindow < GetSegSize () and availableData > availableWindow and !m_closeOnEmpty)
           {
             NS_LOG_INFO ("Preventing Silly Window Syndrome. Wait to Send.");
-            NS_LOG_DEBUG("[TEMP_LOGS] SENDPENDINGDATA_SWS: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                         << " availableWindow=" << availableWindow
-                         << " GetSegSize()=" << GetSegSize()
-                         << " availableData=" << availableData
-                         << " time=" << Simulator::Now().GetSeconds());
             break;
           }
 
@@ -1158,24 +1138,9 @@ QuicSocketBase::SendPendingData (bool withAck)
 
         availableWindow = AvailableWindow(sendingPathId);
         
-        if (availableWindow == 0 && m_txBuffer->AppSize () > 0)
-          {
-            NS_LOG_DEBUG("[TEMP_LOGS] SENDPENDINGDATA_WINDOW_ZERO: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                         << " pathId=" << (int)sendingPathId
-                         << " AppSize=" << m_txBuffer->AppSize()
-                         << " availableWindow=0"
-                         << " time=" << Simulator::Now().GetSeconds());
-          }
       }
   }
   
-  if (nPacketsSent == 0 && m_txBuffer->AppSize () > 0)
-    {
-      NS_LOG_DEBUG("[TEMP_LOGS] SENDPENDINGDATA_NO_PACKETS_SENT: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                   << " AppSize=" << m_txBuffer->AppSize()
-                   << " nPacketsSent=0"
-                   << " time=" << Simulator::Now().GetSeconds());
-  }
 
   if (nPacketsSent > 0)
     {
@@ -1316,9 +1281,6 @@ QuicSocketBase::SendDataPacket (SequenceNumber32 packetNumber, uint32_t maxSize,
     {
       m_idleTimeoutEvent.Cancel ();
       NS_LOG_LOGIC (this << " SendDataPacket Schedule Close at time " << Simulator::Now ().GetSeconds () << " to expire at time " << (Simulator::Now () + m_idleTimeout.Get ()).GetSeconds ());
-      NS_LOG_DEBUG("[TEMP_LOGS] Scheduling idle timeout from SendDataPacket at time " << Simulator::Now ().GetSeconds () 
-                     << " to expire at " << (Simulator::Now () + m_idleTimeout.Get ()).GetSeconds ()
-                     << " for socket " << this);
       m_idleTimeoutEvent = Simulator::Schedule (m_idleTimeout, &QuicSocketBase::Close, this);
     }
   else
@@ -1514,16 +1476,11 @@ void
 QuicSocketBase::DoRetransmit (std::vector<Ptr<QuicSocketTxItem> > lostPackets, uint8_t pathId)
 {
   NS_LOG_FUNCTION (this);
-  NS_LOG_DEBUG("[TEMP_LOGS] RETRANSMIT: Starting retransmission for " << lostPackets.size() 
-                 << " lost packets on pathId=" << (int)pathId 
-                 << " time=" << Simulator::Now().GetSeconds()
-                 << " socket=" << this);
   
   // Get packets to retransmit
   SequenceNumber32 next = ++m_subflows[pathId]->m_tcb->m_nextTxSequence;
   uint32_t toRetx = m_txBuffer->Retransmission (next, pathId);
   NS_LOG_INFO (toRetx << " bytes to retransmit");
-  NS_LOG_DEBUG("[TEMP_LOGS] RETRANSMIT: " << toRetx << " bytes to retransmit, new packetNumber=" << next.GetValue());
   NS_LOG_DEBUG ("Send the retransmitted frame");
   uint32_t win = AvailableWindow (pathId);
   uint32_t connWin = ConnectionWindow (pathId);
@@ -1649,29 +1606,12 @@ QuicSocketBase::AvailableWindow (uint8_t pathId)
   if (inflight > win)
     {
       NS_LOG_INFO ("InFlight=" << inflight << ", Win=" << win << " availWin=0");
-      NS_LOG_DEBUG("[TEMP_LOGS] AVAILABLEWINDOW_ZERO: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                   << " pathId=" << (int)pathId
-                   << " InFlight=" << inflight
-                   << " Win=" << win
-                   << " m_max_data=" << m_max_data
-                   << " cWnd=" << m_subflows[pathId]->m_tcb->m_cWnd.Get()
-                   << " time=" << Simulator::Now().GetSeconds());
       return 0;
     }
 
   uint32_t availWin = win - inflight;
   NS_LOG_INFO ("InFlight=" << inflight << ", Win=" << win << " availWin=" << availWin);
   
-  if (availWin == 0 && win > 0)
-    {
-      NS_LOG_DEBUG("[TEMP_LOGS] AVAILABLEWINDOW_ZERO_FULL: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                   << " pathId=" << (int)pathId
-                   << " InFlight=" << inflight
-                   << " Win=" << win
-                   << " m_max_data=" << m_max_data
-                   << " cWnd=" << m_subflows[pathId]->m_tcb->m_cWnd.Get()
-                   << " time=" << Simulator::Now().GetSeconds());
-    }
   
   return availWin;
 
@@ -1688,24 +1628,6 @@ QuicSocketBase::ConnectionWindow (uint8_t pathId)
   
   uint32_t availableWindow = (inFlight > m_max_data) ? 0 : m_max_data - inFlight;
   
-  if (availableWindow == 0 && m_max_data > 0)
-  {
-    NS_LOG_DEBUG("[TEMP_LOGS] CONNECTION_MAX_DATA_HIT: time=" << Simulator::Now().GetSeconds()
-                  << " pathId=" << (int)pathId
-                  << " m_max_data=" << m_max_data
-                  << " BytesInFlight=" << inFlight
-                  << " AvailableWindow=0"
-                  << " (Connection-level flow control blocked)");
-  }
-  else if (availableWindow < GetSegSize() && availableWindow > 0)
-  {
-    NS_LOG_DEBUG("[TEMP_LOGS] CONNECTION_MAX_DATA_LOW: time=" << Simulator::Now().GetSeconds()
-                  << " pathId=" << (int)pathId
-                  << " m_max_data=" << m_max_data
-                  << " BytesInFlight=" << inFlight
-                  << " AvailableWindow=" << availableWindow
-                  << " MaxPacketSize=" << GetSegSize());
-  }
 
   return availableWindow;
 }
@@ -1790,11 +1712,6 @@ QuicSocketBase::Close (void)
 {
   NS_LOG_FUNCTION (this);
   NS_LOG_INFO (this << " Close at time " << Simulator::Now ().GetSeconds ());
-  NS_LOG_DEBUG("[TEMP_LOGS] Close() called at time " << Simulator::Now ().GetSeconds () 
-                 << " for socket " << this 
-                 << " current state: " << QuicStateName[m_socketState]
-                 << " idleTimeoutEvent.IsRunning: " << m_idleTimeoutEvent.IsRunning ()
-                 << " idleTimeoutEvent.IsExpired: " << m_idleTimeoutEvent.IsExpired ());
 
   // std::cout << this << " Close at time " << Simulator::Now ().GetSeconds ()<<std::endl;
   m_receivedTransportParameters = false;
@@ -1802,25 +1719,19 @@ QuicSocketBase::Close (void)
   if (m_idleTimeoutEvent.IsRunning () and m_socketState != IDLE
       and m_socketState != CLOSING)   //Connection Close from application signal
     {
-      NS_LOG_DEBUG("[TEMP_LOGS] Application close signal detected - checking sent list");
       bool sentListEmpty = m_txBuffer->SentListIsEmpty();
-      NS_LOG_DEBUG("[TEMP_LOGS] SentListIsEmpty() returned: " << sentListEmpty);
       
       if(!sentListEmpty) {
-        NS_LOG_DEBUG("[TEMP_LOGS] Sent list NOT empty - setting m_appCloseSentListNoEmpty = true");
         m_appCloseSentListNoEmpty = true;
       } else {
-        NS_LOG_DEBUG("[TEMP_LOGS] Sent list IS empty - setting m_appCloseSentListNoEmpty = false and closing immediately");
         m_appCloseSentListNoEmpty = false;
         SetState (CLOSING);
         if (m_flushOnClose)
           {
-            NS_LOG_DEBUG("[TEMP_LOGS] FlushOnClose enabled - setting m_closeOnEmpty = true");
             m_closeOnEmpty = true;
           }
         else
           {
-            NS_LOG_DEBUG("[TEMP_LOGS] FlushOnClose disabled - scheduling immediate close");
             ScheduleCloseAndSendConnectionClosePacket ();
           }
       } 
@@ -1828,7 +1739,6 @@ QuicSocketBase::Close (void)
   else if (m_idleTimeoutEvent.IsExpired () and m_socketState != CLOSING
            and m_socketState != IDLE and m_socketState != LISTENING) //Connection Close due to Idle Period termination
     {
-      NS_LOG_DEBUG("[TEMP_LOGS] Idle timeout expired - closing connection due to idle period termination");
       SetState (CLOSING);
       m_drainingPeriodEvent.Cancel ();
       NS_LOG_LOGIC (
@@ -1952,10 +1862,6 @@ QuicSocketBase::GetRxAvailable (void) const
   uint32_t socketBufferSize = m_rxBuffer->Size ();
   uint32_t socketBufferAvailable = m_rxBuffer->Available ();
   
-  NS_LOG_DEBUG("[TEMP_LOGS] GetRxAvailable: socketBufferSize=" << socketBufferSize 
-               << " socketBufferAvailable=" << socketBufferAvailable
-               << " time=" << Simulator::Now().GetSeconds());
-  
   // Return the size of data available to read, not the available space in the buffer
   return socketBufferSize;
 }
@@ -2000,11 +1906,6 @@ QuicSocketBase::AppendingRx (Ptr<Packet> frame, Address &address)
 {
 
   NS_LOG_FUNCTION (this);
-
-  NS_LOG_DEBUG("[TEMP_LOGS] AppendingRx: frameSize=" << frame->GetSize()
-               << " socketBufferSize=" << m_rxBuffer->Size()
-               << " socketBufferAvailable=" << m_rxBuffer->Available()
-               << " time=" << Simulator::Now().GetSeconds());
 
   if (!m_rxBuffer->Add (frame))
     {
@@ -2310,9 +2211,6 @@ QuicSocketBase::OnReceivedFrame (QuicSubheader &sub)
         // TODO check if it matches what was sent in a PATH_CHALLENGE
         // otherwise abort with a UNSOLICITED_PATH_RESPONSE error
         NS_LOG_INFO ("Received MP_ACK frame");
-        NS_LOG_DEBUG("[TEMP_LOGS] MP_ACK_FRAME_RECEIVED: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-                     << " time=" << Simulator::Now().GetSeconds()
-                     << " pathId=" << (int)sub.GetPathId());
         OnReceivedAckFrame (sub);
         break;
 
@@ -2403,12 +2301,6 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
   uint8_t pathId = sub.GetPathId();
   uint32_t bytesInFlightBefore = BytesInFlight (pathId);
   
-  NS_LOG_DEBUG("[TEMP_LOGS] OnReceivedAckFrame: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-               << " time=" << Simulator::Now().GetSeconds()
-               << " pathId=" << (int)pathId
-               << " bytesInFlightBefore=" << bytesInFlightBefore
-               << " m_max_data=" << m_max_data
-               << " cWnd=" << m_subflows[pathId]->m_tcb->m_cWnd.Get());
 
    // Generate RateSample
   struct RateSample * rs = m_txBuffer->GetRateSample ();
@@ -2482,14 +2374,9 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
   // Find lost packets
   std::vector<Ptr<QuicSocketTxItem> > lostPackets = m_txBuffer->DetectLostPackets (pathId);
 
-  // NS_LOG_DEBUG("[TEMP_LOGS] Checking close condition after ACK processing:");
-  // NS_LOG_DEBUG("[TEMP_LOGS] m_appCloseSentListNoEmpty = " << m_appCloseSentListNoEmpty);
   bool sentListEmpty = m_txBuffer->SentListIsEmpty();
-  // NS_LOG_DEBUG("[TEMP_LOGS] SentListIsEmpty() = " << sentListEmpty);
-  // NS_LOG_DEBUG("[TEMP_LOGS] Close condition: " << m_appCloseSentListNoEmpty << " && " << sentListEmpty << " = " << (m_appCloseSentListNoEmpty && sentListEmpty));
 
   if (m_appCloseSentListNoEmpty && sentListEmpty){
-//    NS_LOG_DEBUG("[TEMP_LOGS] *** TRIGGERING CLOSE *** - All packets ACKed, closing connection");
     Close();
   }
 
@@ -2497,19 +2384,11 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
   // Recover from losses
   if (!lostPackets.empty ())
     {
-      NS_LOG_DEBUG("[TEMP_LOGS] CONGESTION_LOSS: " << lostPackets.size() 
-                     << " packets lost on pathId=" << (int)pathId 
-                     << " time=" << Simulator::Now().GetSeconds()
-                     << " socket=" << this
-                     << " currentCwnd=" << m_subflows[pathId]->m_tcb->m_cWnd.Get()
-                     << " currentState=" << m_subflows[pathId]->m_tcb->m_congState);
-      
       if (m_quicCongestionControlLegacy)
         {
           //Enter recovery (RFC 6675, Sec. 5)
           if (m_subflows[pathId]->m_tcb->m_congState != TcpSocketState::CA_RECOVERY)
             {
-              NS_LOG_DEBUG("[TEMP_LOGS] CONGESTION_STATE_CHANGE: Entering CA_RECOVERY on pathId=" << (int)pathId);
               m_subflows[pathId]->m_tcb->m_congState = TcpSocketState::CA_RECOVERY;
               m_subflows[pathId]->m_tcb->m_endOfRecovery = m_subflows[pathId]->m_tcb->m_highTxMark;
               m_congestionControl->CongestionStateSet (
@@ -2517,14 +2396,11 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
               m_subflows[pathId]->m_tcb->m_ssThresh = m_congestionControl->GetSsThresh (
                 m_subflows[pathId]->m_tcb, BytesInFlight (pathId));
               m_subflows[pathId]->m_tcb->m_cWnd = m_subflows[pathId]->m_tcb->m_ssThresh;
-              NS_LOG_DEBUG("[TEMP_LOGS] CONGESTION_WINDOW_CHANGE: cWnd=" << m_subflows[pathId]->m_tcb->m_cWnd.Get()
-                             << " ssThresh=" << m_subflows[pathId]->m_tcb->m_ssThresh);
             }
           NS_ASSERT (m_subflows[pathId]->m_tcb->m_congState == TcpSocketState::CA_RECOVERY);
         }
       else
         {
-          NS_LOG_DEBUG("[TEMP_LOGS] QUIC_CONGESTION_LOSS: Calling OnPacketsLost for " << lostPackets.size() << " packets");
           DynamicCast<QuicCongestionOps> (m_congestionControl)->OnPacketsLost (
             m_subflows[pathId]->m_tcb, lostPackets);
         }
@@ -2585,13 +2461,6 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
                                               m_subflows[pathId]->m_tcb->m_lastRtt);
               m_congestionControl->IncreaseWindow (m_subflows[pathId]->m_tcb, ackedSegments);
               uint32_t newCwnd = m_subflows[pathId]->m_tcb->m_cWnd.Get();
-              if (oldCwnd != newCwnd) {
-                NS_LOG_DEBUG("[TEMP_LOGS] CONGESTION_WINDOW_INCREASE: pathId=" << (int)pathId 
-                               << " oldCwnd=" << oldCwnd 
-                               << " newCwnd=" << newCwnd
-                               << " ackedBytes=" << ackedBytes
-                               << " time=" << Simulator::Now().GetSeconds());
-              }
             }
           else
             {
@@ -2629,15 +2498,6 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
   // try to send more data
   uint32_t bytesInFlightAfter = BytesInFlight (pathId);
   uint32_t availableWindowAfter = AvailableWindow (pathId);
-  
-  NS_LOG_DEBUG("[TEMP_LOGS] OnReceivedAckFrame_END: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT")
-               << " time=" << Simulator::Now().GetSeconds()
-               << " pathId=" << (int)pathId
-               << " bytesInFlightBefore=" << bytesInFlightBefore
-               << " bytesInFlightAfter=" << bytesInFlightAfter
-               << " ackedBytes=" << ackedBytes
-               << " availableWindowAfter=" << availableWindowAfter
-               << " AppSize=" << m_txBuffer->AppSize());
   
   SendPendingData (m_connected);
 
@@ -2843,25 +2703,12 @@ QuicSocketBase::ReceivedData (Ptr<Packet> p, const QuicHeader& quicHeader,
   m_currentFromAddress = address;
 
   NS_LOG_INFO ("Received packet of size " << p->GetSize ());
-  NS_LOG_DEBUG("[TEMP_LOGS] PACKET_RECEIVED: " << (m_quicl4->IsServer() ? "SERVER" : "CLIENT") 
-                 << " time=" << Simulator::Now().GetSeconds() 
-                 << " packetNumber=" << quicHeader.GetPacketNumber().GetValue()
-                 << " size=" << p->GetSize() 
-                 << " pathId=" << (int)pathId
-                 << " socket=" << this
-                 << " state=" << QuicStateName[m_socketState]
-                 << " headerType=" << (quicHeader.IsInitial() ? "INITIAL" : 
-                                      quicHeader.IsHandshake() ? "HANDSHAKE" : 
-                                      quicHeader.IsShort() ? "SHORT" : "OTHER"));
   
   if (!m_drainingPeriodEvent.IsRunning ())
     {
       m_idleTimeoutEvent.Cancel ();   // reset the IDLE timeout
       NS_LOG_LOGIC (
         this << " ReceivedData Schedule Close at time " << Simulator::Now ().GetSeconds () << " to expire at time " << (Simulator::Now () + m_idleTimeout.Get ()).GetSeconds ());
-      NS_LOG_DEBUG("[TEMP_LOGS] Scheduling idle timeout from ReceivedData at time " << Simulator::Now ().GetSeconds () 
-                     << " to expire at " << (Simulator::Now () + m_idleTimeout.Get ()).GetSeconds ()
-                     << " for socket " << this);
       m_idleTimeoutEvent = Simulator::Schedule (m_idleTimeout, &QuicSocketBase::Close, this);
     }
   else   // If the socket is in Draining Period, discard the packets
@@ -3083,11 +2930,6 @@ QuicSocketBase::SetState (TracedValue<QuicStates_t> newstate)
 {
   NS_LOG_FUNCTION (this);
 
-  NS_LOG_DEBUG("[TEMP_LOGS] State change for socket " << this 
-                 << " at time " << Simulator::Now ().GetSeconds ()
-                 << " from " << QuicStateName[m_socketState] 
-                 << " to " << QuicStateName[newstate]);
-
   if (m_quicl4->IsServer ())
     {
       NS_LOG_INFO (
@@ -3214,12 +3056,6 @@ QuicSocketBase::CheckIfPacketOverflowMaxDataLimit (
     }
   if ((m_max_data < m_rxBuffer->Size () + validPacketSize))
     {
-      NS_LOG_DEBUG("[TEMP_LOGS] RX_MAX_DATA_LIMIT_EXCEEDED: time=" << Simulator::Now().GetSeconds()
-                    << " m_max_data=" << m_max_data
-                    << " rxBufferSize=" << m_rxBuffer->Size()
-                    << " validPacketSize=" << validPacketSize
-                    << " total=" << (m_rxBuffer->Size() + validPacketSize)
-                    << " (Connection-level RX flow control limit exceeded)");
       return true;
     }
   return false;

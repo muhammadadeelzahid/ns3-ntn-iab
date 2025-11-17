@@ -229,7 +229,7 @@ MpegPlayer::PlayFrame(void)
        << " now: " << Simulator::Now().GetSeconds()
        << std::endl;
        */
-    Simulator::Schedule(MilliSeconds(20), &MpegPlayer::PlayFrame, this);
+    Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
 
     // There may be space now to read a new packet from the socket
     // Trigger CheckBuffer immediately after consuming a frame to ensure continuous reception

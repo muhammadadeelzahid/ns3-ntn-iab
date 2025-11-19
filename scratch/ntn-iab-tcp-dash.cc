@@ -976,11 +976,12 @@ main (int argc, char *argv[])
   ApplicationContainer serverApps;
   
   // DASH over TCP configuration - aligned with TCP segment size limits
-  double target_dt = 10.0;
+  double target_dt = 35.0;  // Target buffering time (increased from 10.0s for better buffering)
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 400*1024*1024;  // 200 MB (10+ segments at 66 Mbps)
-  double window = 5;  // Throughput measurement window in milliseconds
+  uint32_t bufferSpace = 400*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
+
+  double window = 200;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
   // Video duration configuration
@@ -988,7 +989,6 @@ main (int argc, char *argv[])
   
   // Calculate minimum simulation duration
   // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
-  double initialSetupTime = 1.5;  // Buffer time in seconds (handshake + initial buffering + cleanup + 1s app stop buffer)
   double minSimulationDuration = desiredVideoDuration*1.15;
   
   // Get current stopTime (line 1024)
@@ -1194,8 +1194,6 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("Simulation time: " << stopTime << " seconds");
   NS_LOG_UNCOND("DASH algorithm: " << algorithm);
   NS_LOG_UNCOND("Target buffering time: " << target_dt << " milliseconds");
-  NS_LOG_UNCOND("Expected video segments: ~" << (int)(stopTime/2));
-  NS_LOG_UNCOND("Expected video frames: ~" << (int)(stopTime * 50));
   
   Simulator::Run();
   

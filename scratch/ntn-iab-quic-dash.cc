@@ -903,7 +903,7 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("================================\n");
 
   // Video duration configuration
-  double desiredVideoDuration = 8.0;  // Desired video duration in seconds
+  double desiredVideoDuration = 60.0;  // Desired video duration in seconds
   
   // Calculate minimum simulation duration
   // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer

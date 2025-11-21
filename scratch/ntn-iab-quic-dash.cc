@@ -431,6 +431,7 @@ void PacketBufferTraceCallback(Ptr<const Packet> packet) {
             << ", Available: " << packet->GetSize());
 }
 
+
 int
 main (int argc, char *argv[])
 {
@@ -484,6 +485,7 @@ main (int argc, char *argv[])
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
+  LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
@@ -899,14 +901,58 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("Actually created " << iabNodes.GetN() << " IAB nodes");
   NS_LOG_UNCOND("Actually created " << enbNodes.GetN() << " eNB nodes");
   NS_LOG_UNCOND("================================\n");
+
+  // Video duration configuration
+  double desiredVideoDuration = 8.0;  // Desired video duration in seconds
+  
+  // Calculate minimum simulation duration
+  // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
+  double minSimulationDuration = desiredVideoDuration*1.15;
+  
+  // Get current stopTime (line 1024)
+  double stopTime = 1.0;  // Minimal time for testing
+  
+  // Check if current stopTime is less than minimum, and adjust if needed
+  if (stopTime < minSimulationDuration)
+  {
+      NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
+                   << minSimulationDuration << "s (required for video duration " 
+                   << desiredVideoDuration << "s)");
+      stopTime = minSimulationDuration;
+  }
+  else
+  {
+      NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
+                   << desiredVideoDuration << "s, minimum required: " 
+                   << minSimulationDuration << "s)");
+  }
   // Install Mobility Model
   
-  Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
-  enbPositionAlloc->Add (posWired);
+  // Install WaypointMobilityModel for satellite (eNB)
+  // Start at original position (Overhead)
+  // Move in X direction at 7.8 km/s
+  
+  double satVelocity = 7800.0; // m/s
+  
   MobilityHelper enbmobility;
-  enbmobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  enbmobility.SetPositionAllocator(enbPositionAlloc);
+  enbmobility.SetMobilityModel ("ns3::WaypointMobilityModel");
   enbmobility.Install (enbNodes);
+
+  for (uint32_t i = 0; i < enbNodes.GetN(); ++i)
+  {
+      Ptr<WaypointMobilityModel> mob = enbNodes.Get(i)->GetObject<WaypointMobilityModel>();
+      
+      // Waypoint 1: Start at t=0 (Original Position)
+      Vector pos1 = posWired;
+      mob->AddWaypoint(Waypoint(Seconds(0.0), pos1));
+
+      // Waypoint 2: End at t=minSimulationDuration
+      // Move in X direction
+      // Distance = velocity * time
+      Vector pos2 = Vector(posWired.x + (satVelocity * minSimulationDuration), posWired.y, posWired.z);
+      mob->AddWaypoint(Waypoint(Seconds(minSimulationDuration), pos2));
+  }
+
   if(numRelays > 0)
   { 
     Ptr<ListPositionAllocator> iabPositionAlloc = CreateObject<ListPositionAllocator> ();
@@ -925,68 +971,12 @@ main (int argc, char *argv[])
   MobilityHelper uemobility;
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
-  // // Random user generation code
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
-  
-  //     double x = xMax/2 + radius * std::cos(angle);
-  //     double y = yMax/2 + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
-  
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
-  
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
+  // UE at original position (near center)
+  double ueX = xMax/2.0 + 1000.0;
+  double ueY = yMax/2.0 + 100.0;
+  double ueZ = 1.7;
 
-  // Create one user at fixed position 100 meters away from eNB
-  double ueX = xMax/2.0+1000;  // Same X coordinate as eNB
-  double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
-  double ueZ = 1.7;  // Typical UE height
-  
   uePosAlloc->Add(Vector(ueX, ueY, ueZ));
-  
-
-// Additional user positioning code (no longer needed)
-// uint32_t totalUes = ueNodes.GetN();        // e.g., 20
-// uint32_t clusterCount = clusterCenters.size(); // 7 clusters
-// uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
-// uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
-
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
-  
-  //     double x = xMax/2 + radius * std::cos(angle);
-  //     double y = yMax/2 + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
-  
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
-  
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
 
   uemobility.SetPositionAllocator (uePosAlloc);
   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -1055,30 +1045,7 @@ main (int argc, char *argv[])
 
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
-  // Video duration configuration
-  double desiredVideoDuration = 60.0;  // Desired video duration in seconds
-  
-  // Calculate minimum simulation duration
-  // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
-  double minSimulationDuration = desiredVideoDuration*1.15;
-  
-  // Get current stopTime (line 1024)
-  double stopTime = 1.0;  // Minimal time for testing
-  
-  // Check if current stopTime is less than minimum, and adjust if needed
-  if (stopTime < minSimulationDuration)
-  {
-      NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
-                   << minSimulationDuration << "s (required for video duration " 
-                   << desiredVideoDuration << "s)");
-      stopTime = minSimulationDuration;
-  }
-  else
-  {
-      NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
-                   << desiredVideoDuration << "s, minimum required: " 
-                   << minSimulationDuration << "s)");
-  }
+
 
   // Create a DASH server on each UE (listening on port 80)
   DashServerHelper dashServer ("ns3::QuicSocketFactory",

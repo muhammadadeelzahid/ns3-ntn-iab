@@ -894,6 +894,18 @@ MmWave3gppPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel
 		{
 			NS_FATAL_ERROR("Satellite height should be atleast 500 km TR 38.811");
 		}
+
+		// Calculate elevation angle
+		double heightDiff = std::abs(hBs - hUt);
+		double elevAngleRad = std::atan2(heightDiff, distance2D);
+		double elevAngleDeg = RadiansToDegrees(elevAngleRad);
+
+		if (elevAngleDeg < 25.0)
+		{
+			NS_LOG_DEBUG("Elevation angle " << elevAngleDeg << " < 25 degrees. Inducing outage.");
+			return 1000.0; // Return very high loss to simulate outage
+		}
+		
 		channelCondition condition;
 		if (it == m_channelConditionMap.end ())
 		{

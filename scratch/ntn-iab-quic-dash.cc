@@ -485,7 +485,6 @@ main (int argc, char *argv[])
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
-  LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);

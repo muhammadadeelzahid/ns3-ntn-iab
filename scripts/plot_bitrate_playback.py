@@ -282,6 +282,13 @@ def plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback):
     
     time_min = min(all_times)
     time_max = max(all_times)
+
+    # Extend bitrate data to end of timeline
+    if quic_bitrate and quic_bitrate[-1][0] < time_max:
+        quic_bitrate.append((time_max, quic_bitrate[-1][1]))
+
+    if tcp_bitrate and tcp_bitrate[-1][0] < time_max:
+        tcp_bitrate.append((time_max, tcp_bitrate[-1][1]))
     
     # Plot 1: Combined QUIC and TCP Bitrate
     ax1 = fig.add_subplot(gs[0, 0])
@@ -416,6 +423,59 @@ def plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback):
     plt.tight_layout()
     return fig
 
+def parse_dash_throughput(filenames):
+    """
+    Parse DashClientRx logs to calculate application layer throughput.
+    Returns a list of throughput values (in Mbps) for each file.
+    """
+    throughputs = []
+    
+    if isinstance(filenames, str):
+        filenames = [filenames]
+        
+    for filename in filenames:
+        if not os.path.exists(filename):
+            continue
+            
+        try:
+            with open(filename, 'r') as f:
+                lines = f.readlines()
+                
+            # Skip comments
+            data_lines = [line for line in lines if not line.strip().startswith('#') and line.strip()]
+            
+            if not data_lines:
+                continue
+                
+            # Parse first and last lines
+            # Format: Time(s) PacketSize(bytes) TotalPackets TotalBytes
+            
+            first_line_parts = data_lines[0].split()
+            last_line_parts = data_lines[-1].split()
+            
+            if len(first_line_parts) < 4 or len(last_line_parts) < 4:
+                continue
+                
+            start_time = float(first_line_parts[0])
+            end_time = float(last_line_parts[0])
+            
+            # Total bytes is in the last column of the last line
+            total_bytes = int(last_line_parts[3])
+            
+            duration = end_time - start_time
+            if duration > 0:
+                # Calculate throughput in Mbps
+                # bits = bytes * 8
+                # Mbps = bits / duration / 1e6
+                throughput_mbps = (total_bytes * 8) / duration / 1e6
+                throughputs.append(throughput_mbps)
+                
+        except Exception as e:
+            print(f"Error parsing {filename}: {e}")
+            continue
+            
+    return throughputs
+
 def main():
     # File paths - determine script location and find log files
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -426,6 +486,10 @@ def main():
     quic_files = find_log_files('quic', project_root)
     tcp_files = find_log_files('tcp', project_root)
     
+    # Find DashClient files
+    dash_quic_files = glob.glob(os.path.join(project_root, "DashClientRx_UE_*.txt"))
+    dash_tcp_files = glob.glob(os.path.join(project_root, "DashClientRx_TCP_UE_*.txt"))
+    
     if not quic_files:
         print("Warning: No QUIC log files found.")
     else:
@@ -435,9 +499,19 @@ def main():
         print("Warning: No TCP log files found.")
     else:
         print(f"Using TCP files: {tcp_files}")
+        
+    if dash_quic_files:
+        print(f"Using Dash QUIC files: {dash_quic_files}")
+    else:
+        print("Warning: No Dash QUIC files found (DashClientRx_UE_*.txt)")
+        
+    if dash_tcp_files:
+        print(f"Using Dash TCP files: {dash_tcp_files}")
+    else:
+        print("Warning: No Dash TCP files found (DashClientRx_TCP_UE_*.txt)")
     
-    if not quic_files and not tcp_files:
-        print("Error: No log files found for either QUIC or TCP.")
+    if not quic_files and not tcp_files and not dash_quic_files and not dash_tcp_files:
+        print("Error: No log files found.")
         return
 
     print("\nParsing QUIC log files...")
@@ -460,18 +534,33 @@ def main():
     quic_play_time, quic_inter_time, quic_play_periods, quic_inter_periods = calculate_playback_stats(quic_playback)
     tcp_play_time, tcp_inter_time, tcp_play_periods, tcp_inter_periods = calculate_playback_stats(tcp_playback)
     
+    # Calculate Dash throughput
+    quic_throughputs = parse_dash_throughput(dash_quic_files)
+    tcp_throughputs = parse_dash_throughput(dash_tcp_files)
+    
+    quic_avg_throughput = sum(quic_throughputs) / len(quic_throughputs) if quic_throughputs else 0.0
+    tcp_avg_throughput = sum(tcp_throughputs) / len(tcp_throughputs) if tcp_throughputs else 0.0
+    
     print(f"\n{'='*60}")
     print(f"QUIC Playback Statistics:")
     print(f"  Total Playback Time: {quic_play_time:.2f} seconds")
     print(f"  Total Interruption Time: {quic_inter_time:.2f} seconds")
     print(f"  Number of Playback Periods: {len(quic_play_periods)}")
     print(f"  Number of Interruption Periods: {len(quic_inter_periods)}")
+    if quic_throughputs:
+        print(f"  Avg Application Throughput: {quic_avg_throughput:.4f} Mbps (over {len(quic_throughputs)} UEs)")
+    else:
+        print(f"  Avg Application Throughput: N/A")
     
     print(f"\nTCP Playback Statistics:")
     print(f"  Total Playback Time: {tcp_play_time:.2f} seconds")
     print(f"  Total Interruption Time: {tcp_inter_time:.2f} seconds")
     print(f"  Number of Playback Periods: {len(tcp_play_periods)}")
     print(f"  Number of Interruption Periods: {len(tcp_inter_periods)}")
+    if tcp_throughputs:
+        print(f"  Avg Application Throughput: {tcp_avg_throughput:.4f} Mbps (over {len(tcp_throughputs)} UEs)")
+    else:
+        print(f"  Avg Application Throughput: N/A")
     print(f"{'='*60}\n")
     
     # Create plots

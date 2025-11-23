@@ -842,14 +842,57 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("Actually created " << iabNodes.GetN() << " IAB nodes");
   NS_LOG_UNCOND("Actually created " << enbNodes.GetN() << " eNB nodes");
   NS_LOG_UNCOND("================================\n");
+  // Video duration configuration
+  double desiredVideoDuration = 60.0;  // Desired video duration in seconds
+  
+  // Calculate minimum simulation duration
+  // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
+  double minSimulationDuration = desiredVideoDuration*1.15;
+  
+  // Get current stopTime (line 1024)
+  double stopTime = 1.0;  // Minimal time for testing
+  
+  // Check if current stopTime is less than minimum, and adjust if needed
+  if (stopTime < minSimulationDuration)
+  {
+      NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
+                   << minSimulationDuration << "s (required for video duration " 
+                   << desiredVideoDuration << "s)");
+      stopTime = minSimulationDuration;
+  }
+  else
+  {
+      NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
+                   << desiredVideoDuration << "s, minimum required: " 
+                   << minSimulationDuration << "s)");
+  }
+
   // Install Mobility Model
   
-  Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
-  enbPositionAlloc->Add (posWired);
+  // Install WaypointMobilityModel for satellite (eNB)
+  // Start at original position (Overhead)
+  // Move in X direction at 7.8 km/s
+  
+  double satVelocity = 7800.0; // m/s
+  
   MobilityHelper enbmobility;
-  enbmobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  enbmobility.SetPositionAllocator(enbPositionAlloc);
+  enbmobility.SetMobilityModel ("ns3::WaypointMobilityModel");
   enbmobility.Install (enbNodes);
+
+  for (uint32_t i = 0; i < enbNodes.GetN(); ++i)
+  {
+      Ptr<WaypointMobilityModel> mob = enbNodes.Get(i)->GetObject<WaypointMobilityModel>();
+      
+      // Waypoint 1: Start at t=0 (Original Position)
+      Vector pos1 = posWired;
+      mob->AddWaypoint(Waypoint(Seconds(0.0), pos1));
+
+      // Waypoint 2: End at t=minSimulationDuration
+      // Move in X direction
+      // Distance = velocity * time
+      Vector pos2 = Vector(posWired.x + (satVelocity * minSimulationDuration), posWired.y, posWired.z);
+      mob->AddWaypoint(Waypoint(Seconds(minSimulationDuration), pos2));
+  }
   if(numRelays > 0)
   { 
     Ptr<ListPositionAllocator> iabPositionAlloc = CreateObject<ListPositionAllocator> ();
@@ -984,30 +1027,7 @@ main (int argc, char *argv[])
   double window = 200;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
-  // Video duration configuration
-  double desiredVideoDuration = 60.0;  // Desired video duration in seconds
-  
-  // Calculate minimum simulation duration
-  // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
-  double minSimulationDuration = desiredVideoDuration*1.15;
-  
-  // Get current stopTime (line 1024)
-  double stopTime = 1.0;  // Minimal time for testing
-  
-  // Check if current stopTime is less than minimum, and adjust if needed
-  if (stopTime < minSimulationDuration)
-  {
-      NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
-                   << minSimulationDuration << "s (required for video duration " 
-                   << desiredVideoDuration << "s)");
-      stopTime = minSimulationDuration;
-  }
-  else
-  {
-      NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
-                   << desiredVideoDuration << "s, minimum required: " 
-                   << minSimulationDuration << "s)");
-  }
+
 
   // Create a DASH server on each UE (listening on port 80)
   DashServerHelper dashServer ("ns3::TcpSocketFactory",

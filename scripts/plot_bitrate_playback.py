@@ -1,70 +1,137 @@
 #!/usr/bin/env python
 """
 Script to plot bitrate over time and video playback/interruption status
-from zquiclogs.txt and ztcplogs.txt files.
+from QUIC and TCP job output files (e.g., quic_12345.out, quic_12345.err)
+or legacy log files (zquiclogs.txt, ztcplogs.txt).
 """
 
 import re
 import os
+import glob
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
 from collections import defaultdict
 
-def parse_bitrate_log(filename):
-    """Parse bitrate information from log file."""
+def find_log_files(prefix, directory):
+    """
+    Find log files for a given prefix (e.g., 'quic' or 'tcp').
+    Priority:
+    1. Latest job files: {prefix}_*.out and {prefix}_*.err
+    2. Legacy file: z{prefix}logs.txt
+    """
+    # 1. Look for job files matching prefix_*.out and prefix_*.err
+    out_files = glob.glob(os.path.join(directory, f"{prefix}_*.out"))
+    err_files = glob.glob(os.path.join(directory, f"{prefix}_*.err"))
+    
+    all_files = out_files + err_files
+    if all_files:
+        # Group by job ID
+        job_files = defaultdict(list)
+        for filepath in all_files:
+            filename = os.path.basename(filepath)
+            # Extract job ID: prefix_12345.ext -> 12345
+            match = re.search(rf"{prefix}_(\d+)\.(out|err)", filename)
+            if match:
+                job_id = match.group(1)
+                job_files[job_id].append(filepath)
+        
+        if job_files:
+            # Find latest job by ID (assuming higher ID is newer)
+            latest_job_id = max(job_files.keys(), key=lambda x: int(x))
+            print(f"Found latest {prefix.upper()} job ID: {latest_job_id}")
+            return job_files[latest_job_id]
+
+    # 2. Fallback to legacy file
+    legacy_filename = f"z{prefix}logs.txt"
+    # Check in project root and current directory
+    possible_paths = [
+        os.path.join(directory, legacy_filename),
+        os.path.join(os.getcwd(), legacy_filename),
+        legacy_filename
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"Found legacy {prefix.upper()} log: {path}")
+            return [path]
+            
+    return []
+
+def parse_bitrate_log(filenames):
+    """Parse bitrate information from a list of log files."""
     bitrate_data = []
     
-    with open(filename, 'r') as f:
-        for line in f:
-            # Match pattern: time Node: node newBitRate: bitrate ...
-            match = re.search(r'(\d+\.?\d*)\s+Node:\s+\d+\s+newBitRate:\s+(\d+)', line)
-            if match:
-                time = float(match.group(1))
-                bitrate = float(match.group(2))
-                bitrate_data.append((time, bitrate))
+    if isinstance(filenames, str):
+        filenames = [filenames]
+        
+    for filename in filenames:
+        if not os.path.exists(filename):
+            continue
+            
+        with open(filename, 'r') as f:
+            for line in f:
+                # Match pattern: time Node: node newBitRate: bitrate ...
+                match = re.search(r'(\d+\.?\d*)\s+Node:\s+\d+\s+newBitRate:\s+(\d+)', line)
+                if match:
+                    time = float(match.group(1))
+                    bitrate = float(match.group(2))
+                    bitrate_data.append((time, bitrate))
     
+    # Sort by time since we might be reading from multiple files out of order
+    bitrate_data.sort(key=lambda x: x[0])
     return bitrate_data
 
-def parse_playback_log(filename):
-    """Parse playback status and resolution from log file."""
+def parse_playback_log(filenames):
+    """Parse playback status and resolution from a list of log files."""
     playback_events = []
-    current_resolution = None
-    last_play_time = None
-    resume_pending = False
     
-    with open(filename, 'r') as f:
-        lines = f.readlines()
+    if isinstance(filenames, str):
+        filenames = [filenames]
     
-    for i, line in enumerate(lines):
-        # Match PLAYING FRAME lines: time PLAYING FRAME: ... Res: resolution ...
-        play_match = re.search(r'(\d+\.?\d*)\s+PLAYING FRAME:.*?Res:\s+(\d+)', line)
-        if play_match:
-            time = float(play_match.group(1))
-            resolution = float(play_match.group(2))
-            current_resolution = resolution
-            last_play_time = time
+    # Read all lines from all files first to sort them by timestamp if possible,
+    # but since logs might be interleaved or split, we'll parse events and then sort.
+    
+    for filename in filenames:
+        if not os.path.exists(filename):
+            continue
             
-            # If there was a pending resume, use this time for it
-            if resume_pending:
-                playback_events.append(('resumed', time, current_resolution))
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+        
+        current_resolution = None
+        resume_pending = False
+        
+        for line in lines:
+            # Match PLAYING FRAME lines: time PLAYING FRAME: ... Res: resolution ...
+            play_match = re.search(r'(\d+\.?\d*)\s+PLAYING FRAME:.*?Res:\s+(\d+)', line)
+            if play_match:
+                time = float(play_match.group(1))
+                resolution = float(play_match.group(2))
+                current_resolution = resolution
+                
+                # If there was a pending resume, use this time for it
+                if resume_pending:
+                    playback_events.append(('resumed', time, current_resolution))
+                    resume_pending = False
+                
+                playback_events.append(('playing', time, resolution))
+            
+            # Match "No frames to play" - interruption
+            interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', line)
+            if interrupt_match:
+                time = float(interrupt_match.group(1))
+                playback_events.append(('interrupted', time, current_resolution))
                 resume_pending = False
             
-            playback_events.append(('playing', time, resolution))
-        
-        # Match "No frames to play" - interruption
-        interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', line)
-        if interrupt_match:
-            time = float(interrupt_match.group(1))
-            playback_events.append(('interrupted', time, current_resolution))
-            last_play_time = time
-            resume_pending = False
-        
-        # Match "Play resumed" - resuming playback
-        # The actual time will be from the next PLAYING FRAME line
-        resume_match = re.search(r'Play resumed', line)
-        if resume_match:
-            resume_pending = True
+            # Match "Play resumed" - resuming playback
+            # The actual time will be from the next PLAYING FRAME line
+            resume_match = re.search(r'Play resumed', line)
+            if resume_match:
+                resume_pending = True
+    
+    # Sort events by time
+    playback_events.sort(key=lambda x: x[1])
     
     return playback_events
 
@@ -73,7 +140,7 @@ def calculate_playback_stats(playback_events):
     if not playback_events:
         return 0.0, 0.0, [], []
     
-    # Sort events by time
+    # Sort events by time (should already be sorted, but safety first)
     sorted_events = sorted(playback_events, key=lambda x: x[1])
     
     playback_time = 0.0
@@ -211,7 +278,7 @@ def plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback):
     
     if not all_times:
         print("No data found in log files!")
-        return
+        return fig
     
     time_min = min(all_times)
     time_max = max(all_times)
@@ -354,53 +421,32 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)  # Go up one level from scripts/
     
-    # Try multiple possible locations
-    possible_quic_paths = [
-        os.path.join(project_root, 'zquiclogs.txt'),
-        os.path.join(os.getcwd(), 'zquiclogs.txt'),
-        'zquiclogs.txt'
-    ]
-    possible_tcp_paths = [
-        os.path.join(project_root, 'ztcplogs.txt'),
-        os.path.join(os.getcwd(), 'ztcplogs.txt'),
-        'ztcplogs.txt'
-    ]
+    print(f"Searching for log files in: {project_root}")
     
-    quic_log = None
-    tcp_log = None
+    quic_files = find_log_files('quic', project_root)
+    tcp_files = find_log_files('tcp', project_root)
     
-    for path in possible_quic_paths:
-        if os.path.exists(path):
-            quic_log = path
-            break
+    if not quic_files:
+        print("Warning: No QUIC log files found.")
+    else:
+        print(f"Using QUIC files: {quic_files}")
+        
+    if not tcp_files:
+        print("Warning: No TCP log files found.")
+    else:
+        print(f"Using TCP files: {tcp_files}")
     
-    for path in possible_tcp_paths:
-        if os.path.exists(path):
-            tcp_log = path
-            break
-    
-    if not quic_log:
-        print(f"Error: Could not find zquiclogs.txt in any of these locations:")
-        for p in possible_quic_paths:
-            print(f"  - {p}")
+    if not quic_files and not tcp_files:
+        print("Error: No log files found for either QUIC or TCP.")
         return
+
+    print("\nParsing QUIC log files...")
+    quic_bitrate = parse_bitrate_log(quic_files)
+    quic_playback = parse_playback_log(quic_files)
     
-    if not tcp_log:
-        print(f"Error: Could not find ztcplogs.txt in any of these locations:")
-        for p in possible_tcp_paths:
-            print(f"  - {p}")
-        return
-    
-    print(f"Using QUIC log: {quic_log}")
-    print(f"Using TCP log: {tcp_log}")
-    
-    print("Parsing QUIC log file...")
-    quic_bitrate = parse_bitrate_log(quic_log)
-    quic_playback = parse_playback_log(quic_log)
-    
-    print("Parsing TCP log file...")
-    tcp_bitrate = parse_bitrate_log(tcp_log)
-    tcp_playback = parse_playback_log(tcp_log)
+    print("Parsing TCP log files...")
+    tcp_bitrate = parse_bitrate_log(tcp_files)
+    tcp_playback = parse_playback_log(tcp_files)
     
     print(f"\nQUIC Statistics:")
     print(f"  Bitrate entries: {len(quic_bitrate)}")
@@ -437,8 +483,7 @@ def main():
     fig.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
     
-    plt.show()
+    # plt.show() # Commented out for headless environments
 
 if __name__ == '__main__':
     main()
-

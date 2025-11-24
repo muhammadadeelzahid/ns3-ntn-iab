@@ -1546,7 +1546,10 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
       else
         {
           Ptr<QuicCongestionOps> cc = dynamic_cast<QuicCongestionOps*> (&(*m_congestionControl));
-          cc->OnPacketsLost (m_subflows[pathId]->m_tcb, lostPackets);
+          if (!lostPackets.empty ())
+            {
+              cc->OnPacketsLost (m_subflows[pathId]->m_tcb, lostPackets);
+            }
         }
       // Retransmit all lost packets immediately
       // m_subflows[pathId]->UpdateCwndOnPacketLost();

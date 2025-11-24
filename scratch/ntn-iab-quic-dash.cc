@@ -699,28 +699,38 @@ main (int argc, char *argv[])
   // 1. Increase maximum tracked gaps (from default 20 to 100) - SIGNIFICANT IMPROVEMENT
   //    Allows many more gaps to be reported in ACK frames, improving loss detection
   //    Realistic: NTN links may have burst losses, so tracking more gaps is beneficial
-  Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(100));
+  // 1. Increase maximum tracked gaps (from default 20 to 20) - RFC DEFAULT
+  //    Reverting to default for standard compliance
+  Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(20));
   
   // 2. Reduce maximum packets before ACK send (from default 20 to 5) - SIGNIFICANT IMPROVEMENT FOR CONGESTION AVOIDANCE
   //    Forces much more frequent ACKs, significantly reducing gaps and detecting congestion faster
   //    Realistic: 5 packets is aggressive but critical for congestion avoidance - detects losses 2x faster
-  Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(5)); // REDUCED FROM 10 TO 5
+  // 2. Reduce maximum packets before ACK send (from default 20 to 2) - RFC 9000 COMPLIANT
+  //    RFC 9000 recommends sending an ACK for every 2 packets
+  Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(2));
   
   // 3. Reduce delayed ACK timeout (from default 25ms to 10ms) - SIGNIFICANT IMPROVEMENT FOR CONGESTION AVOIDANCE
   //    Sends ACKs much more frequently, reducing acknowledgment delays by 60% for faster congestion detection
   //    Realistic: 10ms is still safe for NTN and critical for detecting congestion quickly
-  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(10))); // REDUCED FROM 15ms TO 10ms
+  // 3. Reduce delayed ACK timeout (from default 25ms to 25ms) - RFC 9000 COMPLIANT
+  //    RFC 9000 default is 25ms
+  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(25)));
   
   // 4. Reduce ACK delay exponent (from default 3 to 2) - MODERATE IMPROVEMENT
   //    Limits maximum encodable ACK delay, reducing delay variability
   //    Realistic: Standard QUIC allows values 0-20, so 2 is well within range
-  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(2));
+  // 4. Reduce ACK delay exponent (from default 3 to 3) - RFC 9000 COMPLIANT
+  //    RFC 9000 default is 3
+  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(3));
   
   // 5. DISABLE time-based loss detection to prevent premature timeout triggers
   //    When enabled with aggressive reordering threshold, it can trigger timeouts
   //    before packets are actually lost, causing empty vector crashes
   //    Keeping at default (false) for stability - packet number-based detection is sufficient
-  // Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(true));
+  // 5. Enable time-based loss detection - RFC 9002 COMPLIANT
+  //    RFC 9002 states implementations SHOULD use time-based loss detection
+  Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(true));
   
   // 6. Keep minimum TLP timeout at default (10ms)
   //    Not changing this - 10ms is appropriate for NTN scenarios
@@ -757,7 +767,7 @@ main (int argc, char *argv[])
   // SIGNIFICANT CHANGE: Reduced from unlimited (65535) to 32KB (21 packets) for much more conservative behavior
   // This forces the connection to exit slow start after ~21 packets, preventing congestion buildup
   // Realistic: 32KB is conservative but prevents the exponential growth that causes congestion
-  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(32*1024)); // 32KB - SIGNIFICANTLY REDUCED
+  // Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(32*1024)); // Commented out for RFC compliance (default is usually infinite/high)
 
   // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
@@ -771,7 +781,7 @@ main (int argc, char *argv[])
   // Note: This is a counter (number of ACKs), not a time value
   // Using 5 for very responsive flow control updates (every 5 ACKs)
   // Realistic: Small overhead, significant improvement in flow control responsiveness
-  Config::SetDefault("ns3::QuicStreamBase::MaxDataInterval", UintegerValue(5)); // Reduced from default 15000
+  // Config::SetDefault("ns3::QuicStreamBase::MaxDataInterval", UintegerValue(5)); // Commented out for RFC compliance (default is 15000)
   
   // ============================================================================
   // NOTE: Parameters Set in Constructors (Not Configurable via Config::SetDefault)

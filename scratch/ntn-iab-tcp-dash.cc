@@ -675,7 +675,13 @@ main (int argc, char *argv[])
   //    QUIC: kDelayedAckTimeout = 10ms (reduced from 15ms for congestion avoidance)
   //    Sends ACKs much more frequently, reducing acknowledgment delays by 60% for faster congestion detection
   //    Realistic: 10ms is still safe for NTN and critical for detecting congestion quickly
-  Config::SetDefault("ns3::TcpSocket::DelAckTimeout", TimeValue(MilliSeconds(10))); // REDUCED FROM 15ms TO 10ms
+  // 1. Reduce delayed ACK timeout (from default 200ms to 25ms) - MATCHES QUIC RFC 9000 DEFAULT
+  //    QUIC: kDelayedAckTimeout = 25ms (RFC 9000 default)
+  Config::SetDefault("ns3::TcpSocket::DelAckTimeout", TimeValue(MilliSeconds(25)));
+
+  // 1b. Set Delayed Ack Count to 2 - MATCHES QUIC RFC 9000 RECOMMENDATION
+  //     QUIC: kMaxPacketsReceivedBeforeAckSend = 2
+  Config::SetDefault("ns3::TcpSocket::DelAckCount", UintegerValue(2));
   
   // 2. Disable Nagle's algorithm for low latency (TCP-specific optimization)
   //    QUIC doesn't have Nagle's algorithm, so disabling it makes TCP more comparable
@@ -695,7 +701,12 @@ main (int argc, char *argv[])
   // SIGNIFICANT CHANGE: Reduced from unlimited (65535) to 32KB (21 packets) for much more conservative behavior
   // This forces the connection to exit slow start after ~21 packets, preventing congestion buildup
   // Realistic: 32KB is conservative but prevents the exponential growth that causes congestion
-  Config::SetDefault("ns3::TcpSocket::InitialSlowStartThreshold", UintegerValue(32*1024)); // 32KB - SIGNIFICANTLY REDUCED
+  // Reduce initial slow start threshold to enter congestion avoidance sooner (MATCHES QUIC CONGESTION AVOIDANCE)
+  // QUIC: InitialSlowStartThreshold = 32KB (reduced from unlimited for congestion avoidance)
+  // SIGNIFICANT CHANGE: Reduced from unlimited (65535) to 32KB (21 packets) for much more conservative behavior
+  // This forces the connection to exit slow start after ~21 packets, preventing congestion buildup
+  // Realistic: 32KB is conservative but prevents the exponential growth that causes congestion
+  // Config::SetDefault("ns3::TcpSocket::InitialSlowStartThreshold", UintegerValue(32*1024)); // Commented out to match QUIC RFC compliance (default is infinite)
   
   // Initial congestion window (MATCHES QUIC)
   // QUIC: m_initialCWnd = 10 * segmentSize (default)

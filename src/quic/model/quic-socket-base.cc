@@ -414,7 +414,7 @@ QuicSocketState::QuicSocketState ()
     m_maxAckDelay (Seconds (0.025)),
     m_lossTime (Seconds (0)),
     m_kMinimumWindow (
-      2 * m_segmentSize),
+      10 * m_segmentSize),
     m_kLossReductionFactor (0.5),
     m_endOfRecovery (0),
     m_kMaxTLPs (
@@ -431,10 +431,11 @@ QuicSocketState::QuicSocketState ()
     m_nextAlarmTrigger (Seconds (100)),
     m_kDefaultInitialRtt (
       MilliSeconds (333)),                // 333ms default (IETF RFC 9000)
-    m_kMaxPacketsReceivedBeforeAckSend (20)
+    m_kMaxPacketsReceivedBeforeAckSend (2)
 {
   m_initialCWnd = 10 * m_segmentSize;
   m_lossDetectionAlarm.Cancel ();
+  m_pacing = true; // Enable Pacing by default to prevent burst losses
 }
 
 QuicSocketState::QuicSocketState (const QuicSocketState &other)
@@ -2483,7 +2484,6 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
         }
       m_scheduler->PeekabooReward(pathId, lastAckTime);
       lastAckTime = Now();
-      NS_LOG_UNCOND("lastAckTime=" << lastAckTime);
     }
   else
     {

@@ -14,6 +14,12 @@
 #include <ns3/log.h>
 #include <ns3/simulator.h>
 
+#define FDASH_N2_R 0.0
+#define FDASH_N1_SR 0.25
+#define FDASH_Z_NC 1.0
+#define FDASH_P1_SI 1.5
+#define FDASH_P2_I 3.0
+
 NS_LOG_COMPONENT_DEFINE("FdashClient");
 
 namespace ns3
@@ -126,7 +132,7 @@ FdashClient::CalcNextSegment(uint32_t currRate, uint32_t& nextRate, Time& delay)
     n2 = std::sqrt(std::pow(r1, 2));
 
     /*output = (n2 * 0.25 + n1 * 0.5 + z * 1 + p1 * 1.4 + p2 * 2)*/
-    output = (n2 * 0.25 + n1 * 0.5 + z * 1 + p1 * 2 + p2 * 4) / (n2 + n1 + z + p1 + p2);
+    output = (n2 * FDASH_N2_R + n1 * FDASH_N1_SR + z * FDASH_Z_NC + p1 * FDASH_P1_SI + p2 * FDASH_P2_I) / (n2 + n1 + z + p1 + p2);
 
     NS_LOG_INFO("currDt: " << currDt << " diff: " << diff << " slow: " << slow << " ok: " << ok
                            << " fast: " << fast << " falling: " << falling << " steady: " << steady

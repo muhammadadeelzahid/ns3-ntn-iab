@@ -760,7 +760,7 @@ main (int argc, char *argv[])
   
   // QUIC Congestion Control Configuration
   Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
-  Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(true)); // Use QUIC-specific congestion control  
+  Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(false));
   
   // Reduce initial slow start threshold to enter congestion avoidance sooner
   // This prevents aggressive sending that can cause congestion
@@ -783,6 +783,14 @@ main (int argc, char *argv[])
   // Realistic: Small overhead, significant improvement in flow control responsiveness
   // Config::SetDefault("ns3::QuicStreamBase::MaxDataInterval", UintegerValue(5)); // Commented out for RFC compliance (default is 15000)
   
+  // ============================================================================
+  // FLOW CONTROL PARAMETERS (RFC COMPLIANCE)
+  // ============================================================================
+  // Set initial flow control limits to reasonable values (e.g., 10MB) instead of 4GB
+  // This enables actual flow control behavior as intended by RFC
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(100 * 1024 * 1024));
+  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(100 * 1024 * 1024));
+
   // ============================================================================
   // NOTE: Parameters Set in Constructors (Not Configurable via Config::SetDefault)
   // ============================================================================
@@ -866,7 +874,7 @@ main (int argc, char *argv[])
   double yMax = xMax;
 
   // Altitudes
-  double gnbHeight = 2000000.0;
+  double gnbHeight = 550000.0;
   double iabHeight = 10.0;
 
   // Offsets as fractions of total area (adjust as needed)

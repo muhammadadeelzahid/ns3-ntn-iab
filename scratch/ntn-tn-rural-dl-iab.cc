@@ -181,7 +181,7 @@ main (int argc, char *argv[])
   double yMax = 3000.0;
 
   // Altitudes
-  double gnbHeight = 2000000.0;
+  double gnbHeight = 550000.0;
   double iabHeight = 10.0;
 
   // Offsets as fractions of total area (adjust as needed)

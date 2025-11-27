@@ -734,9 +734,13 @@ main (int argc, char *argv[])
   // TCP Socket buffer configuration - must be large enough for high bitrate segments
   // QUIC: SocketSndBufSize = SocketRcvBufSize = 64 MB
   // For 66 Mbps: average segment ~15.74 MB, max segment ~31.47 MB
-  // Set to hold at least 2 full segments to prevent blocking
+  // Set to hold at least 2 full segments  // TCP Buffer Sizes (64 MB)
   Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
   Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
+  
+  // Enable Pacing for TCP (to match QUIC)
+  Config::SetDefault("ns3::TcpSocketState::EnablePacing", BooleanValue(true));
+  Config::SetDefault("ns3::TcpSocketState::PaceInitialWindow", BooleanValue(true));  // 64 MB (2x max segment)
   
   // ============================================================================
   // NOTE: QUIC-Specific Parameters (No TCP Equivalent)
@@ -809,7 +813,7 @@ main (int argc, char *argv[])
   double yMax = xMax;
 
   // Altitudes
-  double gnbHeight = 2000000.0;
+  double gnbHeight = 550000.0;
   double iabHeight = 10.0;
 
   // Offsets as fractions of total area (adjust as needed)

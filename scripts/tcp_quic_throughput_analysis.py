@@ -446,7 +446,7 @@ def main():
         return
     
     # Create plots with all protocols on the same graphs
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12))
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
     
     # Color and marker mapping for each protocol
     protocol_styles = {
@@ -476,9 +476,10 @@ def main():
                     label=style['label'])
     ax2.set_ylabel('Congestion Window (bytes)', fontsize=12)
     ax2.set_title('Congestion Window', fontsize=14, pad=8)
+    ax2.set_ylim(0, 1e6)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc='upper right')
-    ax2.tick_params(axis='x', labelsize=10)
+    # ax2.tick_params(axis='x', labelsize=10) # Handled by sharex
     
     # Plot RTT
     for data in protocol_data:

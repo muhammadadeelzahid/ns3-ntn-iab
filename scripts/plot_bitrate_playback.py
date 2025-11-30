@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
 Script to plot bitrate over time and video playback/interruption status
-from QUIC and TCP job output files (e.g., quic_12345.out, quic_12345.err)
-or legacy log files (zquiclogs.txt, ztcplogs.txt).
+from QUIC and TCP job output files.
+Supports averaging across multiple runs from Slurm job arrays.
 """
 
 import re
@@ -13,126 +13,141 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 from collections import defaultdict
 
-def find_log_files(prefix, directory):
+def find_job_runs(prefix, directory):
     """
-    Find log files for a given prefix (e.g., 'quic' or 'tcp').
-    Priority:
-    1. Latest job files: {prefix}_*.out and {prefix}_*.err
-    2. Legacy file: z{prefix}logs.txt
+    Find all runs for the latest job matching the prefix.
+    Returns a dict mapping task_id -> {'log': log_file, 'dir': run_dir}
     """
-    # 1. Look for job files matching prefix_*.out and prefix_*.err
+    # Look for slurm-JOBID_TASKID.out files
+    # We assume the prefix helps identify the job, but for Slurm output it's usually just slurm-*.out
+    # However, the user might have renamed them or we check the content/filename pattern.
+    # The current pattern in the script was f"{prefix}_*.out".
+    # But the new slurm script uses slurm-%A_%a.out.
+    
+    # Strategy:
+    # 1. Find all *-*.out files (matching pattern NAME-JOBID_TASKID.out)
+    # 2. Group by Job ID
+    # 3. Pick latest Job ID
+    # 4. Identify Task IDs
+    
+    # Match pattern: prefix-JOBID_TASKID.out or slurm-JOBID_TASKID.out
+    # The user might use "quic-..." or "tcp-..." or "slurm-..."
+    
+    # We'll search for all .out files and try to match the pattern
+    all_out_files = glob.glob(os.path.join(directory, "*.out"))
+    job_groups = defaultdict(list)
+    
+    for filepath in all_out_files:
+        filename = os.path.basename(filepath)
+        # Match NAME-JOBID_TASKID.out
+        # We want to match things like "quic-6548529_1.out" or "slurm-6548529_1.out"
+        # But avoid matching things that don't look like job arrays if possible.
+        # Regex: (anything)-(digits)_(digits).out
+        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", filename)
+        if match:
+            job_id = int(match.group(1))
+            task_id = int(match.group(2))
+            job_groups[job_id].append((task_id, filepath))
+            
+    if not job_groups:
+        # Fallback to legacy behavior or other naming patterns
+        print("No JOBID_TASKID.out files found. Checking for legacy/single files...")
+        return find_legacy_files(prefix, directory)
+
+    # Pick latest job
+    latest_job_id = max(job_groups.keys())
+    print(f"Found latest Job ID: {latest_job_id} with {len(job_groups[latest_job_id])} runs")
+    
+    runs = {}
+    for task_id, log_file in job_groups[latest_job_id]:
+        run_dir = os.path.join(directory, f"run_{task_id}")
+        if os.path.isdir(run_dir):
+            runs[task_id] = {'log': log_file, 'dir': run_dir}
+        else:
+            print(f"Warning: Run directory {run_dir} not found for task {task_id}")
+            # Still include it, maybe only log exists? But we need run dir for throughput
+            runs[task_id] = {'log': log_file, 'dir': None}
+            
+    return runs
+
+def find_legacy_files(prefix, directory):
+    """Fallback to original file finding logic for single runs."""
     out_files = glob.glob(os.path.join(directory, f"{prefix}_*.out"))
     err_files = glob.glob(os.path.join(directory, f"{prefix}_*.err"))
-    
     all_files = out_files + err_files
+    
     if all_files:
-        # Group by job ID
         job_files = defaultdict(list)
         for filepath in all_files:
             filename = os.path.basename(filepath)
-            # Extract job ID: prefix_12345.ext -> 12345
             match = re.search(rf"{prefix}_(\d+)\.(out|err)", filename)
             if match:
                 job_id = match.group(1)
                 job_files[job_id].append(filepath)
         
         if job_files:
-            # Find latest job by ID (assuming higher ID is newer)
             latest_job_id = max(job_files.keys(), key=lambda x: int(x))
-            print(f"Found latest {prefix.upper()} job ID: {latest_job_id}")
-            return job_files[latest_job_id]
+            return {1: {'log': job_files[latest_job_id][0], 'dir': directory}} # Treat as run 1
 
-    # 2. Fallback to legacy file
+    # Legacy zlogs
     legacy_filename = f"z{prefix}logs.txt"
-    # Check in project root and current directory
-    possible_paths = [
-        os.path.join(directory, legacy_filename),
-        os.path.join(os.getcwd(), legacy_filename),
-        legacy_filename
-    ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            print(f"Found legacy {prefix.upper()} log: {path}")
-            return [path]
-            
-    return []
-
-def parse_bitrate_log(filenames):
-    """Parse bitrate information from a list of log files."""
-    bitrate_data = []
-    
-    if isinstance(filenames, str):
-        filenames = [filenames]
+    path = os.path.join(directory, legacy_filename)
+    if os.path.exists(path):
+        return {1: {'log': path, 'dir': directory}}
         
-    for filename in filenames:
-        if not os.path.exists(filename):
-            continue
-            
-        with open(filename, 'r') as f:
-            for line in f:
-                # Match pattern: time Node: node newBitRate: bitrate ...
-                match = re.search(r'(\d+\.?\d*)\s+Node:\s+\d+\s+newBitRate:\s+(\d+)', line)
-                if match:
-                    time = float(match.group(1))
-                    bitrate = float(match.group(2))
-                    bitrate_data.append((time, bitrate))
+    return {}
+
+def parse_bitrate_log(filename):
+    """Parse bitrate information from a log file."""
+    bitrate_data = []
+    if not filename or not os.path.exists(filename):
+        return bitrate_data
+        
+    with open(filename, 'r') as f:
+        for line in f:
+            match = re.search(r'(\d+\.?\d*)\s+Node:\s+\d+\s+newBitRate:\s+(\d+)', line)
+            if match:
+                time = float(match.group(1))
+                bitrate = float(match.group(2))
+                bitrate_data.append((time, bitrate))
     
-    # Sort by time since we might be reading from multiple files out of order
     bitrate_data.sort(key=lambda x: x[0])
     return bitrate_data
 
-def parse_playback_log(filenames):
-    """Parse playback status and resolution from a list of log files."""
+def parse_playback_log(filename):
+    """Parse playback status and resolution from a log file."""
     playback_events = []
-    
-    if isinstance(filenames, str):
-        filenames = [filenames]
-    
-    # Read all lines from all files first to sort them by timestamp if possible,
-    # but since logs might be interleaved or split, we'll parse events and then sort.
-    
-    for filename in filenames:
-        if not os.path.exists(filename):
-            continue
-            
-        with open(filename, 'r') as f:
-            lines = f.readlines()
+    if not filename or not os.path.exists(filename):
+        return playback_events
         
-        current_resolution = None
-        resume_pending = False
-        
-        for line in lines:
-            # Match PLAYING FRAME lines: time PLAYING FRAME: ... Res: resolution ...
-            play_match = re.search(r'(\d+\.?\d*)\s+PLAYING FRAME:.*?Res:\s+(\d+)', line)
-            if play_match:
-                time = float(play_match.group(1))
-                resolution = float(play_match.group(2))
-                current_resolution = resolution
-                
-                # If there was a pending resume, use this time for it
-                if resume_pending:
-                    playback_events.append(('resumed', time, current_resolution))
-                    resume_pending = False
-                
-                playback_events.append(('playing', time, resolution))
-            
-            # Match "No frames to play" - interruption
-            interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', line)
-            if interrupt_match:
-                time = float(interrupt_match.group(1))
-                playback_events.append(('interrupted', time, current_resolution))
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    
+    current_resolution = None
+    resume_pending = False
+    
+    for line in lines:
+        play_match = re.search(r'(\d+\.?\d*)\s+PLAYING FRAME:.*?Res:\s+(\d+)', line)
+        if play_match:
+            time = float(play_match.group(1))
+            resolution = float(play_match.group(2))
+            current_resolution = resolution
+            if resume_pending:
+                playback_events.append(('resumed', time, current_resolution))
                 resume_pending = False
+            playback_events.append(('playing', time, resolution))
+        
+        interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', line)
+        if interrupt_match:
+            time = float(interrupt_match.group(1))
+            playback_events.append(('interrupted', time, current_resolution))
+            resume_pending = False
+        
+        resume_match = re.search(r'Play resumed', line)
+        if resume_match:
+            resume_pending = True
             
-            # Match "Play resumed" - resuming playback
-            # The actual time will be from the next PLAYING FRAME line
-            resume_match = re.search(r'Play resumed', line)
-            if resume_match:
-                resume_pending = True
-    
-    # Sort events by time
     playback_events.sort(key=lambda x: x[1])
-    
     return playback_events
 
 def calculate_playback_stats(playback_events):
@@ -140,50 +155,38 @@ def calculate_playback_stats(playback_events):
     if not playback_events:
         return 0.0, 0.0, [], []
     
-    # Sort events by time (should already be sorted, but safety first)
     sorted_events = sorted(playback_events, key=lambda x: x[1])
-    
     playback_time = 0.0
     interruption_time = 0.0
     playback_periods = []
     interruption_periods = []
     
-    state = None  # 'playing', 'interrupted', or None
+    state = None
     state_start_time = None
     
     for event_type, time, resolution in sorted_events:
         if event_type == 'playing':
             if state == 'interrupted' and state_start_time is not None:
-                # End of interruption period
                 interruption_time += time - state_start_time
                 interruption_periods.append((state_start_time, time))
-            
             if state != 'playing':
                 state_start_time = time
             state = 'playing'
-        
         elif event_type == 'interrupted':
             if state == 'playing' and state_start_time is not None:
-                # End of playback period
                 playback_time += time - state_start_time
                 playback_periods.append((state_start_time, time))
-            
             if state != 'interrupted':
                 state_start_time = time
             state = 'interrupted'
-        
         elif event_type == 'resumed':
             if state == 'interrupted' and state_start_time is not None:
-                # End of interruption period
                 interruption_time += time - state_start_time
                 interruption_periods.append((state_start_time, time))
-            
             state = 'playing'
             state_start_time = time
-    
-    # Handle final state
+            
     if state == 'playing' and state_start_time is not None:
-        # Assume playback continues until last event time
         last_time = sorted_events[-1][1]
         playback_time += last_time - state_start_time
         playback_periods.append((state_start_time, last_time))
@@ -191,388 +194,383 @@ def calculate_playback_stats(playback_events):
         last_time = sorted_events[-1][1]
         interruption_time += last_time - state_start_time
         interruption_periods.append((state_start_time, last_time))
-    
+        
     return playback_time, interruption_time, playback_periods, interruption_periods
 
-def create_playback_timeline(playback_events, time_range):
-    """Create timeline data for playback status with continuous periods."""
-    if not playback_events:
-        return []
-    
-    # Sort events by time
-    sorted_events = sorted(playback_events, key=lambda x: x[1])
-    
-    # Build periods: (start_time, end_time, status, resolution)
-    periods = []
-    current_status = None  # 'playing' or 'interrupted'
-    current_resolution = None
-    period_start = None
-    
-    for event_type, time, resolution in sorted_events:
-        if event_type == 'playing':
-            if current_status == 'interrupted' and period_start is not None:
-                # End interruption period
-                periods.append((period_start, time, 'interrupted', current_resolution))
-            
-            if current_status != 'playing':
-                period_start = time
-            current_status = 'playing'
-            current_resolution = resolution
-        
-        elif event_type == 'interrupted':
-            if current_status == 'playing' and period_start is not None:
-                # End playback period
-                periods.append((period_start, time, 'playing', current_resolution))
-            
-            if current_status != 'interrupted':
-                period_start = time
-            current_status = 'interrupted'
-        
-        elif event_type == 'resumed':
-            if current_status == 'interrupted' and period_start is not None:
-                # End interruption period
-                periods.append((period_start, time, 'interrupted', current_resolution))
-            
-            period_start = time
-            current_status = 'playing'
-    
-    # Handle final period
-    if period_start is not None and sorted_events:
-        last_time = sorted_events[-1][1]
-        periods.append((period_start, last_time, current_status, current_resolution))
-    
-    return periods
-
-def get_bitrate_for_period(bitrate_data, start_time, end_time):
-    """Get average bitrate for a time period."""
-    if not bitrate_data:
-        return None
-    
-    # Find bitrates within the period
-    period_bitrates = []
-    for time, bitrate in bitrate_data:
-        if start_time <= time <= end_time:
-            period_bitrates.append(bitrate)
-    
-    if period_bitrates:
-        return sum(period_bitrates) / len(period_bitrates)
-    return None
-
-def plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback):
-    """Create comparison plots."""
-    # Create 3-row layout: bitrate combined, QUIC playback full width, TCP playback full width
-    fig = plt.figure(figsize=(16, 12))
-    gs = gridspec.GridSpec(3, 1, height_ratios=[1, 1, 1], hspace=0.3)
-    fig.suptitle('Bitrate and Playback Status Comparison: QUIC vs TCP', fontsize=16, fontweight='bold')
-    
-    # Extract time ranges
-    all_times = []
-    if quic_bitrate:
-        all_times.extend([t for t, _ in quic_bitrate])
-    if tcp_bitrate:
-        all_times.extend([t for t, _ in tcp_bitrate])
-    if quic_playback:
-        all_times.extend([t for _, t, _ in quic_playback])
-    if tcp_playback:
-        all_times.extend([t for _, t, _ in tcp_playback])
-    
-    if not all_times:
-        print("No data found in log files!")
-        return fig
-    
-    time_min = min(all_times)
-    time_max = max(all_times)
-
-    # Extend bitrate data to end of timeline
-    if quic_bitrate and quic_bitrate[-1][0] < time_max:
-        quic_bitrate.append((time_max, quic_bitrate[-1][1]))
-
-    if tcp_bitrate and tcp_bitrate[-1][0] < time_max:
-        tcp_bitrate.append((time_max, tcp_bitrate[-1][1]))
-    
-    # Plot 1: Combined QUIC and TCP Bitrate
-    ax1 = fig.add_subplot(gs[0, 0])
-    has_data = False
-    if quic_bitrate:
-        quic_times, quic_bitrates = zip(*quic_bitrate)
-        ax1.plot(quic_times, [b/1e6 for b in quic_bitrates], 'b-', linewidth=2, label='QUIC')
-        has_data = True
-    if tcp_bitrate:
-        tcp_times, tcp_bitrates = zip(*tcp_bitrate)
-        ax1.plot(tcp_times, [b/1e6 for b in tcp_bitrates], 'r-', linewidth=2, label='TCP')
-        has_data = True
-    
-    if has_data:
-        ax1.set_xlabel('Time (s)', fontsize=12)
-        ax1.set_ylabel('Bitrate (Mbps)', fontsize=12)
-        ax1.set_title('Bitrate Over Time: QUIC vs TCP', fontsize=13, fontweight='bold')
-        ax1.grid(True, alpha=0.3)
-        ax1.legend()
-        ax1.set_xlim(time_min, time_max)
-    else:
-        ax1.text(0.5, 0.5, 'No bitrate data', ha='center', va='center', transform=ax1.transAxes)
-        ax1.set_xlabel('Time (s)', fontsize=12)
-        ax1.set_title('Bitrate Over Time: QUIC vs TCP', fontsize=13, fontweight='bold')
-    
-    # Plot 2: QUIC Playback Status (full width)
-    ax2 = fig.add_subplot(gs[1, 0])
-    if quic_playback:
-        quic_periods = create_playback_timeline(quic_playback, (time_min, time_max))
-        
-        if quic_periods:
-            # Collect all resolutions for normalization
-            all_resolutions = [res for _, _, _, res in quic_periods if res is not None and res > 0]
-            max_res = max(all_resolutions) if all_resolutions else 1
-            
-            # Plot periods
-            first_play = True
-            first_interrupt = True
-            for start_time, end_time, status, resolution in quic_periods:
-                if status == 'playing':
-                    # Plot as filled area for playing period
-                    label = 'Playing' if first_play else ''
-                    ax2.fill_between([start_time, end_time], [0, 0], [1, 1], 
-                                    alpha=0.6, color='green', label=label)
-                    first_play = False
-                else:  # interrupted
-                    label = 'Interrupted' if first_interrupt else ''
-                    ax2.fill_between([start_time, end_time], [0, 0], [1, 1], 
-                                    alpha=0.4, color='red', label=label)
-                    first_interrupt = False
-            
-            ax2.set_ylim(-0.1, 1.1)
-            ax2.set_xlabel('Time (s)', fontsize=12)
-            ax2.set_ylabel('Status', fontsize=12)
-            ax2.set_title('QUIC: Playback Status', fontsize=13, fontweight='bold')
-            ax2.grid(True, alpha=0.3)
-            ax2.set_xlim(time_min, time_max)
-            ax2.sharex(ax1)  # Share x-axis with top plot for alignment
-            ax2.tick_params(labelleft=False)  # Remove y-axis tick values
-            # Remove duplicate labels
-            handles, labels = ax2.get_legend_handles_labels()
-            by_label = dict(zip(labels, handles))
-            ax2.legend(by_label.values(), by_label.keys(), loc='upper right', fontsize=9)
-        else:
-            ax2.text(0.5, 0.5, 'No QUIC playback data', ha='center', va='center', transform=ax2.transAxes)
-            ax2.set_xlabel('Time (s)', fontsize=12)
-            ax2.set_title('QUIC: Playback Status', fontsize=13, fontweight='bold')
-            ax2.set_xlim(time_min, time_max)
-            ax2.sharex(ax1)
-            ax2.tick_params(labelleft=False)
-    else:
-        ax2.text(0.5, 0.5, 'No QUIC playback data', ha='center', va='center', transform=ax2.transAxes)
-        ax2.set_xlabel('Time (s)', fontsize=12)
-        ax2.set_title('QUIC: Playback Status', fontsize=13, fontweight='bold')
-        ax2.set_xlim(time_min, time_max)
-        ax2.sharex(ax1)
-        ax2.tick_params(labelleft=False)
-    
-    # Plot 3: TCP Playback Status (full width)
-    ax3 = fig.add_subplot(gs[2, 0])
-    if tcp_playback:
-        tcp_periods = create_playback_timeline(tcp_playback, (time_min, time_max))
-        
-        if tcp_periods:
-            # Collect all resolutions for normalization
-            all_resolutions = [res for _, _, _, res in tcp_periods if res is not None and res > 0]
-            max_res = max(all_resolutions) if all_resolutions else 1
-            
-            # Plot periods
-            first_play = True
-            first_interrupt = True
-            for start_time, end_time, status, resolution in tcp_periods:
-                if status == 'playing':
-                    # Plot as filled area for playing period
-                    label = 'Playing' if first_play else ''
-                    ax3.fill_between([start_time, end_time], [0, 0], [1, 1], 
-                                    alpha=0.6, color='green', label=label)
-                    first_play = False
-                else:  # interrupted
-                    label = 'Interrupted' if first_interrupt else ''
-                    ax3.fill_between([start_time, end_time], [0, 0], [1, 1], 
-                                    alpha=0.4, color='red', label=label)
-                    first_interrupt = False
-            
-            ax3.set_ylim(-0.1, 1.1)
-            ax3.set_xlabel('Time (s)', fontsize=12)
-            ax3.set_ylabel('Status', fontsize=12)
-            ax3.set_title('TCP: Playback Status', fontsize=13, fontweight='bold')
-            ax3.grid(True, alpha=0.3)
-            ax3.set_xlim(time_min, time_max)
-            ax3.sharex(ax1)  # Share x-axis with top plot for alignment
-            ax3.tick_params(labelleft=False)  # Remove y-axis tick values
-            # Remove duplicate labels
-            handles, labels = ax3.get_legend_handles_labels()
-            by_label = dict(zip(labels, handles))
-            ax3.legend(by_label.values(), by_label.keys(), loc='upper right', fontsize=9)
-        else:
-            ax3.text(0.5, 0.5, 'No TCP playback data', ha='center', va='center', transform=ax3.transAxes)
-            ax3.set_xlabel('Time (s)', fontsize=12)
-            ax3.set_title('TCP: Playback Status', fontsize=13, fontweight='bold')
-            ax3.set_xlim(time_min, time_max)
-            ax3.sharex(ax1)
-            ax3.tick_params(labelleft=False)
-    else:
-        ax3.text(0.5, 0.5, 'No TCP playback data', ha='center', va='center', transform=ax3.transAxes)
-        ax3.set_xlabel('Time (s)', fontsize=12)
-        ax3.set_title('TCP: Playback Status', fontsize=13, fontweight='bold')
-        ax3.set_xlim(time_min, time_max)
-        ax3.sharex(ax1)
-        ax3.tick_params(labelleft=False)
-    
-    plt.tight_layout()
-    return fig
-
-def parse_dash_throughput(filenames):
+def parse_dash_throughput(run_dir, prefix):
     """
-    Parse DashClientRx logs to calculate application layer throughput.
-    Returns a list of throughput values (in Mbps) for each file.
+    Parse DashClientRx logs in the run directory.
+    prefix: 'DashClientRx_UE_' or 'DashClientRx_TCP_UE_'
     """
     throughputs = []
-    
-    if isinstance(filenames, str):
-        filenames = [filenames]
+    if not run_dir:
+        return throughputs
         
-    for filename in filenames:
-        if not os.path.exists(filename):
-            continue
-            
+    files = glob.glob(os.path.join(run_dir, f"{prefix}*.txt"))
+    
+    for filename in files:
         try:
             with open(filename, 'r') as f:
                 lines = f.readlines()
-                
-            # Skip comments
             data_lines = [line for line in lines if not line.strip().startswith('#') and line.strip()]
+            if not data_lines: continue
             
-            if not data_lines:
-                continue
-                
-            # Parse first and last lines
-            # Format: Time(s) PacketSize(bytes) TotalPackets TotalBytes
+            first_parts = data_lines[0].split()
+            last_parts = data_lines[-1].split()
             
-            first_line_parts = data_lines[0].split()
-            last_line_parts = data_lines[-1].split()
+            if len(first_parts) < 4 or len(last_parts) < 4: continue
             
-            if len(first_line_parts) < 4 or len(last_line_parts) < 4:
-                continue
-                
-            start_time = float(first_line_parts[0])
-            end_time = float(last_line_parts[0])
-            
-            # Total bytes is in the last column of the last line
-            total_bytes = int(last_line_parts[3])
+            start_time = float(first_parts[0])
+            end_time = float(last_parts[0])
+            total_bytes = int(last_parts[3])
             
             duration = end_time - start_time
             if duration > 0:
-                # Calculate throughput in Mbps
-                # bits = bytes * 8
-                # Mbps = bits / duration / 1e6
                 throughput_mbps = (total_bytes * 8) / duration / 1e6
                 throughputs.append(throughput_mbps)
-                
-        except Exception as e:
-            print(f"Error parsing {filename}: {e}")
+        except Exception:
             continue
             
     return throughputs
 
-def main():
-    # File paths - determine script location and find log files
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)  # Go up one level from scripts/
-    
-    print(f"Searching for log files in: {project_root}")
-    
-    quic_files = find_log_files('quic', project_root)
-    tcp_files = find_log_files('tcp', project_root)
-    
-    # Find DashClient files
-    dash_quic_files = glob.glob(os.path.join(project_root, "DashClientRx_UE_*.txt"))
-    dash_tcp_files = glob.glob(os.path.join(project_root, "DashClientRx_TCP_UE_*.txt"))
-    
-    if not quic_files:
-        print("Warning: No QUIC log files found.")
-    else:
-        print(f"Using QUIC files: {quic_files}")
+def aggregate_bitrate(all_runs_bitrate, time_bin=1.0):
+    """
+    Aggregate bitrate data from multiple runs.
+    Returns (time_points, mean_bitrates, std_bitrates)
+    """
+    if not all_runs_bitrate:
+        return [], [], []
         
-    if not tcp_files:
-        print("Warning: No TCP log files found.")
-    else:
-        print(f"Using TCP files: {tcp_files}")
+    # Find global time range
+    min_time = float('inf')
+    max_time = float('-inf')
+    for run_data in all_runs_bitrate:
+        if run_data:
+            min_time = min(min_time, run_data[0][0])
+            max_time = max(max_time, run_data[-1][0])
+            
+    if min_time == float('inf'):
+        return [], [], []
         
-    if dash_quic_files:
-        print(f"Using Dash QUIC files: {dash_quic_files}")
-    else:
-        print("Warning: No Dash QUIC files found (DashClientRx_UE_*.txt)")
-        
-    if dash_tcp_files:
-        print(f"Using Dash TCP files: {dash_tcp_files}")
-    else:
-        print("Warning: No Dash TCP files found (DashClientRx_TCP_UE_*.txt)")
+    bins = np.arange(min_time, max_time + time_bin, time_bin)
+    bin_centers = bins[:-1] + time_bin/2
     
-    if not quic_files and not tcp_files and not dash_quic_files and not dash_tcp_files:
-        print("Error: No log files found.")
-        return
+    binned_values = defaultdict(list)
+    
+    for run_data in all_runs_bitrate:
+        # For each run, sample the bitrate at each bin
+        # Simple approach: take the last bitrate value before or within the bin
+        # Better approach: weighted average within bin?
+        # Let's use simple interpolation or "last known value"
+        
+        current_idx = 0
+        current_val = 0
+        
+        for i, bin_end in enumerate(bins[1:]):
+            # Find values in this bin
+            values_in_bin = []
+            while current_idx < len(run_data) and run_data[current_idx][0] <= bin_end:
+                current_val = run_data[current_idx][1]
+                values_in_bin.append(current_val)
+                current_idx += 1
+            
+            # If no value in bin, use last known value
+            val_to_use = current_val
+            if values_in_bin:
+                val_to_use = sum(values_in_bin) / len(values_in_bin) # Average within bin
+            
+            binned_values[i].append(val_to_use)
+            
+    mean_bitrates = []
+    std_bitrates = []
+    
+    for i in range(len(bin_centers)):
+        vals = binned_values[i]
+        if vals:
+            mean_bitrates.append(sum(vals) / len(vals))
+            std_bitrates.append(np.std(vals))
+        else:
+            mean_bitrates.append(0)
+            std_bitrates.append(0)
+            
+    return bin_centers, mean_bitrates, std_bitrates
 
-    print("\nParsing QUIC log files...")
-    quic_bitrate = parse_bitrate_log(quic_files)
-    quic_playback = parse_playback_log(quic_files)
+def plot_comparison(quic_stats, tcp_stats):
+    """Create comparison plots with multi-run support."""
+    fig = plt.figure(figsize=(16, 12))
+    gs = gridspec.GridSpec(3, 1, height_ratios=[1, 1, 1], hspace=0.3)
+    fig.suptitle('Bitrate and Playback Status Comparison (Averaged)', fontsize=16, fontweight='bold')
     
-    print("Parsing TCP log files...")
-    tcp_bitrate = parse_bitrate_log(tcp_files)
-    tcp_playback = parse_playback_log(tcp_files)
+    # Plot 1: Bitrate
+    ax1 = fig.add_subplot(gs[0, 0])
     
-    print(f"\nQUIC Statistics:")
-    print(f"  Bitrate entries: {len(quic_bitrate)}")
-    print(f"  Playback events: {len(quic_playback)}")
+    if quic_stats['bitrate_mean']:
+        times = quic_stats['bitrate_time']
+        means = [b/1e6 for b in quic_stats['bitrate_mean']]
+        stds = [b/1e6 for b in quic_stats['bitrate_std']]
+        ax1.plot(times, means, 'b-', linewidth=2, label=f"QUIC (Avg of {quic_stats['count']} runs)")
+        ax1.fill_between(times, 
+                        [m - s for m, s in zip(means, stds)],
+                        [m + s for m, s in zip(means, stds)],
+                        color='blue', alpha=0.2)
+
+    if tcp_stats['bitrate_mean']:
+        times = tcp_stats['bitrate_time']
+        means = [b/1e6 for b in tcp_stats['bitrate_mean']]
+        stds = [b/1e6 for b in tcp_stats['bitrate_std']]
+        ax1.plot(times, means, 'r-', linewidth=2, label=f"TCP (Avg of {tcp_stats['count']} runs)")
+        ax1.fill_between(times, 
+                        [m - s for m, s in zip(means, stds)],
+                        [m + s for m, s in zip(means, stds)],
+                        color='red', alpha=0.2)
+                        
+    ax1.set_xlabel('Time (s)', fontsize=12)
+    ax1.set_ylabel('Bitrate (Mbps)', fontsize=12)
+    ax1.set_title('Average Bitrate Over Time', fontsize=13, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
     
-    print(f"\nTCP Statistics:")
-    print(f"  Bitrate entries: {len(tcp_bitrate)}")
-    print(f"  Playback events: {len(tcp_playback)}")
+    # Plot 2 & 3: Playback Status (Representative or Aggregated?)
+    # Visualizing "average playback status" is hard.
+    # Instead, we can visualize the "Probability of Interruption" over time?
+    # Or just show one representative run?
+    # Let's show "Interruption Probability"
     
-    # Calculate playback statistics
-    quic_play_time, quic_inter_time, quic_play_periods, quic_inter_periods = calculate_playback_stats(quic_playback)
-    tcp_play_time, tcp_inter_time, tcp_play_periods, tcp_inter_periods = calculate_playback_stats(tcp_playback)
+    def calculate_interruption_prob(all_runs_playback, time_bin=1.0):
+        if not all_runs_playback: return [], []
+        
+        # Find range
+        max_time = 0
+        for run in all_runs_playback:
+            if run: max_time = max(max_time, run[-1][1])
+            
+        bins = np.arange(0, max_time + time_bin, time_bin)
+        bin_centers = bins[:-1] + time_bin/2
+        probs = []
+        
+        for i, bin_end in enumerate(bins[1:]):
+            bin_start = bins[i]
+            interrupted_count = 0
+            total_runs = 0
+            
+            for run in all_runs_playback:
+                if not run: continue
+                total_runs += 1
+                # Check if interrupted at any point in this bin
+                # Simplified: check status at bin_center
+                # Reconstruct state at bin_center
+                state = 'playing' # Default
+                # Find last event before bin_center
+                last_evt = None
+                for evt in run:
+                    if evt[1] <= bin_start + time_bin/2:
+                        last_evt = evt
+                    else:
+                        break
+                
+                if last_evt:
+                    if last_evt[0] == 'interrupted':
+                        state = 'interrupted'
+                    elif last_evt[0] == 'playing' or last_evt[0] == 'resumed':
+                        state = 'playing'
+                
+                if state == 'interrupted':
+                    interrupted_count += 1
+            
+            if total_runs > 0:
+                probs.append(interrupted_count / total_runs)
+            else:
+                probs.append(0)
+                
+        return bin_centers, probs
+
+    # QUIC Interruption Probability
+    ax2 = fig.add_subplot(gs[1, 0])
+    if quic_stats['playback_runs']:
+        q_times, q_probs = calculate_interruption_prob(quic_stats['playback_runs'])
+        ax2.plot(q_times, q_probs, 'b-', label='Interruption Probability')
+        ax2.fill_between(q_times, 0, q_probs, color='blue', alpha=0.3)
+        ax2.set_ylim(0, 1.1)
+        ax2.set_title('QUIC: Probability of Interruption', fontsize=13, fontweight='bold')
+    else:
+        ax2.text(0.5, 0.5, 'No QUIC data', ha='center')
+    ax2.set_ylabel('Probability', fontsize=12)
+    ax2.grid(True, alpha=0.3)
+
+    # TCP Interruption Probability
+    ax3 = fig.add_subplot(gs[2, 0])
+    if tcp_stats['playback_runs']:
+        t_times, t_probs = calculate_interruption_prob(tcp_stats['playback_runs'])
+        ax3.plot(t_times, t_probs, 'r-', label='Interruption Probability')
+        ax3.fill_between(t_times, 0, t_probs, color='red', alpha=0.3)
+        ax3.set_ylim(0, 1.1)
+        ax3.set_title('TCP: Probability of Interruption', fontsize=13, fontweight='bold')
+    else:
+        ax3.text(0.5, 0.5, 'No TCP data', ha='center')
+    ax3.set_ylabel('Probability', fontsize=12)
+    ax3.set_xlabel('Time (s)', fontsize=12)
+    ax3.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    return fig
+
+def process_runs(runs, protocol_name):
+    """Process all runs for a protocol and return aggregated stats."""
+    all_bitrates = []
+    all_playback = []
+    all_throughputs = []
     
-    # Calculate Dash throughput
-    quic_throughputs = parse_dash_throughput(dash_quic_files)
-    tcp_throughputs = parse_dash_throughput(dash_tcp_files)
+    total_play_time = []
+    total_inter_time = []
     
-    quic_avg_throughput = sum(quic_throughputs) / len(quic_throughputs) if quic_throughputs else 0.0
-    tcp_avg_throughput = sum(tcp_throughputs) / len(tcp_throughputs) if tcp_throughputs else 0.0
+    print(f"Processing {len(runs)} {protocol_name} runs...")
     
+    for task_id, paths in runs.items():
+        # Bitrate & Playback from stdout log
+        bitrate = parse_bitrate_log(paths['log'])
+        playback = parse_playback_log(paths['log'])
+        
+        all_bitrates.append(bitrate)
+        all_playback.append(playback)
+        
+        # Throughput from DashClientRx files in run dir
+        if paths['dir']:
+            prefix = "DashClientRx_UE_" if protocol_name == 'QUIC' else "DashClientRx_TCP_UE_"
+            tp = parse_dash_throughput(paths['dir'], prefix)
+            all_throughputs.extend(tp)
+            
+        # Stats
+        pt, it, _, _ = calculate_playback_stats(playback)
+        total_play_time.append(pt)
+        total_inter_time.append(it)
+        
+    # Aggregate Bitrate
+    b_time, b_mean, b_std = aggregate_bitrate(all_bitrates)
+    
+    return {
+        'count': len(runs),
+        'bitrate_time': b_time,
+        'bitrate_mean': b_mean,
+        'bitrate_std': b_std,
+        'playback_runs': all_playback,
+        'throughputs': all_throughputs,
+        'play_times': total_play_time,
+        'inter_times': total_inter_time
+    }
+
+def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    
+    print(f"Searching for runs in: {project_root}")
+    
+    # Find runs
+    # Note: The user might have different job IDs for QUIC and TCP if run separately
+    # But usually we compare two different sets of runs.
+    # The script assumes we want to find *some* QUIC runs and *some* TCP runs.
+    
+    quic_runs = find_job_runs('quic', project_root) # Looks for slurm-*.out
+    # If we can't distinguish QUIC vs TCP by filename (since both are slurm-*.out),
+    # we might need to check content or rely on user arguments.
+    # For now, let's assume the user runs them separately and we might pick up the same job for both if not careful?
+    # Wait, if I run `sbatch quic_job.slurm`, output is `slurm-123.out`.
+    # If I run `sbatch tcp_job.slurm`, output is `slurm-124.out`.
+    # `find_job_runs` picks the *latest* job.
+    # If I ran QUIC last, it finds QUIC. If I ran TCP last, it finds TCP.
+    # This is a limitation.
+    # HACK: Check the content of the log file to determine protocol?
+    # Or check if `run_N/DashClientRx_UE_*.txt` (QUIC) or `DashClientRx_TCP_UE_*.txt` (TCP) exists.
+    
+    # Let's refine `find_job_runs` usage.
+    # We'll get ALL job files, then classify them.
+    
+    all_out_files = glob.glob(os.path.join(project_root, "*.out"))
+    job_groups = defaultdict(list)
+    for f in all_out_files:
+        # Match NAME-JOBID_TASKID.out
+        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", os.path.basename(f))
+        if match:
+            job_groups[int(match.group(1))].append((int(match.group(2)), f))
+            
+    # Classify jobs
+    quic_job_runs = {}
+    tcp_job_runs = {}
+    
+    sorted_jobs = sorted(job_groups.keys(), reverse=True)
+    
+    for job_id in sorted_jobs:
+        # Check first task to guess protocol
+        task_id, log_file = job_groups[job_id][0]
+        run_dir = os.path.join(project_root, f"run_{task_id}")
+        
+        is_quic = False
+        is_tcp = False
+        
+        # Check filename first (e.g. quic-123_1.out)
+        filename = os.path.basename(log_file)
+        if "quic" in filename.lower():
+            is_quic = True
+        elif "tcp" in filename.lower():
+            is_tcp = True
+        
+        # Check run dir content if filename ambiguous
+        if not is_quic and not is_tcp and os.path.isdir(run_dir):
+            if glob.glob(os.path.join(run_dir, "DashClientRx_UE_*.txt")):
+                is_quic = True
+            elif glob.glob(os.path.join(run_dir, "DashClientRx_TCP_UE_*.txt")):
+                is_tcp = True
+        
+        # If run dir empty/missing, check log content
+        if not is_quic and not is_tcp:
+            try:
+                with open(log_file, 'r') as f:
+                    content = f.read(1000) # Read first 1KB
+                    if "Quic" in content or "QUIC" in content:
+                        is_quic = True
+                    elif "Tcp" in content or "TCP" in content:
+                        is_tcp = True
+            except: pass
+            
+        if is_quic and not quic_job_runs:
+            print(f"Identified Job {job_id} as QUIC")
+            for t, l in job_groups[job_id]:
+                quic_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+        elif is_tcp and not tcp_job_runs:
+            print(f"Identified Job {job_id} as TCP")
+            for t, l in job_groups[job_id]:
+                tcp_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+                
+        if quic_job_runs and tcp_job_runs:
+            break
+            
+    # Process
+    quic_stats = process_runs(quic_job_runs, 'QUIC')
+    tcp_stats = process_runs(tcp_job_runs, 'TCP')
+    
+    # Print Summary
     print(f"\n{'='*60}")
-    print(f"QUIC Playback Statistics:")
-    print(f"  Total Playback Time: {quic_play_time:.2f} seconds")
-    print(f"  Total Interruption Time: {quic_inter_time:.2f} seconds")
-    print(f"  Number of Playback Periods: {len(quic_play_periods)}")
-    print(f"  Number of Interruption Periods: {len(quic_inter_periods)}")
-    if quic_throughputs:
-        print(f"  Avg Application Throughput: {quic_avg_throughput:.4f} Mbps (over {len(quic_throughputs)} UEs)")
-    else:
-        print(f"  Avg Application Throughput: N/A")
+    print("SUMMARY STATISTICS")
+    print(f"{'='*60}")
     
-    print(f"\nTCP Playback Statistics:")
-    print(f"  Total Playback Time: {tcp_play_time:.2f} seconds")
-    print(f"  Total Interruption Time: {tcp_inter_time:.2f} seconds")
-    print(f"  Number of Playback Periods: {len(tcp_play_periods)}")
-    print(f"  Number of Interruption Periods: {len(tcp_inter_periods)}")
-    if tcp_throughputs:
-        print(f"  Avg Application Throughput: {tcp_avg_throughput:.4f} Mbps (over {len(tcp_throughputs)} UEs)")
-    else:
-        print(f"  Avg Application Throughput: N/A")
-    print(f"{'='*60}\n")
-    
-    # Create plots
-    print("Generating plots...")
-    fig = plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback)
-    
-    # Save figure
+    for proto, stats in [('QUIC', quic_stats), ('TCP', tcp_stats)]:
+        print(f"\n{proto} ({stats['count']} runs):")
+        if stats['count'] > 0:
+            avg_play = sum(stats['play_times']) / stats['count']
+            avg_inter = sum(stats['inter_times']) / stats['count']
+            avg_tp = sum(stats['throughputs']) / len(stats['throughputs']) if stats['throughputs'] else 0
+            
+            print(f"  Avg Playback Time: {avg_play:.2f} s")
+            print(f"  Avg Interruption Time: {avg_inter:.2f} s")
+            print(f"  Avg Throughput: {avg_tp:.4f} Mbps")
+        else:
+            print("  No data found.")
+            
+    # Plot
+    print("\nGenerating plots...")
+    fig = plot_comparison(quic_stats, tcp_stats)
     output_file = 'bitrate_playback_comparison.png'
     fig.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
-    
-    # plt.show() # Commented out for headless environments
 
 if __name__ == '__main__':
     main()

@@ -283,12 +283,7 @@ def plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback):
     time_min = min(all_times)
     time_max = max(all_times)
 
-    # Extend bitrate data to end of timeline
-    if quic_bitrate and quic_bitrate[-1][0] < time_max:
-        quic_bitrate.append((time_max, quic_bitrate[-1][1]))
 
-    if tcp_bitrate and tcp_bitrate[-1][0] < time_max:
-        tcp_bitrate.append((time_max, tcp_bitrate[-1][1]))
     
     # Plot 1: Combined QUIC and TCP Bitrate
     ax1 = fig.add_subplot(gs[0, 0])

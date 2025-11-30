@@ -308,7 +308,7 @@ def plot_comparison(quic_stats, tcp_stats):
         times = quic_stats['bitrate_time']
         means = [b/1e6 for b in quic_stats['bitrate_mean']]
         stds = [b/1e6 for b in quic_stats['bitrate_std']]
-        ax1.plot(times, means, 'b-', linewidth=2, label=f"QUIC (Avg of {quic_stats['count']} runs)")
+        ax1.plot(times, means, 'r-', linewidth=2, label=f"QUIC (Avg of {quic_stats['count']} runs)")
         ax1.fill_between(times, 
                         [m - s for m, s in zip(means, stds)],
                         [m + s for m, s in zip(means, stds)],
@@ -318,7 +318,7 @@ def plot_comparison(quic_stats, tcp_stats):
         times = tcp_stats['bitrate_time']
         means = [b/1e6 for b in tcp_stats['bitrate_mean']]
         stds = [b/1e6 for b in tcp_stats['bitrate_std']]
-        ax1.plot(times, means, 'r-', linewidth=2, label=f"TCP (Avg of {tcp_stats['count']} runs)")
+        ax1.plot(times, means, 'b-', linewidth=2, label=f"TCP (Avg of {tcp_stats['count']} runs)")
         ax1.fill_between(times, 
                         [m - s for m, s in zip(means, stds)],
                         [m + s for m, s in zip(means, stds)],

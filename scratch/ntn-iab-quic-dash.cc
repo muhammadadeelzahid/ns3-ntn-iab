@@ -759,7 +759,9 @@ main (int argc, char *argv[])
   // ============================================================================
   
   // QUIC Congestion Control Configuration
-  Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
+  // QUIC Congestion Control Configuration
+  // Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
+  Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(QuicBbr::GetTypeId())); // Use BBR
   Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(false));
   
   // Reduce initial slow start threshold to enter congestion avoidance sooner

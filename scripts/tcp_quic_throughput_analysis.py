@@ -292,6 +292,25 @@ def main():
     if not results:
         print("No results to plot.")
         return
+    
+    # Create plots with all protocols on the same graphs
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
+    
+    # Color and marker mapping for each protocol
+    protocol_styles = {
+        'TCP': {'color': 'blue', 'marker': 'o', 'label': 'TCP'},
+        'QUIC': {'color': 'red', 'marker': 's', 'label': 'QUIC'}
+    }
+    
+    # Plot data rate
+    for data in protocol_data:
+        if data['server_time'] and data['data_rates']:
+            style = protocol_styles.get(data['protocol'], {'color': 'blue', 'marker': 'o'})
+            ax1.plot(data['server_time'], data['data_rates'], 
+                    f"{style['marker']}-", color=style['color'], linewidth=2, markersize=4,
+                    label=style['label'])
+    ax1.set_ylabel('Data Rate (Mbps)', fontsize=12)
+    ax1.set_title('Data Rate', fontsize=14, pad=8)
 
     # Plot
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12))
@@ -323,11 +342,37 @@ def main():
     ax1.set_title('Average Data Rate')
     ax1.legend()
     ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='upper right')
+    ax1.tick_params(axis='x', labelsize=10)
+    
+    # Plot congestion window
+    for data in protocol_data:
+        if data['client_time'] and data['cwnd_values']:
+            style = protocol_styles.get(data['protocol'], {'color': 'blue', 'marker': 'o'})
+            ax2.plot(data['client_time'], data['cwnd_values'], 
+                    f"{style['marker']}-", color=style['color'], linewidth=2, markersize=4,
+                    label=style['label'])
+    ax2.set_ylabel('Congestion Window (bytes)', fontsize=12)
+    ax2.set_title('Congestion Window', fontsize=14, pad=8)
+    ax2.set_ylim(0, 1e6)
     
     ax2.set_ylabel('CWND (bytes)')
     ax2.set_title('Average Congestion Window')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
+    ax2.legend(loc='upper right')
+    # ax2.tick_params(axis='x', labelsize=10) # Handled by sharex
+    
+    # Plot RTT
+    for data in protocol_data:
+        if data['rtt_time'] and data['rtt_values']:
+            style = protocol_styles.get(data['protocol'], {'color': 'blue', 'marker': 'o'})
+            ax3.plot(data['rtt_time'], data['rtt_values'], 
+                    f"{style['marker']}-", color=style['color'], linewidth=2, markersize=4,
+                    label=style['label'])
+    ax3.set_xlabel('Time (seconds)', fontsize=12, labelpad=10)
+    ax3.set_ylabel('RTT (seconds)', fontsize=12)
+    ax3.set_title('Round Trip Time', fontsize=14, pad=8)
     
     ax3.set_ylabel('RTT (s)')
     ax3.set_xlabel('Time (s)')

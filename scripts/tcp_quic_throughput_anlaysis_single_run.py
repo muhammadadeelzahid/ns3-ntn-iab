@@ -156,7 +156,7 @@ def calculate_cwnd_over_time(df, time_interval=0.5):
         if not interval_data.empty:
             # Use the last congestion window value in this interval
             last_cwnd = interval_data['new_cwnd'].iloc[-1]
-            cwnd_values.append(last_cwnd)
+            cwnd_values.append((last_cwnd)/1e6)
             time_points.append(start_time + time_interval/2)  # Center of interval
     
     return time_points, cwnd_values
@@ -446,7 +446,7 @@ def main():
         return
     
     # Create plots with all protocols on the same graphs
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12))
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
     
     # Color and marker mapping for each protocol
     protocol_styles = {
@@ -465,7 +465,8 @@ def main():
     ax1.set_title('Data Rate', fontsize=14, pad=8)
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc='upper right')
-    ax1.tick_params(axis='x', labelsize=10)
+    ax1.tick_params(axis='x', labelsize=10, labelbottom=True)
+    ax1.set_xlabel('Time (seconds)', fontsize=12)
     
     # Plot congestion window
     for data in protocol_data:
@@ -474,11 +475,12 @@ def main():
             ax2.plot(data['client_time'], data['cwnd_values'], 
                     f"{style['marker']}-", color=style['color'], linewidth=2, markersize=4,
                     label=style['label'])
-    ax2.set_ylabel('Congestion Window (bytes)', fontsize=12)
+    ax2.set_ylabel('Congestion Window (Mb)', fontsize=12)
     ax2.set_title('Congestion Window', fontsize=14, pad=8)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc='upper right')
-    ax2.tick_params(axis='x', labelsize=10)
+    ax2.tick_params(axis='x', labelsize=10, labelbottom=True)
+    ax2.set_xlabel('Time (seconds)', fontsize=12)
     
     # Plot RTT
     for data in protocol_data:

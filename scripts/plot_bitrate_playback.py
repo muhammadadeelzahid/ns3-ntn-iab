@@ -295,11 +295,11 @@ def plot_comparison(quic_bitrate, tcp_bitrate, quic_playback, tcp_playback):
     has_data = False
     if quic_bitrate:
         quic_times, quic_bitrates = zip(*quic_bitrate)
-        ax1.plot(quic_times, [b/1e6 for b in quic_bitrates], 'b-', linewidth=2, label='QUIC')
+        ax1.plot(quic_times, [b/1e6 for b in quic_bitrates], 'r-', linewidth=2, label='QUIC')
         has_data = True
     if tcp_bitrate:
         tcp_times, tcp_bitrates = zip(*tcp_bitrate)
-        ax1.plot(tcp_times, [b/1e6 for b in tcp_bitrates], 'r-', linewidth=2, label='TCP')
+        ax1.plot(tcp_times, [b/1e6 for b in tcp_bitrates], 'b-', linewidth=2, label='TCP')
         has_data = True
     
     if has_data:

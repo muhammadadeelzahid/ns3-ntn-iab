@@ -469,79 +469,88 @@ def main():
     # But usually we compare two different sets of runs.
     # The script assumes we want to find *some* QUIC runs and *some* TCP runs.
     
-    quic_runs = find_job_runs('quic', project_root) # Looks for slurm-*.out
-    # If we can't distinguish QUIC vs TCP by filename (since both are slurm-*.out),
-    # we might need to check content or rely on user arguments.
-    # For now, let's assume the user runs them separately and we might pick up the same job for both if not careful?
-    # Wait, if I run `sbatch quic_job.slurm`, output is `slurm-123.out`.
-    # If I run `sbatch tcp_job.slurm`, output is `slurm-124.out`.
-    # `find_job_runs` picks the *latest* job.
-    # If I ran QUIC last, it finds QUIC. If I ran TCP last, it finds TCP.
-    # This is a limitation.
-    # HACK: Check the content of the log file to determine protocol?
-    # Or check if `run_N/DashClientRx_UE_*.txt` (QUIC) or `DashClientRx_TCP_UE_*.txt` (TCP) exists.
+    # Find runs
+    # We want to support both:
+    # 1. Job arrays (slurm-JOBID_TASKID.out or quic-JOBID_TASKID.out)
+    # 2. Single runs (legacy behavior, e.g. quic_1.out or just logs in current dir)
     
-    # Let's refine `find_job_runs` usage.
-    # We'll get ALL job files, then classify them.
-    
+    # We'll search for all .out files and try to classify them
     all_out_files = glob.glob(os.path.join(project_root, "*.out"))
+    
+    # Group by Job ID if possible
     job_groups = defaultdict(list)
+    single_files = []
+    
     for f in all_out_files:
+        filename = os.path.basename(f)
         # Match NAME-JOBID_TASKID.out
-        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", os.path.basename(f))
+        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", filename)
         if match:
             job_groups[int(match.group(1))].append((int(match.group(2)), f))
+        else:
+            single_files.append(f)
             
-    # Classify jobs
     quic_job_runs = {}
     tcp_job_runs = {}
     
-    sorted_jobs = sorted(job_groups.keys(), reverse=True)
-    
-    for job_id in sorted_jobs:
-        # Check first task to guess protocol
-        task_id, log_file = job_groups[job_id][0]
-        run_dir = os.path.join(project_root, f"run_{task_id}")
-        
-        is_quic = False
-        is_tcp = False
-        
-        # Check filename first (e.g. quic-123_1.out)
-        filename = os.path.basename(log_file)
-        if "quic" in filename.lower():
-            is_quic = True
-        elif "tcp" in filename.lower():
-            is_tcp = True
-        
-        # Check run dir content if filename ambiguous
-        if not is_quic and not is_tcp and os.path.isdir(run_dir):
-            if glob.glob(os.path.join(run_dir, "DashClientRx_UE_*.txt")):
-                is_quic = True
-            elif glob.glob(os.path.join(run_dir, "DashClientRx_TCP_UE_*.txt")):
-                is_tcp = True
-        
-        # If run dir empty/missing, check log content
-        if not is_quic and not is_tcp:
-            try:
-                with open(log_file, 'r') as f:
-                    content = f.read(1000) # Read first 1KB
-                    if "Quic" in content or "QUIC" in content:
-                        is_quic = True
-                    elif "Tcp" in content or "TCP" in content:
-                        is_tcp = True
-            except: pass
+    # 1. Process Job Arrays
+    if job_groups:
+        sorted_jobs = sorted(job_groups.keys(), reverse=True)
+        for job_id in sorted_jobs:
+            # Check first task to guess protocol
+            task_id, log_file = job_groups[job_id][0]
+            run_dir = os.path.join(project_root, f"run_{task_id}")
             
-        if is_quic and not quic_job_runs:
-            print(f"Identified Job {job_id} as QUIC")
-            for t, l in job_groups[job_id]:
-                quic_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
-        elif is_tcp and not tcp_job_runs:
-            print(f"Identified Job {job_id} as TCP")
-            for t, l in job_groups[job_id]:
-                tcp_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+            is_quic = False
+            is_tcp = False
+            
+            filename = os.path.basename(log_file)
+            if "quic" in filename.lower(): is_quic = True
+            elif "tcp" in filename.lower(): is_tcp = True
+            
+            if not is_quic and not is_tcp and os.path.isdir(run_dir):
+                if glob.glob(os.path.join(run_dir, "DashClientRx_UE_*.txt")): is_quic = True
+                elif glob.glob(os.path.join(run_dir, "DashClientRx_TCP_UE_*.txt")): is_tcp = True
                 
-        if quic_job_runs and tcp_job_runs:
-            break
+            if not is_quic and not is_tcp:
+                try:
+                    with open(log_file, 'r') as f:
+                        content = f.read(1000)
+                        if "Quic" in content or "QUIC" in content: is_quic = True
+                        elif "Tcp" in content or "TCP" in content: is_tcp = True
+                except: pass
+                
+            if is_quic and not quic_job_runs:
+                print(f"Identified Job {job_id} as QUIC (Job Array)")
+                for t, l in job_groups[job_id]:
+                    quic_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+            elif is_tcp and not tcp_job_runs:
+                print(f"Identified Job {job_id} as TCP (Job Array)")
+                for t, l in job_groups[job_id]:
+                    tcp_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+
+    # 2. Process Single Files (Fallback if no job array found for a protocol)
+    if not quic_job_runs:
+        # Look for quic*.out or similar in single_files
+        for f in single_files:
+            if "quic" in os.path.basename(f).lower():
+                print(f"Found single QUIC run: {os.path.basename(f)}")
+                quic_job_runs[1] = {'log': f, 'dir': project_root}
+                break
+        # Also check for DashClientRx_UE_*.txt in project root
+        if not quic_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_UE_*.txt")):
+             print("Found QUIC traces in project root")
+             quic_job_runs[1] = {'log': None, 'dir': project_root}
+
+    if not tcp_job_runs:
+        for f in single_files:
+            if "tcp" in os.path.basename(f).lower():
+                print(f"Found single TCP run: {os.path.basename(f)}")
+                tcp_job_runs[1] = {'log': f, 'dir': project_root}
+                break
+        if not tcp_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_TCP_UE_*.txt")):
+             print("Found TCP traces in project root")
+             tcp_job_runs[1] = {'log': None, 'dir': project_root}
             
     # Process
     quic_stats = process_runs(quic_job_runs, 'QUIC')

@@ -41,4 +41,4 @@ build/
 /.cproject
 /.project
 .vscode
-!VERSION.txt
+VERSION

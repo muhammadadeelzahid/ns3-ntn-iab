@@ -295,114 +295,114 @@ def aggregate_bitrate(all_runs_bitrate, time_bin=1.0):
             
     return bin_centers, mean_bitrates, std_bitrates
 
-def plot_comparison(quic_stats, tcp_stats):
+def calculate_interruption_prob(all_runs_playback, time_bin=1.0):
+    if not all_runs_playback: return [], []
+    
+    # Find range
+    max_time = 0
+    for run in all_runs_playback:
+        if run: max_time = max(max_time, run[-1][1])
+        
+    bins = np.arange(0, max_time + time_bin, time_bin)
+    bin_centers = bins[:-1] + time_bin/2
+    probs = []
+    
+    for i, bin_end in enumerate(bins[1:]):
+        bin_start = bins[i]
+        interrupted_count = 0
+        total_runs = 0
+        
+        for run in all_runs_playback:
+            if not run: continue
+            total_runs += 1
+            # Check if interrupted at any point in this bin
+            # Simplified: check status at bin_center
+            # Reconstruct state at bin_center
+            state = 'playing' # Default
+            # Find last event before bin_center
+            last_evt = None
+            for evt in run:
+                if evt[1] <= bin_start + time_bin/2:
+                    last_evt = evt
+                else:
+                    break
+            
+            if last_evt:
+                if last_evt[0] == 'interrupted':
+                    state = 'interrupted'
+                elif last_evt[0] == 'playing' or last_evt[0] == 'resumed':
+                    state = 'playing'
+            
+            if state == 'interrupted':
+                interrupted_count += 1
+        
+        if total_runs > 0:
+            probs.append(interrupted_count / total_runs)
+        else:
+            probs.append(0)
+            
+    return bin_centers, probs
+
+def plot_comparison(quic_stats, tcp_stats, clean=False):
     """Create comparison plots with multi-run support."""
     fig = plt.figure(figsize=(16, 12))
-    gs = gridspec.GridSpec(3, 1, height_ratios=[1, 1, 1], hspace=0.3)
-    fig.suptitle('Bitrate and Playback Status Comparison (Averaged)', fontsize=16, fontweight='bold')
+    # Use sharex=True via subplots instead of GridSpec for easier shared axis handling
+    # But GridSpec allows custom height ratios. Let's stick to subplots with sharex for common axis requirement.
+    # The user wants "each axis has its numbering", so we need to enable tick labels.
+    
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 12), sharex=True, gridspec_kw={'height_ratios': [1, 1, 1]})
+    fig.suptitle('Bitrate and Playback Status Comparison' + (' (Clean)' if clean else ' (Averaged)'), fontsize=16, fontweight='bold')
     
     # Plot 1: Bitrate
-    ax1 = fig.add_subplot(gs[0, 0])
-    
     if quic_stats['bitrate_mean']:
         times = quic_stats['bitrate_time']
         means = [b/1e6 for b in quic_stats['bitrate_mean']]
         stds = [b/1e6 for b in quic_stats['bitrate_std']]
         ax1.plot(times, means, 'r-', linewidth=2, label=f"QUIC (Avg of {quic_stats['count']} runs)")
-        ax1.fill_between(times, 
-                        [m - s for m, s in zip(means, stds)],
-                        [m + s for m, s in zip(means, stds)],
-                        color='blue', alpha=0.2)
+        if not clean:
+            ax1.fill_between(times, 
+                            [m - s for m, s in zip(means, stds)],
+                            [m + s for m, s in zip(means, stds)],
+                            color='blue', alpha=0.2)
 
     if tcp_stats['bitrate_mean']:
         times = tcp_stats['bitrate_time']
         means = [b/1e6 for b in tcp_stats['bitrate_mean']]
         stds = [b/1e6 for b in tcp_stats['bitrate_std']]
         ax1.plot(times, means, 'b-', linewidth=2, label=f"TCP (Avg of {tcp_stats['count']} runs)")
-        ax1.fill_between(times, 
-                        [m - s for m, s in zip(means, stds)],
-                        [m + s for m, s in zip(means, stds)],
-                        color='red', alpha=0.2)
+        if not clean:
+            ax1.fill_between(times, 
+                            [m - s for m, s in zip(means, stds)],
+                            [m + s for m, s in zip(means, stds)],
+                            color='red', alpha=0.2)
                         
-    ax1.set_xlabel('Time (s)', fontsize=12)
     ax1.set_ylabel('Bitrate (Mbps)', fontsize=12)
     ax1.set_title('Average Bitrate Over Time', fontsize=13, fontweight='bold')
     ax1.grid(True, alpha=0.3)
     ax1.legend()
+    # Ensure x-axis labels are visible
+    ax1.tick_params(labelbottom=True)
     
-    # Plot 2 & 3: Playback Status (Representative or Aggregated?)
-    # Visualizing "average playback status" is hard.
-    # Instead, we can visualize the "Probability of Interruption" over time?
-    # Or just show one representative run?
-    # Let's show "Interruption Probability"
-    
-    def calculate_interruption_prob(all_runs_playback, time_bin=1.0):
-        if not all_runs_playback: return [], []
-        
-        # Find range
-        max_time = 0
-        for run in all_runs_playback:
-            if run: max_time = max(max_time, run[-1][1])
-            
-        bins = np.arange(0, max_time + time_bin, time_bin)
-        bin_centers = bins[:-1] + time_bin/2
-        probs = []
-        
-        for i, bin_end in enumerate(bins[1:]):
-            bin_start = bins[i]
-            interrupted_count = 0
-            total_runs = 0
-            
-            for run in all_runs_playback:
-                if not run: continue
-                total_runs += 1
-                # Check if interrupted at any point in this bin
-                # Simplified: check status at bin_center
-                # Reconstruct state at bin_center
-                state = 'playing' # Default
-                # Find last event before bin_center
-                last_evt = None
-                for evt in run:
-                    if evt[1] <= bin_start + time_bin/2:
-                        last_evt = evt
-                    else:
-                        break
-                
-                if last_evt:
-                    if last_evt[0] == 'interrupted':
-                        state = 'interrupted'
-                    elif last_evt[0] == 'playing' or last_evt[0] == 'resumed':
-                        state = 'playing'
-                
-                if state == 'interrupted':
-                    interrupted_count += 1
-            
-            if total_runs > 0:
-                probs.append(interrupted_count / total_runs)
-            else:
-                probs.append(0)
-                
-        return bin_centers, probs
-
-    # QUIC Interruption Probability
-    ax2 = fig.add_subplot(gs[1, 0])
+    # Plot 2: QUIC Interruption Probability
     if quic_stats['playback_runs']:
         q_times, q_probs = calculate_interruption_prob(quic_stats['playback_runs'])
         ax2.plot(q_times, q_probs, 'b-', label='Interruption Probability')
-        ax2.fill_between(q_times, 0, q_probs, color='blue', alpha=0.3)
+        if not clean:
+            ax2.fill_between(q_times, 0, q_probs, color='blue', alpha=0.3)
         ax2.set_ylim(0, 1.1)
         ax2.set_title('QUIC: Probability of Interruption', fontsize=13, fontweight='bold')
     else:
         ax2.text(0.5, 0.5, 'No QUIC data', ha='center')
     ax2.set_ylabel('Probability', fontsize=12)
     ax2.grid(True, alpha=0.3)
+    ax2.tick_params(labelbottom=True)
 
-    # TCP Interruption Probability
-    ax3 = fig.add_subplot(gs[2, 0])
+    # Plot 3: TCP Interruption Probability
     if tcp_stats['playback_runs']:
         t_times, t_probs = calculate_interruption_prob(tcp_stats['playback_runs'])
         ax3.plot(t_times, t_probs, 'r-', label='Interruption Probability')
-        ax3.fill_between(t_times, 0, t_probs, color='red', alpha=0.3)
+        if not clean:
+            ax3.fill_between(t_times, 0, t_probs, color='red', alpha=0.3)
         ax3.set_ylim(0, 1.1)
         ax3.set_title('TCP: Probability of Interruption', fontsize=13, fontweight='bold')
     else:
@@ -410,6 +410,7 @@ def plot_comparison(quic_stats, tcp_stats):
     ax3.set_ylabel('Probability', fontsize=12)
     ax3.set_xlabel('Time (s)', fontsize=12)
     ax3.grid(True, alpha=0.3)
+    ax3.tick_params(labelbottom=True)
 
     plt.tight_layout()
     return fig
@@ -576,10 +577,18 @@ def main():
             
     # Plot
     print("\nGenerating plots...")
-    fig = plot_comparison(quic_stats, tcp_stats)
+    # Plot Standard
+    print("\nGenerating plots...")
+    fig = plot_comparison(quic_stats, tcp_stats, clean=False)
     output_file = 'bitrate_playback_comparison.png'
     fig.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
+    
+    # Plot Clean
+    fig_clean = plot_comparison(quic_stats, tcp_stats, clean=True)
+    output_file_clean = 'bitrate_playback_comparison_clean.png'
+    fig_clean.savefig(output_file_clean, dpi=300, bbox_inches='tight')
+    print(f"Clean plot saved to: {output_file_clean}")
 
 if __name__ == '__main__':
     main()

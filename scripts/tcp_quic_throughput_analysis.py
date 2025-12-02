@@ -293,57 +293,70 @@ def main():
         print("No results to plot.")
         return
     
-    # Create plots with all protocols on the same graphs
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
-    
-    styles = {'TCP': {'color': 'blue', 'marker': 'o'}, 'QUIC': {'color': 'red', 'marker': 's'}}
-    
-    for proto, res in results.items():
-        style = styles.get(proto, {'color': 'black', 'marker': 'x'})
-        lbl = f"{proto} (Avg {res['count']} runs)"
+    # Plotting function
+    def create_plot(clean=False):
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
         
-        # Rate
-        t, m, s = res['rate']
-        if t:
-            ax1.plot(t, m, color=style['color'], label=lbl, linewidth=2)
-            if res['count'] > 1:
-                ax1.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
+        styles = {'TCP': {'color': 'blue', 'marker': 'o'}, 'QUIC': {'color': 'red', 'marker': 's'}}
+        
+        for proto, res in results.items():
+            style = styles.get(proto, {'color': 'black', 'marker': 'x'})
+            lbl = f"{proto} (Avg {res['count']} runs)"
             
-        # CWND
-        t, m, s = res['cwnd']
-        if t:
-            ax2.plot(t, m, color=style['color'], label=lbl, linewidth=2)
-            if res['count'] > 1:
-                ax2.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
-            
-        # RTT
-        t, m, s = res['rtt']
-        if t:
-            ax3.plot(t, m, color=style['color'], label=lbl, linewidth=2)
-            if res['count'] > 1:
-                ax3.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
-            
-    ax1.set_ylabel('Data Rate (Mbps)', fontsize=12)
-    ax1.set_title('Average Data Rate', fontsize=14)
-    ax1.legend(loc='upper right')
-    ax1.grid(True, alpha=0.3)
-    
-    ax2.set_ylabel('CWND (bytes)', fontsize=12)
-    ax2.set_title('Average Congestion Window', fontsize=14)
-    ax2.legend(loc='upper right')
-    ax2.grid(True, alpha=0.3)
-    
-    ax3.set_ylabel('RTT (s)', fontsize=12)
-    ax3.set_xlabel('Time (s)', fontsize=12)
-    ax3.set_title('Average RTT', fontsize=14)
-    ax3.legend(loc='upper right')
-    ax3.grid(True, alpha=0.3)
-    
-    plt.subplots_adjust(hspace=0.3)
-    
+            # Rate
+            t, m, s = res['rate']
+            if t:
+                ax1.plot(t, m, color=style['color'], label=lbl, linewidth=2)
+                if not clean and res['count'] > 1:
+                    ax1.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
+                
+            # CWND
+            t, m, s = res['cwnd']
+            if t:
+                ax2.plot(t, m, color=style['color'], label=lbl, linewidth=2)
+                if not clean and res['count'] > 1:
+                    ax2.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
+                
+            # RTT
+            t, m, s = res['rtt']
+            if t:
+                ax3.plot(t, m, color=style['color'], label=lbl, linewidth=2)
+                if not clean and res['count'] > 1:
+                    ax3.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
+                
+        ax1.set_ylabel('Data Rate (Mbps)', fontsize=12)
+        ax1.set_title('Average Data Rate', fontsize=14)
+        ax1.legend(loc='upper right')
+        ax1.grid(True, alpha=0.3)
+        ax1.tick_params(labelbottom=True)
+        
+        ax2.set_ylabel('CWND (bytes)', fontsize=12)
+        ax2.set_title('Average Congestion Window', fontsize=14)
+        ax2.legend(loc='upper right')
+        ax2.grid(True, alpha=0.3)
+        ax2.tick_params(labelbottom=True)
+        
+        ax3.set_ylabel('RTT (s)', fontsize=12)
+        ax3.set_xlabel('Time (s)', fontsize=12)
+        ax3.set_title('Average RTT', fontsize=14)
+        ax3.legend(loc='upper right')
+        ax3.grid(True, alpha=0.3)
+        ax3.tick_params(labelbottom=True)
+        
+        plt.subplots_adjust(hspace=0.3)
+        return fig
+
+    # Save Standard Plot
+    fig = create_plot(clean=False)
     fname = args.plot_file if args.plot_file else f"tcp_quic_analysis_{'_'.join(protocols).lower()}.png"
     plt.savefig(fname, dpi=300, bbox_inches='tight')
     print(f"\nPlot saved to {fname}")
+    
+    # Save Clean Plot
+    fig_clean = create_plot(clean=True)
+    fname_clean = fname.replace('.png', '_clean.png')
+    plt.savefig(fname_clean, dpi=300, bbox_inches='tight')
+    print(f"Clean plot saved to {fname_clean}")
 
 if __name__ == "__main__":
     main()

@@ -8,6 +8,7 @@ Supports averaging across multiple runs from Slurm job arrays.
 import re
 import os
 import glob
+import subprocess
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
@@ -61,12 +62,26 @@ def find_job_runs(prefix, directory):
     runs = {}
     for task_id, log_file in job_groups[latest_job_id]:
         run_dir = os.path.join(directory, f"run_{task_id}")
+        
+        # Find corresponding .err file
+        # Assume it has the same prefix and ID but .err extension
+        base_name = os.path.splitext(os.path.basename(log_file))[0]
+        err_file = os.path.join(directory, base_name + ".err")
+        
+        if not os.path.exists(err_file):
+             # Try replacing .out with .err in the full path (simple swap)
+             err_file = log_file.replace(".out", ".err")
+             
+        if not os.path.exists(err_file):
+            print(f"Warning: No .err file found for {log_file}")
+            err_file = None
+
         if os.path.isdir(run_dir):
-            runs[task_id] = {'log': log_file, 'dir': run_dir}
+            runs[task_id] = {'log': log_file, 'err': err_file, 'dir': run_dir}
         else:
             print(f"Warning: Run directory {run_dir} not found for task {task_id}")
             # Still include it, maybe only log exists? But we need run dir for throughput
-            runs[task_id] = {'log': log_file, 'dir': None}
+            runs[task_id] = {'log': log_file, 'err': err_file, 'dir': None}
             
     return runs
 
@@ -87,13 +102,23 @@ def find_legacy_files(prefix, directory):
         
         if job_files:
             latest_job_id = max(job_files.keys(), key=lambda x: int(x))
-            return {1: {'log': job_files[latest_job_id][0], 'dir': directory}} # Treat as run 1
+            # Try to find out and err for this job
+            out_f = None
+            err_f = None
+            for f in job_files[latest_job_id]:
+                if f.endswith(".out"): out_f = f
+                elif f.endswith(".err"): err_f = f
+            
+            # If we only have one, use it for both or handle gracefully
+            if not out_f and err_f: out_f = err_f # Weird case
+            
+            return {1: {'log': out_f, 'err': err_f, 'dir': directory}} # Treat as run 1
 
     # Legacy zlogs
     legacy_filename = f"z{prefix}logs.txt"
     path = os.path.join(directory, legacy_filename)
     if os.path.exists(path):
-        return {1: {'log': path, 'dir': directory}}
+        return {1: {'log': path, 'err': None, 'dir': directory}}
         
     return {}
 
@@ -120,8 +145,22 @@ def parse_playback_log(filename):
     if not filename or not os.path.exists(filename):
         return playback_events
         
-    with open(filename, 'r') as f:
-        lines = f.readlines()
+    # Optimization: Use grep to filter relevant lines from large log files
+    # The .err files can be hundreds of MBs, so reading all lines in Python is slow.
+    # Use -a (text) to process files even if they contain binary data (which grep might detect)
+    cmd = f"grep -a -E 'PLAYING FRAME|No frames to play|Play resumed' {filename}"
+    try:
+        # Run grep and capture output
+        # Use latin-1 or similar to avoid decoding errors on binary garbage if any, 
+        # though logs should be text. utf-8 with errors='replace' is safer.
+        output = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='replace')
+        lines = output.splitlines()
+    except subprocess.CalledProcessError:
+        # grep returns non-zero if no matches found
+        return playback_events
+    except Exception as e:
+        print(f"Error reading log {filename}: {e}")
+        return playback_events
     
     current_resolution = None
     resume_pending = False
@@ -233,7 +272,7 @@ def parse_dash_throughput(run_dir, prefix):
             
     return throughputs
 
-def aggregate_bitrate(all_runs_bitrate, time_bin=1.0):
+def aggregate_bitrate(all_runs_bitrate, time_bin=1.0, global_max_time=None):
     """
     Aggregate bitrate data from multiple runs.
     Returns (time_points, mean_bitrates, std_bitrates)
@@ -248,6 +287,9 @@ def aggregate_bitrate(all_runs_bitrate, time_bin=1.0):
         if run_data:
             min_time = min(min_time, run_data[0][0])
             max_time = max(max_time, run_data[-1][0])
+            
+    if global_max_time is not None:
+        max_time = max(max_time, global_max_time)
             
     if min_time == float('inf'):
         return [], [], []
@@ -343,6 +385,12 @@ def calculate_interruption_prob(all_runs_playback, time_bin=1.0):
             
     return bin_centers, probs
 
+def smooth_data(data, window_size=5):
+    """Apply moving average smoothing."""
+    if not data or len(data) < window_size:
+        return data
+    return np.convolve(data, np.ones(window_size)/window_size, mode='same')
+
 def plot_comparison(quic_stats, tcp_stats, clean=False):
     """Create comparison plots with multi-run support."""
     fig = plt.figure(figsize=(16, 12))
@@ -383,28 +431,46 @@ def plot_comparison(quic_stats, tcp_stats, clean=False):
     # Ensure x-axis labels are visible
     ax1.tick_params(labelbottom=True)
     
-    # Plot 2: QUIC Interruption Probability
+    # Plot 2: QUIC Playback Status
     if quic_stats['playback_runs']:
         q_times, q_probs = calculate_interruption_prob(quic_stats['playback_runs'])
-        ax2.plot(q_times, q_probs, 'b-', label='Interruption Probability')
-        if not clean:
-            ax2.fill_between(q_times, 0, q_probs, color='blue', alpha=0.3)
-        ax2.set_ylim(0, 1.1)
-        ax2.set_title('QUIC: Probability of Interruption', fontsize=13, fontweight='bold')
+        # Smooth the data
+        q_probs = smooth_data(q_probs, window_size=10) # Increased window for better smoothing
+        
+        # q_probs is probability of interruption
+        # playing probability is 1 - q_probs
+        q_playing_probs = [1.0 - p for p in q_probs]
+        
+        # Fill Green for Playing (bottom area)
+        ax2.fill_between(q_times, 0, q_playing_probs, color='green', alpha=0.5, label='Playing')
+        # Fill Red for Interrupted (top area)
+        ax2.fill_between(q_times, q_playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
+        
+        ax2.set_ylim(0, 1.0)
+        ax2.set_title('QUIC: Playback Status', fontsize=13, fontweight='bold')
+        ax2.legend(loc='center right')
     else:
         ax2.text(0.5, 0.5, 'No QUIC data', ha='center')
     ax2.set_ylabel('Probability', fontsize=12)
     ax2.grid(True, alpha=0.3)
     ax2.tick_params(labelbottom=True)
 
-    # Plot 3: TCP Interruption Probability
+    # Plot 3: TCP Playback Status
     if tcp_stats['playback_runs']:
         t_times, t_probs = calculate_interruption_prob(tcp_stats['playback_runs'])
-        ax3.plot(t_times, t_probs, 'r-', label='Interruption Probability')
-        if not clean:
-            ax3.fill_between(t_times, 0, t_probs, color='red', alpha=0.3)
-        ax3.set_ylim(0, 1.1)
-        ax3.set_title('TCP: Probability of Interruption', fontsize=13, fontweight='bold')
+        # Smooth the data
+        t_probs = smooth_data(t_probs, window_size=10)
+        
+        t_playing_probs = [1.0 - p for p in t_probs]
+        
+        # Fill Green for Playing
+        ax3.fill_between(t_times, 0, t_playing_probs, color='green', alpha=0.5, label='Playing')
+        # Fill Red for Interrupted
+        ax3.fill_between(t_times, t_playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
+        
+        ax3.set_ylim(0, 1.0)
+        ax3.set_title('TCP: Playback Status', fontsize=13, fontweight='bold')
+        ax3.legend(loc='center right')
     else:
         ax3.text(0.5, 0.5, 'No TCP data', ha='center')
     ax3.set_ylabel('Probability', fontsize=12)
@@ -429,7 +495,13 @@ def process_runs(runs, protocol_name):
     for task_id, paths in runs.items():
         # Bitrate & Playback from stdout log
         bitrate = parse_bitrate_log(paths['log'])
-        playback = parse_playback_log(paths['log'])
+        
+        # Playback from stderr log if available, else stdout
+        playback_file = paths.get('err')
+        if not playback_file or not os.path.exists(playback_file):
+            playback_file = paths['log']
+            
+        playback = parse_playback_log(playback_file)
         
         all_bitrates.append(bitrate)
         all_playback.append(playback)
@@ -445,8 +517,14 @@ def process_runs(runs, protocol_name):
         total_play_time.append(pt)
         total_inter_time.append(it)
         
+    # Calculate global max time from all logs (bitrate and playback) to ensure graph extends to end
+    global_max_time = 0
+    for run in all_playback:
+        if run:
+            global_max_time = max(global_max_time, run[-1][1])
+            
     # Aggregate Bitrate
-    b_time, b_mean, b_std = aggregate_bitrate(all_bitrates)
+    b_time, b_mean, b_std = aggregate_bitrate(all_bitrates, global_max_time=global_max_time)
     
     return {
         'count': len(runs),
@@ -524,11 +602,15 @@ def main():
             if is_quic and not quic_job_runs:
                 print(f"Identified Job {job_id} as QUIC (Job Array)")
                 for t, l in job_groups[job_id]:
-                    quic_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+                    err_l = l.replace(".out", ".err")
+                    if not os.path.exists(err_l): err_l = None
+                    quic_job_runs[t] = {'log': l, 'err': err_l, 'dir': os.path.join(project_root, f"run_{t}")}
             elif is_tcp and not tcp_job_runs:
                 print(f"Identified Job {job_id} as TCP (Job Array)")
                 for t, l in job_groups[job_id]:
-                    tcp_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+                    err_l = l.replace(".out", ".err")
+                    if not os.path.exists(err_l): err_l = None
+                    tcp_job_runs[t] = {'log': l, 'err': err_l, 'dir': os.path.join(project_root, f"run_{t}")}
 
     # 2. Process Single Files (Fallback if no job array found for a protocol)
     if not quic_job_runs:
@@ -536,22 +618,26 @@ def main():
         for f in single_files:
             if "quic" in os.path.basename(f).lower():
                 print(f"Found single QUIC run: {os.path.basename(f)}")
-                quic_job_runs[1] = {'log': f, 'dir': project_root}
+                err_f = f.replace(".out", ".err")
+                if not os.path.exists(err_f): err_f = None
+                quic_job_runs[1] = {'log': f, 'err': err_f, 'dir': project_root}
                 break
         # Also check for DashClientRx_UE_*.txt in project root
         if not quic_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_UE_*.txt")):
              print("Found QUIC traces in project root")
-             quic_job_runs[1] = {'log': None, 'dir': project_root}
+             quic_job_runs[1] = {'log': None, 'err': None, 'dir': project_root}
 
     if not tcp_job_runs:
         for f in single_files:
             if "tcp" in os.path.basename(f).lower():
                 print(f"Found single TCP run: {os.path.basename(f)}")
-                tcp_job_runs[1] = {'log': f, 'dir': project_root}
+                err_f = f.replace(".out", ".err")
+                if not os.path.exists(err_f): err_f = None
+                tcp_job_runs[1] = {'log': f, 'err': err_f, 'dir': project_root}
                 break
         if not tcp_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_TCP_UE_*.txt")):
              print("Found TCP traces in project root")
-             tcp_job_runs[1] = {'log': None, 'dir': project_root}
+             tcp_job_runs[1] = {'log': None, 'err': None, 'dir': project_root}
             
     # Process
     quic_stats = process_runs(quic_job_runs, 'QUIC')

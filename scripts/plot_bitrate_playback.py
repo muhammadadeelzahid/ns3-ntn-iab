@@ -435,7 +435,7 @@ def plot_comparison(quic_stats, tcp_stats, clean=False):
     if quic_stats['playback_runs']:
         q_times, q_probs = calculate_interruption_prob(quic_stats['playback_runs'])
         # Smooth the data
-        q_probs = smooth_data(q_probs, window_size=10) # Increased window for better smoothing
+        q_probs = smooth_data(q_probs, window_size=5) # Reduced window for better accuracy
         
         # q_probs is probability of interruption
         # playing probability is 1 - q_probs
@@ -447,7 +447,7 @@ def plot_comparison(quic_stats, tcp_stats, clean=False):
         ax2.fill_between(q_times, q_playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
         
         ax2.set_ylim(0, 1.0)
-        ax2.set_title('QUIC: Playback Status', fontsize=13, fontweight='bold')
+        ax2.set_title('QUIC: Playback Status (Green=Playing, Red=Interrupted)', fontsize=13, fontweight='bold')
         ax2.legend(loc='center right')
     else:
         ax2.text(0.5, 0.5, 'No QUIC data', ha='center')
@@ -459,7 +459,7 @@ def plot_comparison(quic_stats, tcp_stats, clean=False):
     if tcp_stats['playback_runs']:
         t_times, t_probs = calculate_interruption_prob(tcp_stats['playback_runs'])
         # Smooth the data
-        t_probs = smooth_data(t_probs, window_size=10)
+        t_probs = smooth_data(t_probs, window_size=5)
         
         t_playing_probs = [1.0 - p for p in t_probs]
         
@@ -469,7 +469,7 @@ def plot_comparison(quic_stats, tcp_stats, clean=False):
         ax3.fill_between(t_times, t_playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
         
         ax3.set_ylim(0, 1.0)
-        ax3.set_title('TCP: Playback Status', fontsize=13, fontweight='bold')
+        ax3.set_title('TCP: Playback Status (Green=Playing, Red=Interrupted)', fontsize=13, fontweight='bold')
         ax3.legend(loc='center right')
     else:
         ax3.text(0.5, 0.5, 'No TCP data', ha='center')

@@ -70,6 +70,58 @@ def find_job_runs(prefix, directory):
             
     return runs
 
+def find_job_runs_with_err(prefix, directory):
+    """
+    Find all runs for the latest job matching the prefix, including .err files.
+    Returns a dict mapping task_id -> {'log': log_file, 'err': err_file, 'dir': run_dir}
+    """
+    # Search for both .out and .err files
+    all_out_files = glob.glob(os.path.join(directory, "*.out"))
+    all_err_files = glob.glob(os.path.join(directory, "*.err"))
+    
+    job_groups = defaultdict(lambda: defaultdict(dict))
+    
+    # Process .out files
+    for filepath in all_out_files:
+        filename = os.path.basename(filepath)
+        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", filename)
+        if match:
+            job_id = int(match.group(1))
+            task_id = int(match.group(2))
+            job_groups[job_id][task_id]['out'] = filepath
+
+    # Process .err files
+    for filepath in all_err_files:
+        filename = os.path.basename(filepath)
+        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.err", filename)
+        if match:
+            job_id = int(match.group(1))
+            task_id = int(match.group(2))
+            job_groups[job_id][task_id]['err'] = filepath
+            
+    if not job_groups:
+        print("No JOBID_TASKID.out/err files found. Checking for legacy/single files...")
+        return find_legacy_files(prefix, directory)
+
+    # Pick latest job
+    latest_job_id = max(job_groups.keys())
+    print(f"Found latest Job ID: {latest_job_id} with {len(job_groups[latest_job_id])} runs")
+    
+    runs = {}
+    for task_id, files in job_groups[latest_job_id].items():
+        run_dir = os.path.join(directory, f"run_{task_id}")
+        log_file = files.get('out')
+        err_file = files.get('err')
+        
+        # If run_dir doesn't exist, check if we can find it
+        if not os.path.isdir(run_dir):
+             # Try to find it relative to project root if we are in scripts
+             pass
+
+        runs[task_id] = {'log': log_file, 'err': err_file, 'dir': run_dir if os.path.isdir(run_dir) else None}
+            
+    return runs
+
 def find_legacy_files(prefix, directory):
     """Fallback to original file finding logic for single runs."""
     out_files = glob.glob(os.path.join(directory, f"{prefix}_*.out"))
@@ -124,28 +176,23 @@ def parse_playback_log(filename):
         lines = f.readlines()
     
     current_resolution = None
-    resume_pending = False
     
     for line in lines:
+        # Check for playing frame
         play_match = re.search(r'(\d+\.?\d*)\s+PLAYING FRAME:.*?Res:\s+(\d+)', line)
         if play_match:
             time = float(play_match.group(1))
             resolution = float(play_match.group(2))
             current_resolution = resolution
-            if resume_pending:
-                playback_events.append(('resumed', time, current_resolution))
-                resume_pending = False
             playback_events.append(('playing', time, resolution))
+            continue
         
+        # Check for interruption
         interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', line)
         if interrupt_match:
             time = float(interrupt_match.group(1))
             playback_events.append(('interrupted', time, current_resolution))
-            resume_pending = False
-        
-        resume_match = re.search(r'Play resumed', line)
-        if resume_match:
-            resume_pending = True
+            continue
             
     playback_events.sort(key=lambda x: x[1])
     return playback_events
@@ -428,8 +475,20 @@ def process_runs(runs, protocol_name):
     
     for task_id, paths in runs.items():
         # Bitrate & Playback from stdout log
-        bitrate = parse_bitrate_log(paths['log'])
-        playback = parse_playback_log(paths['log'])
+        # Bitrate from stdout log (.out)
+        bitrate = []
+        if paths.get('log'):
+            bitrate = parse_bitrate_log(paths['log'])
+        
+        # Playback from stderr log (.err) - usually where NS_LOG goes
+        # If not in .err, try .out
+        playback = []
+        if paths.get('err'):
+            playback = parse_playback_log(paths['err'])
+        
+        if not playback and paths.get('log'):
+             playback = parse_playback_log(paths['log'])
+
         
         all_bitrates.append(bitrate)
         all_playback.append(playback)
@@ -479,17 +538,24 @@ def main():
     all_out_files = glob.glob(os.path.join(project_root, "*.out"))
     
     # Group by Job ID if possible
-    job_groups = defaultdict(list)
+    job_groups = defaultdict(lambda: defaultdict(dict))
     single_files = []
     
-    for f in all_out_files:
+    # Scan for .out and .err
+    all_files = glob.glob(os.path.join(project_root, "*.out")) + glob.glob(os.path.join(project_root, "*.err"))
+    
+    for f in all_files:
         filename = os.path.basename(f)
-        # Match NAME-JOBID_TASKID.out
-        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", filename)
+        # Match NAME-JOBID_TASKID.out/err
+        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.(out|err)", filename)
         if match:
-            job_groups[int(match.group(1))].append((int(match.group(2)), f))
+            job_id = int(match.group(1))
+            task_id = int(match.group(2))
+            ext = match.group(3)
+            job_groups[job_id][task_id][ext] = f
         else:
-            single_files.append(f)
+            if f.endswith('.out'): # Only treat .out as potential single run log for now, unless we want to be smarter
+                single_files.append(f)
             
     quic_job_runs = {}
     tcp_job_runs = {}
@@ -499,21 +565,29 @@ def main():
         sorted_jobs = sorted(job_groups.keys(), reverse=True)
         for job_id in sorted_jobs:
             # Check first task to guess protocol
-            task_id, log_file = job_groups[job_id][0]
-            run_dir = os.path.join(project_root, f"run_{task_id}")
+            tasks = job_groups[job_id]
+            if not tasks: continue
+            
+            first_task_id = list(tasks.keys())[0]
+            files = tasks[first_task_id]
+            log_file = files.get('out')
+            err_file = files.get('err')
+            
+            run_dir = os.path.join(project_root, f"run_{first_task_id}")
             
             is_quic = False
             is_tcp = False
             
-            filename = os.path.basename(log_file)
-            if "quic" in filename.lower(): is_quic = True
-            elif "tcp" in filename.lower(): is_tcp = True
+            # Check filename
+            check_name = (log_file if log_file else "") + (err_file if err_file else "")
+            if "quic" in check_name.lower(): is_quic = True
+            elif "tcp" in check_name.lower(): is_tcp = True
             
             if not is_quic and not is_tcp and os.path.isdir(run_dir):
                 if glob.glob(os.path.join(run_dir, "DashClientRx_UE_*.txt")): is_quic = True
                 elif glob.glob(os.path.join(run_dir, "DashClientRx_TCP_UE_*.txt")): is_tcp = True
                 
-            if not is_quic and not is_tcp:
+            if not is_quic and not is_tcp and log_file:
                 try:
                     with open(log_file, 'r') as f:
                         content = f.read(1000)
@@ -523,12 +597,13 @@ def main():
                 
             if is_quic and not quic_job_runs:
                 print(f"Identified Job {job_id} as QUIC (Job Array)")
-                for t, l in job_groups[job_id]:
-                    quic_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+                for t, fs in tasks.items():
+                    quic_job_runs[t] = {'log': fs.get('out'), 'err': fs.get('err'), 'dir': os.path.join(project_root, f"run_{t}")}
             elif is_tcp and not tcp_job_runs:
                 print(f"Identified Job {job_id} as TCP (Job Array)")
-                for t, l in job_groups[job_id]:
-                    tcp_job_runs[t] = {'log': l, 'dir': os.path.join(project_root, f"run_{t}")}
+                for t, fs in tasks.items():
+                    tcp_job_runs[t] = {'log': fs.get('out'), 'err': fs.get('err'), 'dir': os.path.join(project_root, f"run_{t}")}
+
 
     # 2. Process Single Files (Fallback if no job array found for a protocol)
     if not quic_job_runs:
@@ -536,22 +611,36 @@ def main():
         for f in single_files:
             if "quic" in os.path.basename(f).lower():
                 print(f"Found single QUIC run: {os.path.basename(f)}")
-                quic_job_runs[1] = {'log': f, 'dir': project_root}
+                # Try to find matching err file
+                err_file = f.replace('.out', '.err')
+                if not os.path.exists(err_file): err_file = None
+                quic_job_runs[1] = {'log': f, 'err': err_file, 'dir': project_root}
                 break
         # Also check for DashClientRx_UE_*.txt in project root
         if not quic_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_UE_*.txt")):
              print("Found QUIC traces in project root")
-             quic_job_runs[1] = {'log': None, 'dir': project_root}
+             # Try to find any .err file that looks like quic
+             err_files = glob.glob(os.path.join(project_root, "*quic*.err"))
+             err_file = err_files[0] if err_files else None
+             quic_job_runs[1] = {'log': None, 'err': err_file, 'dir': project_root}
+
 
     if not tcp_job_runs:
         for f in single_files:
             if "tcp" in os.path.basename(f).lower():
                 print(f"Found single TCP run: {os.path.basename(f)}")
-                tcp_job_runs[1] = {'log': f, 'dir': project_root}
+                # Try to find matching err file
+                err_file = f.replace('.out', '.err')
+                if not os.path.exists(err_file): err_file = None
+                tcp_job_runs[1] = {'log': f, 'err': err_file, 'dir': project_root}
                 break
         if not tcp_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_TCP_UE_*.txt")):
              print("Found TCP traces in project root")
-             tcp_job_runs[1] = {'log': None, 'dir': project_root}
+             # Try to find any .err file that looks like tcp
+             err_files = glob.glob(os.path.join(project_root, "*tcp*.err"))
+             err_file = err_files[0] if err_files else None
+             tcp_job_runs[1] = {'log': None, 'err': err_file, 'dir': project_root}
+
             
     # Process
     quic_stats = process_runs(quic_job_runs, 'QUIC')

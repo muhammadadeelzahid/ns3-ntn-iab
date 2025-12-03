@@ -1034,10 +1034,10 @@ main (int argc, char *argv[])
   ApplicationContainer serverApps;
   
   // DASH over TCP configuration - aligned with TCP segment size limits
-  double target_dt = 35.0;  // Target buffering time (increased from 10.0s for better buffering)
+  double target_dt = 60.0;  // Target buffering time (increased from 10.0s for better buffering)
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 400*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
+  uint32_t bufferSpace = 600*1024*1024;  // 600 MB (20+ segments at 66 Mbps) - already adequate
 
   double window = 200;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm

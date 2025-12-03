@@ -455,18 +455,16 @@ main (int argc, char *argv[])
   // LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);     // LOG_LEVEL_DEBUG to see UDP operations
   // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
   
-    // LogComponentEnable("DashServer", LOG_LEVEL_ALL);
-    // LogComponentEnable("DashClient", LOG_LEVEL_ALL);
+    LogComponentEnable("DashServer", LOG_LEVEL_ALL);
+    LogComponentEnable("DashClient", LOG_LEVEL_ALL);
     // LogComponentEnable("QuicSocketTxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicSocketRxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
     // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
     // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);
-    // LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
-    // LogComponentEnable("QuicSocket", LOG_LEVEL_ALL);
-    // LogComponentEnable("QuicSocketBase", LOG_LEVEL_INFO);
-  // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
+  LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
+  LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicBbr", LOG_LEVEL_ALL); // Uncomment if QuicBbr has its own log component
   // LogComponentEnable("MpQuicScheduler", LOG_LEVEL_ALL);
   // LogComponentEnableAll (LOG_PREFIX_TIME);
   // LogComponentEnableAll (LOG_PREFIX_FUNC);
@@ -628,7 +626,6 @@ main (int argc, char *argv[])
   cmd.AddValue("numUes", "Number of UE nodes/users", numUes);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
-  cmd.Parse(argc, argv);
 
   //   if(rlcAm)
   // {
@@ -701,7 +698,7 @@ main (int argc, char *argv[])
   //    Realistic: NTN links may have burst losses, so tracking more gaps is beneficial
   // 1. Increase maximum tracked gaps (from default 20 to 20) - RFC DEFAULT
   //    Reverting to default for standard compliance
-  Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(20));
+  Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(100));
   
   // 2. Reduce maximum packets before ACK send (from default 20 to 5) - SIGNIFICANT IMPROVEMENT FOR CONGESTION AVOIDANCE
   //    Forces much more frequent ACKs, significantly reducing gaps and detecting congestion faster
@@ -730,21 +727,27 @@ main (int argc, char *argv[])
   //    Keeping at default (false) for stability - packet number-based detection is sufficient
   // 5. Enable time-based loss detection - RFC 9002 COMPLIANT
   //    RFC 9002 states implementations SHOULD use time-based loss detection
-  Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(true));
+  Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(false));
   
   // 6. Keep minimum TLP timeout at default (10ms)
   //    Not changing this - 10ms is appropriate for NTN scenarios
-  // Config::SetDefault("ns3::QuicSocketState::kMinTLPTimeout", TimeValue(MilliSeconds(10)));
+  // Config::SetDefault("ns3::QuicSocketState::kMinTLPTimeout", TimeValue(MilliSeconds(1)));
+
+  // 7. Keep minimum RTO timeout at default (200ms)
+  //    Not changing this - 200ms is appropriate for NTN scenarios
+  // Config::SetDefault("ns3::QuicSocketState::kMinRTOTimeout", TimeValue(MilliSeconds(10)));
+  
+  Config::SetDefault("ns3::QuicSocketState::kMaxTLPs", UintegerValue(10));
   
   // ============================================================================
   // LOSS DETECTION PARAMETERS (RFC 9002 compliant)
   // ============================================================================
   
   // Reordering threshold for loss detection (RFC 9002 Section 6.1.1)
-  // Using default value (3) to prevent premature loss detection
-  // When combined with time-based detection, lower values can cause empty vector issues
-  // Default (3) is safer and prevents false positives that trigger empty OnPacketsLost calls
-  // Config::SetDefault("ns3::QuicSocketBase::kReorderingThreshold", UintegerValue(2));
+  // Setting to 1 to trigger immediate loss detection on the first out-of-order ACK.
+  // This is critical to recover tail losses when no further data packets are available to generate gaps.
+  Config::SetDefault("ns3::QuicSocketState::kMaxTLPs", UintegerValue(10));
+  Config::SetDefault("ns3::QuicSocketState::kReorderingThreshold", UintegerValue(2));
   
   // Time-based reordering fraction (RFC 9002 Section 6.1.2)
   // Standard RFC 9002 value - keeps time-based detection conservative
@@ -760,8 +763,14 @@ main (int argc, char *argv[])
   
   // QUIC Congestion Control Configuration
   // QUIC Congestion Control Configuration
+  std::string ccAlgorithm = "ns3::QuicBbr"; // Default to BBR
+  cmd.AddValue("ccAlgorithm", "QUIC Congestion Control Algorithm (ns3::QuicBbr or ns3::QuicCongestionControl)", ccAlgorithm);
+  cmd.Parse(argc, argv);
+
+  // Set the socket type based on the command line argument
+  Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(TypeId::LookupByName(ccAlgorithm)));
   // Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
-  Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(QuicBbr::GetTypeId())); // Use BBR
+  // Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(QuicBbr::GetTypeId())); // Use BBR
   Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(false));
   
   // Reduce initial slow start threshold to enter congestion avoidance sooner
@@ -769,7 +778,7 @@ main (int argc, char *argv[])
   // SIGNIFICANT CHANGE: Reduced from unlimited (65535) to 32KB (21 packets) for much more conservative behavior
   // This forces the connection to exit slow start after ~21 packets, preventing congestion buildup
   // Realistic: 32KB is conservative but prevents the exponential growth that causes congestion
-  // Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(32*1024)); // Commented out for RFC compliance (default is usually infinite/high)
+  // Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(10*1024*1024)); // Commented out for RFC compliance (default is usually infinite/high)
 
   // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
@@ -1055,10 +1064,10 @@ main (int argc, char *argv[])
   Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (32*1024*1024));  // 32 MB (96x max frame)
 
   // DASH over QUIC configuration - aligned with QUIC packet size limits
-  double target_dt = 35.0;  // Target buffering time (increased from 10.0s for better buffering)
+  double target_dt = 60.0;  // Target buffering time (increased from 10.0s for better buffering)
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 400*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
+  uint32_t bufferSpace = 600*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
 
   double window = 200;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
 

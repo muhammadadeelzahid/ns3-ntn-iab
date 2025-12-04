@@ -229,13 +229,69 @@ def aggregate_series(all_runs_data, time_key, value_key, time_bin=0.5):
             
     return final_times, final_means, final_stds
 
+def find_all_runs():
+    """
+    Find all runs in Quic_artifacts and Tcp_artifacts.
+    Returns a dict: { 'Algorithm Name': [list of run directories] }
+    """
+    run_groups = defaultdict(list)
+    project_root = os.getcwd()
+    
+    # Check Quic_artifacts
+    if os.path.exists("Quic_artifacts"):
+        for algo in os.listdir("Quic_artifacts"):
+            algo_path = os.path.join("Quic_artifacts", algo)
+            if os.path.isdir(algo_path):
+                # Find run_* directories
+                runs = glob.glob(os.path.join(algo_path, "run_*"))
+                if runs:
+                    name = f"QUIC {algo}"
+                    run_groups[name].extend([os.path.abspath(r) for r in runs])
+
+    # Check Tcp_artifacts
+    if os.path.exists("Tcp_artifacts"):
+        for algo in os.listdir("Tcp_artifacts"):
+            algo_path = os.path.join("Tcp_artifacts", algo)
+            if os.path.isdir(algo_path):
+                # Find run_* directories
+                runs = glob.glob(os.path.join(algo_path, "run_*"))
+                if runs:
+                    name = f"TCP {algo}"
+                    run_groups[name].extend([os.path.abspath(r) for r in runs])
+                    
+    return run_groups
+
+def plot_metric(results, metric_key, ylabel, title, filename, clean=False):
+    """Generate and save a plot for a specific metric comparing all algorithms."""
+    plt.figure(figsize=(12, 8))
+    
+    # Define a color palette
+    colors = plt.cm.tab10(np.linspace(0, 1, len(results)))
+    
+    for (algo, res), color in zip(results.items(), colors):
+        t, m, s = res[metric_key]
+        if t:
+            lbl = f"{algo} ({res['count']} runs)"
+            plt.plot(t, m, label=lbl, linewidth=2, color=color)
+            if not clean and res['count'] > 1:
+                plt.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=color, alpha=0.1)
+                
+    plt.xlabel('Time (s)', fontsize=12)
+    plt.ylabel(ylabel, fontsize=12)
+    plt.title(title, fontsize=14)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    plt.savefig(filename, dpi=300)
+    print(f"Saved {filename}")
+    plt.close()
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze TCP/QUIC simulation data (Multi-run supported)')
-    parser.add_argument('protocols', nargs='+', choices=['tcp', 'quic', 'both'], help='Protocol(s) to analyze')
     parser.add_argument('--server_node', type=int, default=5, help='Server node ID (default: 5)')
     parser.add_argument('--client_node', type=int, default=2, help='Client node ID (default: 2)')
     parser.add_argument('--p2p', action='store_true', help='Use p2p file naming')
-    parser.add_argument('--plot_file', type=str, default='', help='Output plot filename')
     
     args = parser.parse_args()
     
@@ -243,32 +299,31 @@ def main():
         args.server_node = 4
         args.client_node = 5
         
-    protocols = ['TCP', 'QUIC'] if 'both' in args.protocols else [p.upper() for p in args.protocols]
-    
     # Find runs
-    run_dirs = glob.glob("run_*")
-    # Sort numerically
-    run_dirs.sort(key=lambda x: int(x.split('_')[1]) if '_' in x and x.split('_')[1].isdigit() else 0)
+    run_groups = find_all_runs()
     
-    if not run_dirs:
-        print("No run_* directories found. Checking current directory...")
-        run_dirs = ['.']
-    else:
-        print(f"Found {len(run_dirs)} runs: {run_dirs}")
+    if not run_groups:
+        print("No run directories found in Quic_artifacts, Tcp_artifacts, or current directory.")
+        return
+        
+    print(f"Found algorithms: {list(run_groups.keys())}")
         
     results = {}
     
-    for proto in protocols:
-        print(f"\nProcessing {proto}...")
+    for algo, runs in run_groups.items():
+        print(f"\nProcessing {algo} ({len(runs)} runs)...")
         run_data_list = []
         
-        for d in run_dirs:
+        # Determine protocol for file naming
+        proto = "QUIC" if "QUIC" in algo else "TCP"
+        
+        for d in runs:
             data = process_protocol_data(proto, args.server_node, args.client_node, args.p2p, d)
             if data:
                 run_data_list.append(data)
                 
         if not run_data_list:
-            print(f"No valid data found for {proto}")
+            print(f"  No valid data found for {algo}")
             continue
             
         # Aggregate
@@ -278,7 +333,7 @@ def main():
         
         avg_throughput = sum(d['total_throughput'] for d in run_data_list) / len(run_data_list)
         
-        results[proto] = {
+        results[algo] = {
             'rate': agg_rate,
             'cwnd': agg_cwnd,
             'rtt': agg_rtt,
@@ -286,77 +341,33 @@ def main():
             'count': len(run_data_list)
         }
         
-        print(f"  Processed {len(run_data_list)} runs.")
         print(f"  Average Throughput: {avg_throughput:.2f} Mbps")
 
     if not results:
         print("No results to plot.")
         return
     
-    # Plotting function
-    def create_plot(clean=False):
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
-        
-        styles = {'TCP': {'color': 'blue', 'marker': 'o'}, 'QUIC': {'color': 'red', 'marker': 's'}}
-        
-        for proto, res in results.items():
-            style = styles.get(proto, {'color': 'black', 'marker': 'x'})
-            lbl = f"{proto} (Avg {res['count']} runs)"
-            
-            # Rate
-            t, m, s = res['rate']
-            if t:
-                ax1.plot(t, m, color=style['color'], label=lbl, linewidth=2)
-                if not clean and res['count'] > 1:
-                    ax1.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
-                
-            # CWND
-            t, m, s = res['cwnd']
-            if t:
-                ax2.plot(t, m, color=style['color'], label=lbl, linewidth=2)
-                if not clean and res['count'] > 1:
-                    ax2.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
-                
-            # RTT
-            t, m, s = res['rtt']
-            if t:
-                ax3.plot(t, m, color=style['color'], label=lbl, linewidth=2)
-                if not clean and res['count'] > 1:
-                    ax3.fill_between(t, [v-e for v,e in zip(m,s)], [v+e for v,e in zip(m,s)], color=style['color'], alpha=0.2)
-                
-        ax1.set_ylabel('Data Rate (Mbps)', fontsize=12)
-        ax1.set_title('Average Data Rate', fontsize=14)
-        ax1.legend(loc='upper right')
-        ax1.grid(True, alpha=0.3)
-        ax1.tick_params(labelbottom=True)
-        
-        ax2.set_ylabel('CWND (bytes)', fontsize=12)
-        ax2.set_title('Average Congestion Window', fontsize=14)
-        ax2.legend(loc='upper right')
-        ax2.grid(True, alpha=0.3)
-        ax2.tick_params(labelbottom=True)
-        
-        ax3.set_ylabel('RTT (s)', fontsize=12)
-        ax3.set_xlabel('Time (s)', fontsize=12)
-        ax3.set_title('Average RTT', fontsize=14)
-        ax3.legend(loc='upper right')
-        ax3.grid(True, alpha=0.3)
-        ax3.tick_params(labelbottom=True)
-        
-        plt.subplots_adjust(hspace=0.3)
-        return fig
-
-    # Save Standard Plot
-    fig = create_plot(clean=False)
-    fname = args.plot_file if args.plot_file else f"tcp_quic_analysis_{'_'.join(protocols).lower()}.png"
-    plt.savefig(fname, dpi=300, bbox_inches='tight')
-    print(f"\nPlot saved to {fname}")
+    # Generate Plots
+    print("\nGenerating Plots...")
     
-    # Save Clean Plot
-    fig_clean = create_plot(clean=True)
-    fname_clean = fname.replace('.png', '_clean.png')
-    plt.savefig(fname_clean, dpi=300, bbox_inches='tight')
-    print(f"Clean plot saved to {fname_clean}")
+    output_dir = "Analysis_artifacts"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Created output directory: {output_dir}")
+    
+    # 1. Throughput Comparison
+    plot_metric(results, 'rate', 'Data Rate (Mbps)', 'Throughput Comparison', os.path.join(output_dir, 'throughput_comparison.png'))
+    
+    # 2. CWND Comparison
+    plot_metric(results, 'cwnd', 'CWND (bytes)', 'Congestion Window Comparison', os.path.join(output_dir, 'cwnd_comparison.png'))
+    
+    # 3. RTT Comparison
+    plot_metric(results, 'rtt', 'RTT (s)', 'RTT Comparison', os.path.join(output_dir, 'rtt_comparison.png'))
+    
+    # 4. Clean versions (no confidence intervals)
+    plot_metric(results, 'rate', 'Data Rate (Mbps)', 'Throughput Comparison', os.path.join(output_dir, 'throughput_comparison_clean.png'), clean=True)
+    plot_metric(results, 'cwnd', 'CWND (bytes)', 'Congestion Window Comparison', os.path.join(output_dir, 'cwnd_comparison_clean.png'), clean=True)
+    plot_metric(results, 'rtt', 'RTT (s)', 'RTT Comparison', os.path.join(output_dir, 'rtt_comparison_clean.png'), clean=True)
 
 if __name__ == "__main__":
     main()

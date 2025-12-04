@@ -14,113 +14,69 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 from collections import defaultdict
 
-def find_job_runs(prefix, directory):
+def find_all_runs():
     """
-    Find all runs for the latest job matching the prefix.
-    Returns a dict mapping task_id -> {'log': log_file, 'dir': run_dir}
+    Find all runs in Quic_artifacts and Tcp_artifacts.
+    Returns a dict: { 'Algorithm Name': [list of run directories] }
     """
-    # Look for slurm-JOBID_TASKID.out files
-    # We assume the prefix helps identify the job, but for Slurm output it's usually just slurm-*.out
-    # However, the user might have renamed them or we check the content/filename pattern.
-    # The current pattern in the script was f"{prefix}_*.out".
-    # But the new slurm script uses slurm-%A_%a.out.
+    run_groups = defaultdict(list)
+    project_root = os.getcwd()
     
-    # Strategy:
-    # 1. Find all *-*.out files (matching pattern NAME-JOBID_TASKID.out)
-    # 2. Group by Job ID
-    # 3. Pick latest Job ID
-    # 4. Identify Task IDs
-    
-    # Match pattern: prefix-JOBID_TASKID.out or slurm-JOBID_TASKID.out
-    # The user might use "quic-..." or "tcp-..." or "slurm-..."
-    
-    # We'll search for all .out files and try to match the pattern
-    all_out_files = glob.glob(os.path.join(directory, "*.out"))
-    job_groups = defaultdict(list)
-    
-    for filepath in all_out_files:
-        filename = os.path.basename(filepath)
-        # Match NAME-JOBID_TASKID.out
-        # We want to match things like "quic-6548529_1.out" or "slurm-6548529_1.out"
-        # But avoid matching things that don't look like job arrays if possible.
-        # Regex: (anything)-(digits)_(digits).out
-        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", filename)
-        if match:
-            job_id = int(match.group(1))
-            task_id = int(match.group(2))
-            job_groups[job_id].append((task_id, filepath))
-            
-    if not job_groups:
-        # Fallback to legacy behavior or other naming patterns
-        print("No JOBID_TASKID.out files found. Checking for legacy/single files...")
-        return find_legacy_files(prefix, directory)
+    # Check Quic_artifacts
+    if os.path.exists("Quic_artifacts"):
+        for algo in os.listdir("Quic_artifacts"):
+            algo_path = os.path.join("Quic_artifacts", algo)
+            if os.path.isdir(algo_path):
+                # Find run_* directories
+                runs = glob.glob(os.path.join(algo_path, "run_*"))
+                if runs:
+                    name = f"QUIC {algo}"
+                    # Store absolute paths
+                    run_groups[name].extend([os.path.abspath(r) for r in runs])
 
-    # Pick latest job
-    latest_job_id = max(job_groups.keys())
-    print(f"Found latest Job ID: {latest_job_id} with {len(job_groups[latest_job_id])} runs")
+    # Check Tcp_artifacts
+    if os.path.exists("Tcp_artifacts"):
+        for algo in os.listdir("Tcp_artifacts"):
+            algo_path = os.path.join("Tcp_artifacts", algo)
+            if os.path.isdir(algo_path):
+                # Find run_* directories
+                runs = glob.glob(os.path.join(algo_path, "run_*"))
+                if runs:
+                    name = f"TCP {algo}"
+                    # Store absolute paths
+                    run_groups[name].extend([os.path.abspath(r) for r in runs])
+                    
+    return run_groups
+
+def map_logs_to_runs():
+    """
+    Scan all .out files in the current directory to map them to run directories.
+    Returns dict: { run_dir_abs_path: log_file_abs_path }
+    """
+    mapping = {}
+    log_files = glob.glob("*.out")
+    project_root = os.getcwd()
     
-    runs = {}
-    for task_id, log_file in job_groups[latest_job_id]:
-        run_dir = os.path.join(directory, f"run_{task_id}")
-        
-        # Find corresponding .err file
-        # Assume it has the same prefix and ID but .err extension
-        base_name = os.path.splitext(os.path.basename(log_file))[0]
-        err_file = os.path.join(directory, base_name + ".err")
-        
-        if not os.path.exists(err_file):
-             # Try replacing .out with .err in the full path (simple swap)
-             err_file = log_file.replace(".out", ".err")
-             
-        if not os.path.exists(err_file):
-            print(f"Warning: No .err file found for {log_file}")
-            err_file = None
-
-        if os.path.isdir(run_dir):
-            runs[task_id] = {'log': log_file, 'err': err_file, 'dir': run_dir}
-        else:
-            print(f"Warning: Run directory {run_dir} not found for task {task_id}")
-            # Still include it, maybe only log exists? But we need run dir for throughput
-            runs[task_id] = {'log': log_file, 'err': err_file, 'dir': None}
-            
-    return runs
-
-def find_legacy_files(prefix, directory):
-    """Fallback to original file finding logic for single runs."""
-    out_files = glob.glob(os.path.join(directory, f"{prefix}_*.out"))
-    err_files = glob.glob(os.path.join(directory, f"{prefix}_*.err"))
-    all_files = out_files + err_files
+    print(f"Scanning {len(log_files)} log files for run mapping...")
     
-    if all_files:
-        job_files = defaultdict(list)
-        for filepath in all_files:
-            filename = os.path.basename(filepath)
-            match = re.search(rf"{prefix}_(\d+)\.(out|err)", filename)
-            if match:
-                job_id = match.group(1)
-                job_files[job_id].append(filepath)
-        
-        if job_files:
-            latest_job_id = max(job_files.keys(), key=lambda x: int(x))
-            # Try to find out and err for this job
-            out_f = None
-            err_f = None
-            for f in job_files[latest_job_id]:
-                if f.endswith(".out"): out_f = f
-                elif f.endswith(".err"): err_f = f
+    for log_file in log_files:
+        try:
+            with open(log_file, 'r') as f:
+                first_line = f.readline()
+                # Look for: Running <Algo> Run <ID> (Task <ID>) in <Dir>
+                # Example: Running ns3::TcpCubic Run 1 (Task 1) in Tcp_artifacts/Cubic/run_1
+                match = re.search(r"Running .* in (.*)", first_line)
+                if match:
+                    run_dir_rel = match.group(1).strip()
+                    run_dir_abs = os.path.abspath(run_dir_rel)
+                    log_abs = os.path.abspath(log_file)
+                    mapping[run_dir_abs] = log_abs
+        except Exception as e:
+            # print(f"Error reading {log_file}: {e}")
+            pass
             
-            # If we only have one, use it for both or handle gracefully
-            if not out_f and err_f: out_f = err_f # Weird case
-            
-            return {1: {'log': out_f, 'err': err_f, 'dir': directory}} # Treat as run 1
-
-    # Legacy zlogs
-    legacy_filename = f"z{prefix}logs.txt"
-    path = os.path.join(directory, legacy_filename)
-    if os.path.exists(path):
-        return {1: {'log': path, 'err': None, 'dir': directory}}
-        
-    return {}
+    print(f"Mapped {len(mapping)} runs to log files.")
+    return mapping
 
 def parse_bitrate_log(filename):
     """Parse bitrate information from a log file."""
@@ -146,17 +102,11 @@ def parse_playback_log(filename):
         return playback_events
         
     # Optimization: Use grep to filter relevant lines from large log files
-    # The .err files can be hundreds of MBs, so reading all lines in Python is slow.
-    # Use -a (text) to process files even if they contain binary data (which grep might detect)
     cmd = f"grep -a -E 'PLAYING FRAME|No frames to play|Play resumed' {filename}"
     try:
-        # Run grep and capture output
-        # Use latin-1 or similar to avoid decoding errors on binary garbage if any, 
-        # though logs should be text. utf-8 with errors='replace' is safer.
         output = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='replace')
         lines = output.splitlines()
     except subprocess.CalledProcessError:
-        # grep returns non-zero if no matches found
         return playback_events
     except Exception as e:
         print(f"Error reading log {filename}: {e}")
@@ -302,8 +252,6 @@ def aggregate_bitrate(all_runs_bitrate, time_bin=1.0, global_max_time=None):
     for run_data in all_runs_bitrate:
         # For each run, sample the bitrate at each bin
         # Simple approach: take the last bitrate value before or within the bin
-        # Better approach: weighted average within bin?
-        # Let's use simple interpolation or "last known value"
         
         current_idx = 0
         current_val = 0
@@ -391,97 +339,224 @@ def smooth_data(data, window_size=5):
         return data
     return np.convolve(data, np.ones(window_size)/window_size, mode='same')
 
-def plot_comparison(quic_stats, tcp_stats, clean=False):
-    """Create comparison plots with multi-run support."""
-    fig = plt.figure(figsize=(16, 12))
-    # Use sharex=True via subplots instead of GridSpec for easier shared axis handling
-    # But GridSpec allows custom height ratios. Let's stick to subplots with sharex for common axis requirement.
-    # The user wants "each axis has its numbering", so we need to enable tick labels.
+def plot_single_algo(stats, algo_name, output_dir):
+    """Create plots for a single algorithm."""
+    if not stats['bitrate_mean']:
+        print(f"Skipping plots for {algo_name} (no bitrate data)")
+        return
+
+    # Bitrate Plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    times = stats['bitrate_time']
+    means = [b/1e6 for b in stats['bitrate_mean']]
+    stds = [b/1e6 for b in stats['bitrate_std']]
     
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 12), sharex=True, gridspec_kw={'height_ratios': [1, 1, 1]})
-    fig.suptitle('Bitrate and Playback Status Comparison' + (' (Clean)' if clean else ' (Averaged)'), fontsize=16, fontweight='bold')
+    ax.plot(times, means, 'b-', linewidth=2, label=f"{algo_name} (Avg)")
+    ax.fill_between(times, 
+                    [m - s for m, s in zip(means, stds)],
+                    [m + s for m, s in zip(means, stds)],
+                    color='blue', alpha=0.2)
     
-    # Plot 1: Bitrate
-    if quic_stats['bitrate_mean']:
-        times = quic_stats['bitrate_time']
-        means = [b/1e6 for b in quic_stats['bitrate_mean']]
-        stds = [b/1e6 for b in quic_stats['bitrate_std']]
-        ax1.plot(times, means, 'r-', linewidth=2, label=f"QUIC (Avg of {quic_stats['count']} runs)")
-        if not clean:
-            ax1.fill_between(times, 
-                            [m - s for m, s in zip(means, stds)],
-                            [m + s for m, s in zip(means, stds)],
-                            color='blue', alpha=0.2)
-
-    if tcp_stats['bitrate_mean']:
-        times = tcp_stats['bitrate_time']
-        means = [b/1e6 for b in tcp_stats['bitrate_mean']]
-        stds = [b/1e6 for b in tcp_stats['bitrate_std']]
-        ax1.plot(times, means, 'b-', linewidth=2, label=f"TCP (Avg of {tcp_stats['count']} runs)")
-        if not clean:
-            ax1.fill_between(times, 
-                            [m - s for m, s in zip(means, stds)],
-                            [m + s for m, s in zip(means, stds)],
-                            color='red', alpha=0.2)
-                        
-    ax1.set_ylabel('Bitrate (Mbps)', fontsize=12)
-    ax1.set_title('Average Bitrate Over Time', fontsize=13, fontweight='bold')
-    ax1.grid(True, alpha=0.3)
-    ax1.legend()
-    # Ensure x-axis labels are visible
-    ax1.tick_params(labelbottom=True)
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.set_ylabel('Bitrate (Mbps)', fontsize=12)
+    ax.set_title(f'{algo_name}: Average Bitrate Over Time', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
     
-    # Plot 2: QUIC Playback Status
-    if quic_stats['playback_runs']:
-        q_times, q_probs = calculate_interruption_prob(quic_stats['playback_runs'])
-        # Smooth the data
-        q_probs = smooth_data(q_probs, window_size=5) # Reduced window for better accuracy
+    filename = f"bitrate_{algo_name.replace(' ', '_')}.png"
+    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {filename}")
+    
+    # Playback Interruption Plot
+    if stats['playback_runs']:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        times, probs = calculate_interruption_prob(stats['playback_runs'])
+        probs = smooth_data(probs, window_size=5)
+        playing_probs = [1.0 - p for p in probs]
         
-        # q_probs is probability of interruption
-        # playing probability is 1 - q_probs
-        q_playing_probs = [1.0 - p for p in q_probs]
+        ax.fill_between(times, 0, playing_probs, color='green', alpha=0.5, label='Playing')
+        ax.fill_between(times, playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
         
-        # Fill Green for Playing (bottom area)
-        ax2.fill_between(q_times, 0, q_playing_probs, color='green', alpha=0.5, label='Playing')
-        # Fill Red for Interrupted (top area)
-        ax2.fill_between(q_times, q_playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
+        ax.set_xlabel('Time (s)', fontsize=12)
+        ax.set_ylabel('Probability', fontsize=12)
+        ax.set_ylim(0, 1.0)
+        ax.set_title(f'{algo_name}: Playback Status', fontsize=14, fontweight='bold')
+        ax.legend(loc='center right')
         
-        ax2.set_ylim(0, 1.0)
-        ax2.set_title('QUIC: Playback Status (Green=Playing, Red=Interrupted)', fontsize=13, fontweight='bold')
-        ax2.legend(loc='center right')
-    else:
-        ax2.text(0.5, 0.5, 'No QUIC data', ha='center')
-    ax2.set_ylabel('Probability', fontsize=12)
-    ax2.grid(True, alpha=0.3)
-    ax2.tick_params(labelbottom=True)
+        filename = f"playback_{algo_name.replace(' ', '_')}.png"
+        fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Saved {filename}")
 
-    # Plot 3: TCP Playback Status
-    if tcp_stats['playback_runs']:
-        t_times, t_probs = calculate_interruption_prob(tcp_stats['playback_runs'])
-        # Smooth the data
-        t_probs = smooth_data(t_probs, window_size=5)
-        
-        t_playing_probs = [1.0 - p for p in t_probs]
-        
-        # Fill Green for Playing
-        ax3.fill_between(t_times, 0, t_playing_probs, color='green', alpha=0.5, label='Playing')
-        # Fill Red for Interrupted
-        ax3.fill_between(t_times, t_playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
-        
-        ax3.set_ylim(0, 1.0)
-        ax3.set_title('TCP: Playback Status (Green=Playing, Red=Interrupted)', fontsize=13, fontweight='bold')
-        ax3.legend(loc='center right')
-    else:
-        ax3.text(0.5, 0.5, 'No TCP data', ha='center')
-    ax3.set_ylabel('Probability', fontsize=12)
-    ax3.set_xlabel('Time (s)', fontsize=12)
-    ax3.grid(True, alpha=0.3)
-    ax3.tick_params(labelbottom=True)
+def plot_combined_bitrate(all_stats, protocol_type, output_dir):
+    """Create combined bitrate plot for a protocol type (QUIC or TCP)."""
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    has_data = False
+    for name, stats in all_stats.items():
+        if protocol_type in name and stats['bitrate_mean']:
+            has_data = True
+            times = stats['bitrate_time']
+            means = [b/1e6 for b in stats['bitrate_mean']]
+            ax.plot(times, means, linewidth=2, label=name)
+            
+    if not has_data:
+        plt.close(fig)
+        return
 
-    plt.tight_layout()
-    return fig
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.set_ylabel('Bitrate (Mbps)', fontsize=12)
+    ax.set_title(f'{protocol_type}: Combined Bitrate Comparison', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    filename = f"bitrate_combined_{protocol_type}.png"
+    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {filename}")
 
-def process_runs(runs, protocol_name):
+def plot_combined_playback(all_stats, protocol_type, output_dir):
+    """Create combined playback interruption plot for a protocol type."""
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    has_data = False
+    for name, stats in all_stats.items():
+        if protocol_type in name and stats['playback_runs']:
+            has_data = True
+            times, probs = calculate_interruption_prob(stats['playback_runs'])
+            probs = smooth_data(probs, window_size=5)
+            # Plot interruption probability line
+            ax.plot(times, probs, linewidth=2, label=name)
+            
+    if not has_data:
+        plt.close(fig)
+        return
+
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.set_ylabel('Interruption Probability', fontsize=12)
+    ax.set_ylim(0, 1.0)
+    ax.set_title(f'{protocol_type}: Combined Playback Interruption Probability', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    filename = f"playback_combined_{protocol_type}.png"
+    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {filename}")
+
+def parse_playback_logs_bulk(log_files):
+    """
+    Parse playback logs for multiple files using a single grep command.
+    Returns a dict: { filename: [events] }
+    """
+    results = defaultdict(list)
+    if not log_files:
+        return results
+        
+    # Filter out non-existent files
+    valid_files = [f for f in log_files if os.path.exists(f)]
+    if not valid_files:
+        return results
+
+    print(f"Grepping {len(valid_files)} files for playback events...")
+    
+    # Use grep with filename output (-H is default for multiple files but good to be explicit)
+    # We grep for the patterns
+    # Command: grep -a -E 'PLAYING FRAME|No frames to play|Play resumed' file1 file2 ...
+    
+    # Argument list might be too long, so we might need to batch it.
+    # Max arg length is usually huge on Linux, but let's be safe with batches of 50.
+    batch_size = 50
+    
+    for i in range(0, len(valid_files), batch_size):
+        batch = valid_files[i:i+batch_size]
+        cmd = ["grep", "-a", "-E", "PLAYING FRAME|No frames to play|Play resumed"] + batch
+        
+        try:
+            # Run grep
+            # We use subprocess.run to avoid shell=True and quoting issues
+            # Capture stdout
+            # For Python < 3.7, use stdout=subprocess.PIPE instead of capture_output=True
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            output = proc.stdout
+            
+            for line in output.splitlines():
+                # Output format: filename:line_content
+                # We need to split by the first colon
+                parts = line.split(':', 1)
+                if len(parts) < 2: continue
+                
+                filename = parts[0]
+                content = parts[1]
+                
+                # Parse content
+                play_match = re.search(r'(\d+\.?\d*)\s+PLAYING FRAME:.*?Res:\s+(\d+)', content)
+                if play_match:
+                    time = float(play_match.group(1))
+                    resolution = float(play_match.group(2))
+                    results[filename].append(('playing', time, resolution))
+                    continue
+                
+                interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', content)
+                if interrupt_match:
+                    time = float(interrupt_match.group(1))
+                    results[filename].append(('interrupted', time, None))
+                    continue
+                
+                resume_match = re.search(r'Play resumed', content)
+                if resume_match:
+                    # We need time for resumed? usually it's just a flag.
+                    # But we need to associate it with a time.
+                    # If the line has a timestamp at start?
+                    # "2.345 Play resumed" ?
+                    # Let's check the regex in original: re.search(r'Play resumed', line)
+                    # It didn't extract time. It just set resume_pending=True.
+                    # But we need time to sort events.
+                    # The original code iterated lines in order.
+                    # Here we get lines in order per file.
+                    # So we can just store it as an event without time if we process sequentially later?
+                    # Or we try to extract time if present.
+                    # If no time, we can't sort it easily if we mix.
+                    # But grep output is ordered by line number.
+                    # So we can just append to the list and process later.
+                    results[filename].append(('resumed', 0, None)) # Time 0 placeholder, order matters
+                    
+        except Exception as e:
+            print(f"Error in grep batch: {e}")
+            
+    # Post-process to handle 'resumed' logic and sorting
+    final_results = {}
+    for filename, events in results.items():
+        # Events are in order of appearance in file (thanks to grep)
+        # We need to handle the 'resumed' logic which depended on state
+        
+        processed_events = []
+        resume_pending = False
+        
+        for evt in events:
+            evt_type = evt[0]
+            
+            if evt_type == 'resumed':
+                resume_pending = True
+            elif evt_type == 'playing':
+                time = evt[1]
+                res = evt[2]
+                if resume_pending:
+                    processed_events.append(('resumed', time, res))
+                    resume_pending = False
+                processed_events.append(('playing', time, res))
+            elif evt_type == 'interrupted':
+                time = evt[1]
+                processed_events.append(('interrupted', time, None))
+                resume_pending = False
+                
+        processed_events.sort(key=lambda x: x[1])
+        final_results[filename] = processed_events
+        
+    return final_results
+
+def process_runs(runs, protocol_name, log_mapping):
     """Process all runs for a protocol and return aggregated stats."""
     all_bitrates = []
     all_playback = []
@@ -490,34 +565,57 @@ def process_runs(runs, protocol_name):
     total_play_time = []
     total_inter_time = []
     
-    print(f"Processing {len(runs)} {protocol_name} runs...")
+    print(f"Processing {len(runs)} runs for {protocol_name}...")
     
-    for task_id, paths in runs.items():
-        # Bitrate & Playback from stdout log
-        bitrate = parse_bitrate_log(paths['log'])
-        
-        # Playback from stderr log if available, else stdout
-        playback_file = paths.get('err')
-        if not playback_file or not os.path.exists(playback_file):
-            playback_file = paths['log']
+    # 1. Gather all log files we need to parse for playback
+    files_to_grep = []
+    run_to_log = {}
+    
+    for run_dir in runs:
+        log_file = log_mapping.get(run_dir)
+        if log_file:
+            # Prefer .err file
+            err_file = log_file.replace('.out', '.err')
+            if os.path.exists(err_file):
+                target_file = err_file
+            else:
+                target_file = log_file
             
-        playback = parse_playback_log(playback_file)
+            files_to_grep.append(target_file)
+            run_to_log[run_dir] = target_file
+            
+    # 2. Bulk parse playback logs
+    bulk_playback_data = parse_playback_logs_bulk(files_to_grep)
+    
+    for run_dir in runs:
+        # Use mapping to find log file
+        log_file = log_mapping.get(run_dir)
+        
+        bitrate = []
+        playback = []
+        
+        if log_file:
+            bitrate = parse_bitrate_log(log_file)
+            
+            # Get playback from bulk results
+            target_file = run_to_log.get(run_dir)
+            if target_file and target_file in bulk_playback_data:
+                playback = bulk_playback_data[target_file]
         
         all_bitrates.append(bitrate)
         all_playback.append(playback)
         
         # Throughput from DashClientRx files in run dir
-        if paths['dir']:
-            prefix = "DashClientRx_UE_" if protocol_name == 'QUIC' else "DashClientRx_TCP_UE_"
-            tp = parse_dash_throughput(paths['dir'], prefix)
-            all_throughputs.extend(tp)
+        prefix = "DashClientRx_UE_" if "QUIC" in protocol_name else "DashClientRx_TCP_UE_"
+        tp = parse_dash_throughput(run_dir, prefix)
+        all_throughputs.extend(tp)
             
         # Stats
         pt, it, _, _ = calculate_playback_stats(playback)
         total_play_time.append(pt)
         total_inter_time.append(it)
         
-    # Calculate global max time from all logs (bitrate and playback) to ensure graph extends to end
+    # Calculate global max time
     global_max_time = 0
     for run in all_playback:
         if run:
@@ -538,143 +636,42 @@ def process_runs(runs, protocol_name):
     }
 
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
+    run_groups = find_all_runs()
     
-    print(f"Searching for runs in: {project_root}")
+    if not run_groups:
+        print("No run directories found in Quic_artifacts or Tcp_artifacts.")
+        return
+        
+    print(f"Found algorithms: {list(run_groups.keys())}")
     
-    # Find runs
-    # Note: The user might have different job IDs for QUIC and TCP if run separately
-    # But usually we compare two different sets of runs.
-    # The script assumes we want to find *some* QUIC runs and *some* TCP runs.
+    # Map logs
+    log_mapping = map_logs_to_runs()
     
-    # Find runs
-    # We want to support both:
-    # 1. Job arrays (slurm-JOBID_TASKID.out or quic-JOBID_TASKID.out)
-    # 2. Single runs (legacy behavior, e.g. quic_1.out or just logs in current dir)
+    all_stats = {}
     
-    # We'll search for all .out files and try to classify them
-    all_out_files = glob.glob(os.path.join(project_root, "*.out"))
+    for name, runs in run_groups.items():
+        all_stats[name] = process_runs(runs, name, log_mapping)
+        
+    # Create output directory
+    output_dir = "Analysis_artifacts"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
+    print("\nGenerating Plots...")
     
-    # Group by Job ID if possible
-    job_groups = defaultdict(list)
-    single_files = []
+    # 1. Individual Plots
+    for name, stats in all_stats.items():
+        plot_single_algo(stats, name, output_dir)
+        
+    # 2. Combined QUIC Plots
+    plot_combined_bitrate(all_stats, "QUIC", output_dir)
+    plot_combined_playback(all_stats, "QUIC", output_dir)
     
-    for f in all_out_files:
-        filename = os.path.basename(f)
-        # Match NAME-JOBID_TASKID.out
-        match = re.search(r"(?:^|[\w-]+-)(\d+)_(\d+)\.out", filename)
-        if match:
-            job_groups[int(match.group(1))].append((int(match.group(2)), f))
-        else:
-            single_files.append(f)
-            
-    quic_job_runs = {}
-    tcp_job_runs = {}
+    # 3. Combined TCP Plots
+    plot_combined_bitrate(all_stats, "TCP", output_dir)
+    plot_combined_playback(all_stats, "TCP", output_dir)
     
-    # 1. Process Job Arrays
-    if job_groups:
-        sorted_jobs = sorted(job_groups.keys(), reverse=True)
-        for job_id in sorted_jobs:
-            # Check first task to guess protocol
-            task_id, log_file = job_groups[job_id][0]
-            run_dir = os.path.join(project_root, f"run_{task_id}")
-            
-            is_quic = False
-            is_tcp = False
-            
-            filename = os.path.basename(log_file)
-            if "quic" in filename.lower(): is_quic = True
-            elif "tcp" in filename.lower(): is_tcp = True
-            
-            if not is_quic and not is_tcp and os.path.isdir(run_dir):
-                if glob.glob(os.path.join(run_dir, "DashClientRx_UE_*.txt")): is_quic = True
-                elif glob.glob(os.path.join(run_dir, "DashClientRx_TCP_UE_*.txt")): is_tcp = True
-                
-            if not is_quic and not is_tcp:
-                try:
-                    with open(log_file, 'r') as f:
-                        content = f.read(1000)
-                        if "Quic" in content or "QUIC" in content: is_quic = True
-                        elif "Tcp" in content or "TCP" in content: is_tcp = True
-                except: pass
-                
-            if is_quic and not quic_job_runs:
-                print(f"Identified Job {job_id} as QUIC (Job Array)")
-                for t, l in job_groups[job_id]:
-                    err_l = l.replace(".out", ".err")
-                    if not os.path.exists(err_l): err_l = None
-                    quic_job_runs[t] = {'log': l, 'err': err_l, 'dir': os.path.join(project_root, f"run_{t}")}
-            elif is_tcp and not tcp_job_runs:
-                print(f"Identified Job {job_id} as TCP (Job Array)")
-                for t, l in job_groups[job_id]:
-                    err_l = l.replace(".out", ".err")
-                    if not os.path.exists(err_l): err_l = None
-                    tcp_job_runs[t] = {'log': l, 'err': err_l, 'dir': os.path.join(project_root, f"run_{t}")}
-
-    # 2. Process Single Files (Fallback if no job array found for a protocol)
-    if not quic_job_runs:
-        # Look for quic*.out or similar in single_files
-        for f in single_files:
-            if "quic" in os.path.basename(f).lower():
-                print(f"Found single QUIC run: {os.path.basename(f)}")
-                err_f = f.replace(".out", ".err")
-                if not os.path.exists(err_f): err_f = None
-                quic_job_runs[1] = {'log': f, 'err': err_f, 'dir': project_root}
-                break
-        # Also check for DashClientRx_UE_*.txt in project root
-        if not quic_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_UE_*.txt")):
-             print("Found QUIC traces in project root")
-             quic_job_runs[1] = {'log': None, 'err': None, 'dir': project_root}
-
-    if not tcp_job_runs:
-        for f in single_files:
-            if "tcp" in os.path.basename(f).lower():
-                print(f"Found single TCP run: {os.path.basename(f)}")
-                err_f = f.replace(".out", ".err")
-                if not os.path.exists(err_f): err_f = None
-                tcp_job_runs[1] = {'log': f, 'err': err_f, 'dir': project_root}
-                break
-        if not tcp_job_runs and glob.glob(os.path.join(project_root, "DashClientRx_TCP_UE_*.txt")):
-             print("Found TCP traces in project root")
-             tcp_job_runs[1] = {'log': None, 'err': None, 'dir': project_root}
-            
-    # Process
-    quic_stats = process_runs(quic_job_runs, 'QUIC')
-    tcp_stats = process_runs(tcp_job_runs, 'TCP')
-    
-    # Print Summary
-    print(f"\n{'='*60}")
-    print("SUMMARY STATISTICS")
-    print(f"{'='*60}")
-    
-    for proto, stats in [('QUIC', quic_stats), ('TCP', tcp_stats)]:
-        print(f"\n{proto} ({stats['count']} runs):")
-        if stats['count'] > 0:
-            avg_play = sum(stats['play_times']) / stats['count']
-            avg_inter = sum(stats['inter_times']) / stats['count']
-            avg_tp = sum(stats['throughputs']) / len(stats['throughputs']) if stats['throughputs'] else 0
-            
-            print(f"  Avg Playback Time: {avg_play:.2f} s")
-            print(f"  Avg Interruption Time: {avg_inter:.2f} s")
-            print(f"  Avg Throughput: {avg_tp:.4f} Mbps")
-        else:
-            print("  No data found.")
-            
-    # Plot
-    print("\nGenerating plots...")
-    # Plot Standard
-    print("\nGenerating plots...")
-    fig = plot_comparison(quic_stats, tcp_stats, clean=False)
-    output_file = 'bitrate_playback_comparison.png'
-    fig.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"Plot saved to: {output_file}")
-    
-    # Plot Clean
-    fig_clean = plot_comparison(quic_stats, tcp_stats, clean=True)
-    output_file_clean = 'bitrate_playback_comparison_clean.png'
-    fig_clean.savefig(output_file_clean, dpi=300, bbox_inches='tight')
-    print(f"Clean plot saved to: {output_file_clean}")
+    print(f"\nAll plots saved to {output_dir}")
 
 if __name__ == '__main__':
     main()

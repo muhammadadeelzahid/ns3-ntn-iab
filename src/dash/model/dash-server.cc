@@ -262,6 +262,9 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
     uint32_t frames_sent = 0;
     uint32_t bytes_sent = 0;
     
+    NS_LOG_DEBUG("DataSend called. Queue size: " << m_queues[socket].size() 
+                << ". Socket TxAvailable: " << socket->GetTxAvailable());
+
     while (!m_queues[socket].empty())
     {
         uint32_t max_tx_size = socket->GetTxAvailable();
@@ -295,8 +298,9 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
         bytes = socket->Send(frame);
         if (bytes < 0)
         {
-            NS_FATAL_ERROR("Couldn't send packet, though space should be available, bytes = " << bytes);
-            exit(1);
+            NS_LOG_WARN("Couldn't send packet, bytes = " << bytes << ". Scheduling retry in 100ms.");
+            Simulator::Schedule (MilliSeconds (100), &DashServer::DataSend, this, socket, 0);
+            return;
         }
         else if ((uint32_t)bytes < frame->GetSize())
         {
@@ -308,9 +312,10 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
         {
             frames_sent++;
             bytes_sent += bytes;
+            NS_LOG_WARN("DashServer Debug: Socket::Send success. Bytes: " << bytes << ". Queue left: " << m_queues[socket].size());
         }
     }
-    
+    NS_LOG_DEBUG("DataSend finished. Sent frames: " << frames_sent << ", bytes: " << bytes_sent);
 }
 
 void
@@ -319,6 +324,7 @@ DashServer::SendSegment(uint32_t video_id,
                         uint32_t segment_id,
                         Ptr<Socket> socket)
 {
+    NS_LOG_DEBUG("Generating Segment " << segment_id << " for Video " << video_id << ". Socket " << socket);
     int fps = 1000 / MPEG_TIME_BETWEEN_FRAMES;
     int avg_packetsize = resolution / (fps * 8);
 

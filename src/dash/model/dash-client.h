@@ -187,8 +187,11 @@ class DashClient : public Application
     bool m_RequestPending = false; // So that we don't request the same segment repeatedly
 
     EventId m_keepAliveTimer;
+    EventId m_requestTimeoutTimer; // Timer for segment request timeout
     Time m_maxVideoDuration;  // Maximum video duration - stops requesting segments after this time
     uint32_t m_maxSegments;   // Maximum number of segments to request (calculated from m_maxVideoDuration using frame duration)
+
+    void SegmentRequestTimeout(); // Callback for segment request timeout
 };
 
 } // namespace ns3

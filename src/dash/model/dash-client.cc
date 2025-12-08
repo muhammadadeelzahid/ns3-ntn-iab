@@ -215,6 +215,7 @@ DashClient::StopApplication(void) // Called at time specified by Stop
         m_socket->Close();
         m_connected = false;
         m_player.m_state = MPEG_PLAYER_DONE;
+        m_requestTimeoutTimer.Cancel();
     }
     else
     {
@@ -278,6 +279,9 @@ DashClient::RequestSegment()
 
     m_requestTime = Simulator::Now();
     m_segment_bytes = 0;
+
+    // Schedule timeout for this segment request
+    m_requestTimeoutTimer = Simulator::Schedule(Seconds(3.0), &DashClient::SegmentRequestTimeout, this);
 }
 
 void
@@ -300,6 +304,13 @@ DashClient::CheckBuffer()
 {
     NS_LOG_FUNCTION(this);
     m_parser.ReadSocket(m_socket);
+    
+    // Schedule next check to ensure continuous reading even if callbacks stop firing
+    // This is critical for QUIC where data may arrive in bursts
+    if (m_connected && m_socket)
+    {
+        Simulator::Schedule(MilliSeconds(50), &DashClient::CheckBuffer, this);
+    }
 }
 
 void
@@ -373,6 +384,26 @@ DashClient::ConnectionErrorClosed(Ptr<Socket> socket)
 }
 
 void
+DashClient::SegmentRequestTimeout()
+{
+    NS_LOG_FUNCTION(this);
+    if (m_RequestPending)
+    {
+        NS_LOG_UNCOND("Segment request timed out for segment " << m_segmentId - 1 << ". Retrying...");
+        m_RequestPending = false;
+        
+        // Decrement segment ID to retry the same segment
+        if (m_segmentId > 0)
+        {
+            m_segmentId--;
+        }
+        
+        // Retry immediately
+        RequestSegment();
+    }
+}
+
+void
 DashClient::DataSend(Ptr<Socket>, uint32_t)
 {
     NS_LOG_FUNCTION(this);
@@ -434,6 +465,7 @@ DashClient::MessageReceived(Packet message)
     // If we received the last frame of the segment
     if (mpegHeader.GetFrameId() == MPEG_FRAMES_PER_SEGMENT - 1)
     {
+        m_requestTimeoutTimer.Cancel();
         m_RequestPending = false;
         m_segmentFetchTime = Simulator::Now() - m_requestTime;
 

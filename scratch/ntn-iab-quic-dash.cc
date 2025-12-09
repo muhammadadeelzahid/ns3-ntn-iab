@@ -456,14 +456,13 @@ main (int argc, char *argv[])
   // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
   
     LogComponentEnable("DashServer", LOG_LEVEL_ALL);
-    LogComponentEnable("DashClient", LOG_LEVEL_ALL);
     // LogComponentEnable("QuicSocketTxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicSocketRxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
     // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
     // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);
-  LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
-  LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);
   // LogComponentEnable("QuicBbr", LOG_LEVEL_ALL); // Uncomment if QuicBbr has its own log component
   // LogComponentEnable("MpQuicScheduler", LOG_LEVEL_ALL);
   // LogComponentEnableAll (LOG_PREFIX_TIME);
@@ -931,29 +930,30 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("================================\n");
 
   // Video duration configuration
-  double desiredVideoDuration = 60.0;  // Desired video duration in seconds
+  // double desiredVideoDuration = 0.0;  // Desired video duration in seconds
   
   // Calculate minimum simulation duration
   // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
-  double minSimulationDuration = desiredVideoDuration*1.15;
+  // double minSimulationDuration = desiredVideoDuration*1.15;
   
   // Get current stopTime (line 1024)
-  double stopTime = 1.0;  // Minimal time for testing
+  double desiredVideoDuration = 60.0;
+  double stopTime = desiredVideoDuration+3;  // Minimal time for testing
   
-  // Check if current stopTime is less than minimum, and adjust if needed
-  if (stopTime < minSimulationDuration)
-  {
-      NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
-                   << minSimulationDuration << "s (required for video duration " 
-                   << desiredVideoDuration << "s)");
-      stopTime = minSimulationDuration;
-  }
-  else
-  {
-      NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
-                   << desiredVideoDuration << "s, minimum required: " 
-                   << minSimulationDuration << "s)");
-  }
+  // // Check if current stopTime is less than minimum, and adjust if needed
+  // if (stopTime < minSimulationDuration)
+  // {
+  //     NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
+  //                  << minSimulationDuration << "s (required for video duration " 
+  //                  << desiredVideoDuration << "s)");
+  //     stopTime = minSimulationDuration;
+  // }
+  // else
+  // {
+  //     NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
+  //                  << desiredVideoDuration << "s, minimum required: " 
+  //                  << minSimulationDuration << "s)");
+  // }
   // Install Mobility Model
   
   // Install WaypointMobilityModel for satellite (eNB)
@@ -965,6 +965,8 @@ main (int argc, char *argv[])
   MobilityHelper enbmobility;
   enbmobility.SetMobilityModel ("ns3::WaypointMobilityModel");
   enbmobility.Install (enbNodes);
+
+  double minSimulationDuration = stopTime;
 
   for (uint32_t i = 0; i < enbNodes.GetN(); ++i)
   {
@@ -1053,23 +1055,23 @@ main (int argc, char *argv[])
   // QUIC Socket buffer configuration - must be large enough for high bitrate segments
   // For 66 Mbps: average segment ~15.74 MB, max segment ~31.47 MB
   // Set to hold at least 2 full segments to prevent blocking
-  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
-  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
+  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(128*1024*1024));  // 64 MB (2x max segment)
+  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(128*1024*1024));  // 64 MB (2x max segment)
 
   // QUIC stream buffer configuration - must hold multiple large frames (up to 330 KB each)
   // At 66 Mbps, frames accumulate faster than they can be transmitted
   // Buffer was 98.5% full (7.88 MB used) with only 127 KB available, but frames are 156 KB
   // Set to 32 MB to handle burst accumulation and prevent blocking
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (32*1024*1024));  // 32 MB (96x max frame)
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (32*1024*1024));  // 32 MB (96x max frame)
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (128*1024*1024));  // 128 MB (Match Socket buffer)
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (128*1024*1024));  // 128 MB (Match Socket buffer)
 
   // DASH over QUIC configuration - aligned with QUIC packet size limits
-  double target_dt = 60.0;  // Target buffering time (increased from 10.0s for better buffering)
+  double target_dt = 10.0;  // Target buffering time (increased from 10.0s for better buffering)
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 600*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
+  uint32_t bufferSpace = 128*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
 
-  double window = 200;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
+  double window = 5;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
 
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
@@ -1094,7 +1096,6 @@ main (int argc, char *argv[])
     dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
     dashClient.SetAttribute ("window", TimeValue(MilliSeconds(window)));
     dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
-    dashClient.SetAttribute ("MaxVideoDuration", TimeValue(Seconds(desiredVideoDuration)));  // Add this line
     
     clientApps.Add (dashClient.Install (remoteHost));
     NS_LOG_UNCOND("DASH Client " << u << " installed on remoteHost (IP=" << remoteHostAddr 

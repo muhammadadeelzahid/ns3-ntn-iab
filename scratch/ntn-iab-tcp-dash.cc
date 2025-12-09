@@ -594,12 +594,14 @@ main (int argc, char *argv[])
   uint32_t rlcBufSize = 10;
   uint32_t interPacketInterval = 10000; 
   uint32_t packetSize = 1500; //bytes // Increased to accommodate DASH frames
+  std::string ccAlgorithm = "ns3::TcpBbr";
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
   cmd.AddValue("numUes", "Number of UE nodes/users", numUes);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
+  cmd.AddValue("ccAlgorithm", "TCP Congestion Control Algorithm", ccAlgorithm);
   cmd.Parse(argc, argv);
 
   //   if(rlcAm)
@@ -692,9 +694,10 @@ main (int argc, char *argv[])
   // CONGESTION CONTROL PARAMETERS
   // ============================================================================
   
-  // TCP Congestion Control Configuration - Use NewReno (MATCHES QUIC)
-  // QUIC: CcType = QuicNewReno
-  Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpNewReno::GetTypeId()));
+  // TCP Congestion Control Configuration - Dynamic Selection
+  // QUIC: CcType = QuicNewReno (default)
+  // Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpNewReno::GetTypeId()));
+  Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TypeId::LookupByName(ccAlgorithm)));
   
   // Reduce initial slow start threshold to enter congestion avoidance sooner (MATCHES QUIC CONGESTION AVOIDANCE)
   // QUIC: InitialSlowStartThreshold = 32KB (reduced from unlimited for congestion avoidance)
@@ -857,30 +860,25 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("Actually created " << iabNodes.GetN() << " IAB nodes");
   NS_LOG_UNCOND("Actually created " << enbNodes.GetN() << " eNB nodes");
   NS_LOG_UNCOND("================================\n");
-  // Video duration configuration
-  double desiredVideoDuration = 60.0;  // Desired video duration in seconds
-  
-  // Calculate minimum simulation duration
-  // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
-  double minSimulationDuration = desiredVideoDuration*1.15;
   
   // Get current stopTime (line 1024)
-  double stopTime = 1.0;  // Minimal time for testing
+  double desiredVideoDuration = 60.0;
+  double stopTime = desiredVideoDuration+3;  // Minimal time for testing
   
-  // Check if current stopTime is less than minimum, and adjust if needed
-  if (stopTime < minSimulationDuration)
-  {
-      NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
-                   << minSimulationDuration << "s (required for video duration " 
-                   << desiredVideoDuration << "s)");
-      stopTime = minSimulationDuration;
-  }
-  else
-  {
-      NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
-                   << desiredVideoDuration << "s, minimum required: " 
-                   << minSimulationDuration << "s)");
-  }
+  // // Check if current stopTime is less than minimum, and adjust if needed
+  // if (stopTime < minSimulationDuration)
+  // {
+  //     NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
+  //                  << minSimulationDuration << "s (required for video duration " 
+  //                  << desiredVideoDuration << "s)");
+  //     stopTime = minSimulationDuration;
+  // }
+  // else
+  // {
+  //     NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
+  //                  << desiredVideoDuration << "s, minimum required: " 
+  //                  << minSimulationDuration << "s)");
+  // }
 
   // Install Mobility Model
   
@@ -893,6 +891,8 @@ main (int argc, char *argv[])
   MobilityHelper enbmobility;
   enbmobility.SetMobilityModel ("ns3::WaypointMobilityModel");
   enbmobility.Install (enbNodes);
+  
+  double minSimulationDuration = stopTime;
 
   for (uint32_t i = 0; i < enbNodes.GetN(); ++i)
   {
@@ -1033,13 +1033,13 @@ main (int argc, char *argv[])
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   
-  // DASH over TCP configuration - aligned with TCP segment size limits
-  double target_dt = 60.0;  // Target buffering time (increased from 10.0s for better buffering)
+  double target_dt = 10.0;  // Target buffering time (increased from 10.0s for better buffering)
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 600*1024*1024;  // 600 MB (20+ segments at 66 Mbps) - already adequate
+  uint32_t bufferSpace = 128*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
 
-  double window = 200;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
+  double window = 5;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
+
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
 
@@ -1063,7 +1063,6 @@ main (int argc, char *argv[])
     dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
     dashClient.SetAttribute ("window", TimeValue(MilliSeconds(window)));
     dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
-    dashClient.SetAttribute ("MaxVideoDuration", TimeValue(Seconds(desiredVideoDuration)));  // Add this line
     
     clientApps.Add (dashClient.Install (remoteHost));
     NS_LOG_UNCOND("DASH Client " << u << " installed on remoteHost (IP=" << remoteHostAddr 

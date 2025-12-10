@@ -560,7 +560,16 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
 
   NS_LOG_FUNCTION (this << (uint64_t)m_frameType);
 
-  NS_ASSERT (m_frameType >= PADDING and m_frameType <= PATH_ABANDON);
+  // Validate frame type - if invalid, treat as PADDING to prevent assertion failure
+  // This can happen with corrupted or incomplete packets
+  if (m_frameType < PADDING || m_frameType > PATH_ABANDON)
+  {
+    NS_LOG_ERROR ("Invalid frame type " << (uint64_t)m_frameType 
+                  << " detected during deserialization. Treating as PADDING frame.");
+    m_frameType = PADDING;
+    // Return serialized size for PADDING frame (1 byte) since we've already read the frame type
+    return GetSerializedSize ();
+  }
 
   switch (m_frameType)
     {

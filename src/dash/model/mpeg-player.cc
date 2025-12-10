@@ -130,6 +130,19 @@ MpegPlayer::ReceiveFrame(Ptr<Packet> message)
     NS_LOG_FUNCTION(this << message);
     NS_LOG_INFO("Received Frame " << m_state);
 
+    // Validate packet has minimum required size (both headers)
+    MPEGHeader mpeg_header;
+    HTTPHeader http_header;
+    uint32_t minRequiredSize = http_header.GetSerializedSize() + mpeg_header.GetSerializedSize();
+    
+    if (message->GetSize() < minRequiredSize)
+    {
+        NS_LOG_ERROR("Received packet size (" << message->GetSize() 
+                     << ") is smaller than minimum required size (" << minRequiredSize 
+                     << "). Dropping corrupted packet.");
+        return false;
+    }
+
     Ptr<Packet> msg = message->Copy();
 
     if (!m_frameBuffer.push(msg))
@@ -187,6 +200,22 @@ MpegPlayer::PlayFrame(void)
 
     MPEGHeader mpeg_header;
     HTTPHeader http_header;
+
+    // Validate packet has enough data for both headers before removing them
+    // This prevents buffer iterator assertion failures when headers are removed
+    uint32_t httpHeaderSize = http_header.GetSerializedSize();
+    uint32_t mpegHeaderSize = mpeg_header.GetSerializedSize();
+    uint32_t requiredSize = httpHeaderSize + mpegHeaderSize;
+    
+    if (message->GetSize() < requiredSize)
+    {
+        NS_LOG_ERROR("Packet size (" << message->GetSize() 
+                     << ") is smaller than required header size (" << requiredSize 
+                     << "). Dropping corrupted packet.");
+        // Schedule next frame playback
+        Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
+        return;
+    }
 
     message->RemoveHeader(http_header);
     message->RemoveHeader(mpeg_header);

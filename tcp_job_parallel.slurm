@@ -4,7 +4,7 @@
 #SBATCH --error=tcp-cc-%A_%a.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=3-00:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --mem=2G
 #SBATCH --array=1-300
 

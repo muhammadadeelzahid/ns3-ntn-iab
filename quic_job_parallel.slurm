@@ -4,7 +4,7 @@
 #SBATCH --error=quic-cc-%A_%a.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=18:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --mem=4G
 #SBATCH --array=1-100
 

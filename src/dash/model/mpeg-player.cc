@@ -42,13 +42,16 @@ bool
 FrameBuffer::push(Ptr<Packet> frame)
 {
     NS_LOG_FUNCTION(this);
-    if (m_size_in_bytes + frame->GetSerializedSize() <= m_capacity)
+    // Use GetSize() instead of GetSerializedSize() for buffer capacity checks
+    // GetSize() returns the current packet buffer size without iterating metadata,
+    // which is safer and avoids assertion failures when packet metadata is corrupted
+    uint32_t packetSize = frame->GetSize();
+    if (m_size_in_bytes + packetSize <= m_capacity)
     {
         m_queue.push(frame);
-        NS_LOG_INFO("pushing packet with size = " << frame->GetSize() << " serialized = "
-                                                  << frame->GetSerializedSize());
+        NS_LOG_INFO("pushing packet with size = " << packetSize);
 
-        m_size_in_bytes += frame->GetSerializedSize();
+        m_size_in_bytes += packetSize;
         return true;
     }
     else
@@ -63,10 +66,10 @@ FrameBuffer::pop()
     NS_LOG_FUNCTION(this);
     Ptr<Packet> frame = m_queue.front();
     m_queue.pop();
-    NS_LOG_INFO("popping packet with size = " << frame->GetSize()
-                                              << " serialized = " << frame->GetSerializedSize());
+    uint32_t packetSize = frame->GetSize();
+    NS_LOG_INFO("popping packet with size = " << packetSize);
 
-    m_size_in_bytes -= frame->GetSerializedSize();
+    m_size_in_bytes -= packetSize;
     return frame;
 }
 
@@ -133,13 +136,35 @@ MpegPlayer::ReceiveFrame(Ptr<Packet> message)
     // Validate packet has minimum required size (both headers)
     MPEGHeader mpeg_header;
     HTTPHeader http_header;
-    uint32_t minRequiredSize = http_header.GetSerializedSize() + mpeg_header.GetSerializedSize();
+    uint32_t httpHeaderSize = http_header.GetSerializedSize();
+    uint32_t mpegHeaderSize = mpeg_header.GetSerializedSize();
+    uint32_t minRequiredSize = httpHeaderSize + mpegHeaderSize;
     
     if (message->GetSize() < minRequiredSize)
     {
         NS_LOG_ERROR("Received packet size (" << message->GetSize() 
                      << ") is smaller than minimum required size (" << minRequiredSize 
                      << "). Dropping corrupted packet.");
+        return false;
+    }
+
+    // Reject packets with suspiciously small payloads - these are likely corrupted
+    // Minimum reasonable payload size for MPEG frames (even small frames should be > 50 bytes)
+    uint32_t minReasonablePayload = 50; // bytes
+    uint32_t payloadSize = message->GetSize() - minRequiredSize;
+    if (payloadSize < minReasonablePayload)
+    {
+        NS_LOG_ERROR("Received packet with too small payload (" << payloadSize 
+                     << " bytes). Total size=" << message->GetSize() 
+                     << ". Dropping likely corrupted packet.");
+        return false;
+    }
+
+    // Additional check: reject packets that are exactly header size (no payload)
+    if (message->GetSize() == minRequiredSize)
+    {
+        NS_LOG_ERROR("Received packet with no payload (size equals header sizes). "
+                     << "Size=" << message->GetSize() << ". Dropping corrupted packet.");
         return false;
     }
 
@@ -217,8 +242,53 @@ MpegPlayer::PlayFrame(void)
         return;
     }
 
-    message->RemoveHeader(http_header);
-    message->RemoveHeader(mpeg_header);
+    // Additional validation: Reject packets with suspiciously small payloads
+    // These checks should have been done in ReceiveFrame, but double-check here for safety
+    uint32_t payloadSize = message->GetSize() - requiredSize;
+    uint32_t minReasonablePayload = 50; // bytes
+    
+    if (payloadSize < minReasonablePayload)
+    {
+        NS_LOG_ERROR("Packet payload is too small (" << payloadSize 
+                     << " bytes). Total size=" << message->GetSize() 
+                     << ". Dropping likely corrupted packet.");
+        // Schedule next frame playback
+        Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
+        return;
+    }
+
+    // Remove headers using size-based variant to have more control
+    // This helps prevent reading beyond bounds if header data is corrupted
+    // We know the exact header sizes, so use RemoveHeader(header, size) variant
+    uint32_t removedHttpSize = message->RemoveHeader(http_header, httpHeaderSize);
+    if (removedHttpSize != httpHeaderSize)
+    {
+        NS_LOG_ERROR("HTTP header removal size mismatch. Expected=" << httpHeaderSize 
+                     << " Removed=" << removedHttpSize << ". Dropping corrupted packet.");
+        // Schedule next frame playback
+        Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
+        return;
+    }
+    
+    // Validate packet still has enough data for MPEG header after removing HTTP header
+    if (message->GetSize() < mpegHeaderSize)
+    {
+        NS_LOG_ERROR("Packet size (" << message->GetSize() 
+                     << ") is smaller than MPEG header size (" << mpegHeaderSize 
+                     << ") after removing HTTP header. Dropping corrupted packet.");
+        // Schedule next frame playback
+        Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
+        return;
+    }
+    
+    uint32_t removedMpegSize = message->RemoveHeader(mpeg_header, mpegHeaderSize);
+    if (removedMpegSize != mpegHeaderSize)
+    {
+        NS_LOG_ERROR("MPEG header removal size mismatch. Expected=" << mpegHeaderSize 
+                     << " Removed=" << removedMpegSize << ". Dropping corrupted packet.");
+        // Schedule next frame playback (but headers are already partially removed, so we continue)
+        // This shouldn't happen with fixed-size headers, but log it
+    }
 
     m_totalRate += http_header.GetResolution();
     if (http_header.GetSegmentId() > 0) // Discard the first segment for the minRate

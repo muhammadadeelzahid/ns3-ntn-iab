@@ -179,9 +179,19 @@ DashServer::HandleRead(Ptr<Socket> socket)
         }
 
         HTTPHeader header;
+        uint32_t httpHeaderSize = header.GetSerializedSize();
 
-        while (m_pending_packet->GetSize() >= header.GetSerializedSize())
+        while (m_pending_packet->GetSize() >= httpHeaderSize)
         {
+            // Validate packet has enough data before removing header
+            if (m_pending_packet->GetSize() < httpHeaderSize)
+            {
+                NS_LOG_ERROR("Packet size (" << m_pending_packet->GetSize() 
+                             << ") is smaller than HTTP header size (" << httpHeaderSize 
+                             << "). Dropping corrupted packet.");
+                break;
+            }
+            
             m_pending_packet->RemoveHeader(header);
             
             if (header.GetMessageType() == HTTP_REQUEST)
@@ -275,10 +285,29 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
             return;
         }
 
-        Ptr<Packet> frame = m_queues[socket].front().Copy();
-        m_queues[socket].pop_front();
+        // Don't remove packet from queue until we successfully send it
+        // This prevents packet loss if Send() fails
+        Packet& queuedPacket = m_queues[socket].front();
+        
+        // Validate packet before processing
+        uint32_t init_size = queuedPacket.GetSize();
+        if (init_size == 0)
+        {
+            NS_LOG_ERROR("Found zero-sized packet in queue. Removing corrupted packet.");
+            m_queues[socket].pop_front();
+            continue;
+        }
 
-        uint32_t init_size = frame->GetSize();
+        Ptr<Packet> frame = queuedPacket.Copy();
+
+        // Validate copied packet
+        if (frame->GetSize() != init_size)
+        {
+            NS_LOG_ERROR("Packet copy size mismatch. Original=" << init_size 
+                         << " Copy=" << frame->GetSize() << ". Removing corrupted packet.");
+            m_queues[socket].pop_front();
+            continue;
+        }
 
         if (max_tx_size < init_size)
         {
@@ -286,6 +315,8 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
             Ptr<Packet> frag0 = frame->CreateFragment(0, max_tx_size);
             Ptr<Packet> frag1 = frame->CreateFragment(max_tx_size, init_size - max_tx_size);
 
+            // Replace the original packet with the remaining fragment
+            m_queues[socket].pop_front();
             m_queues[socket].push_front(*frag1);
             frame = frag0;
         }
@@ -299,17 +330,23 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
         if (bytes < 0)
         {
             NS_LOG_WARN("Couldn't send packet, bytes = " << bytes << ". Scheduling retry in 100ms.");
+            // Packet is still in queue, so we can retry later
             Simulator::Schedule (MilliSeconds (100), &DashServer::DataSend, this, socket, 0);
             return;
         }
         else if ((uint32_t)bytes < frame->GetSize())
         {
             // QUIC socket sent partial data, acceptable.
+            // Remove the original packet since we've sent part of it
+            // The remaining part should be handled by fragmentation logic above
+            m_queues[socket].pop_front();
             frames_sent++;
             bytes_sent += bytes;
         }
         else
         {
+            // Successfully sent the entire packet, remove it from queue
+            m_queues[socket].pop_front();
             frames_sent++;
             bytes_sent += bytes;
             NS_LOG_WARN("DashServer Debug: Socket::Send success. Bytes: " << bytes << ". Queue left: " << m_queues[socket].size());

@@ -109,7 +109,9 @@ HttpParser::TryToPushToPlayer()
     {
         MPEGHeader mpeg_header;
         HTTPHeader http_header;
-        uint32_t headersize = mpeg_header.GetSerializedSize() + http_header.GetSerializedSize();
+        uint32_t httpHeaderSize = http_header.GetSerializedSize();
+        uint32_t mpegHeaderSize = mpeg_header.GetSerializedSize();
+        uint32_t headersize = httpHeaderSize + mpegHeaderSize;
 
         if (m_pending_packet->GetSize() < headersize)
         {
@@ -117,8 +119,29 @@ HttpParser::TryToPushToPlayer()
             return;
         }
 
+        // Validate packet integrity before processing headers
         Ptr<Packet> headerPacket = m_pending_packet->Copy();
+        
+        // Validate HTTP header can be removed
+        if (headerPacket->GetSize() < httpHeaderSize)
+        {
+            NS_LOG_ERROR("Packet size (" << headerPacket->GetSize() 
+                         << ") is smaller than HTTP header size (" << httpHeaderSize 
+                         << "). Dropping corrupted packet.");
+            return;
+        }
+        
         headerPacket->RemoveHeader(http_header);
+        
+        // Validate MPEG header can be removed after HTTP header
+        if (headerPacket->GetSize() < mpegHeaderSize)
+        {
+            NS_LOG_ERROR("Packet size (" << headerPacket->GetSize() 
+                         << ") is smaller than MPEG header size (" << mpegHeaderSize 
+                         << ") after removing HTTP header. Dropping corrupted packet.");
+            return;
+        }
+        
         headerPacket->RemoveHeader(mpeg_header);
 
         m_pending_message_size = headersize + mpeg_header.GetSize();

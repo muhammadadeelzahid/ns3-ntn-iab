@@ -1298,6 +1298,191 @@ def plot_playback_grid(all_stats, protocol_type, output_dir):
     plt.close(fig)
     print(f"Saved {filename}")
 
+def plot_interruption_duration_boxplot(all_stats, output_dir):
+    """
+    Create a box plot showing total interruption duration for each protocol-CC combination.
+    Y-axis: Total interruption duration (seconds)
+    X-axis: Protocol-CC combinations (e.g., QUIC-BBR, TCP-Cubic)
+    Prints detailed statistics (mean, median, IQR, etc.) for each protocol-CC.
+    """
+    print("\n" + "=" * 80)
+    print("INTERRUPTION DURATION STATISTICS BY PROTOCOL-CC")
+    print("=" * 80)
+    
+    # Collect interruption durations grouped by protocol-CC
+    interruption_data = defaultdict(list)
+    
+    print("\nStep 1: Collecting interruption data from all runs...")
+    for algo_name, stats in all_stats.items():
+        if 'inter_times' not in stats or not stats['inter_times']:
+            continue
+        
+        # Parse algorithm name to extract protocol and CC
+        # Format is typically "QUIC BBR" or "TCP Cubic"
+        parts = algo_name.split()
+        if len(parts) >= 2:
+            protocol = parts[0]  # QUIC or TCP
+            cc = ' '.join(parts[1:])  # BBR, Cubic, etc.
+            protocol_cc = f"{protocol}-{cc}"
+        else:
+            # Fallback: use full name
+            protocol_cc = algo_name.replace(' ', '-')
+        
+        # Add interruption durations for this protocol-CC
+        num_runs = len(stats['inter_times'])
+        interruption_data[protocol_cc].extend(stats['inter_times'])
+        print(f"  {protocol_cc}: Added {num_runs} runs (total: {len(interruption_data[protocol_cc])} samples)")
+    
+    if not interruption_data:
+        print("No interruption data available for box plot.")
+        return
+    
+    # Prepare data for box plot and calculate statistics
+    labels = []
+    data = []
+    statistics = {}
+    
+    print("\nStep 2: Calculating statistics for each protocol-CC...")
+    print("-" * 80)
+    
+    # Sort labels for consistent ordering (QUIC first, then TCP, alphabetically)
+    sorted_keys = sorted(interruption_data.keys(), key=lambda x: (x.startswith('TCP'), x))
+    
+    for protocol_cc in sorted_keys:
+        durations = interruption_data[protocol_cc]
+        if not durations:  # Skip if no data
+            continue
+        
+        # Convert to numpy array for easier calculations
+        durations_array = np.array(durations)
+        
+        # Calculate statistics
+        mean_val = np.mean(durations_array)
+        median_val = np.median(durations_array)
+        q1 = np.percentile(durations_array, 25)
+        q3 = np.percentile(durations_array, 75)
+        iqr = q3 - q1
+        std_dev = np.std(durations_array)
+        min_val = np.min(durations_array)
+        max_val = np.max(durations_array)
+        num_samples = len(durations_array)
+        
+        # Store statistics
+        statistics[protocol_cc] = {
+            'mean': mean_val,
+            'median': median_val,
+            'q1': q1,
+            'q3': q3,
+            'iqr': iqr,
+            'std': std_dev,
+            'min': min_val,
+            'max': max_val,
+            'count': num_samples
+        }
+        
+        # Print statistics for this protocol-CC
+        print(f"\n{protocol_cc}:")
+        print(f"  Number of samples: {num_samples}")
+        print(f"  Mean:              {mean_val:.4f} seconds")
+        print(f"  Median:            {median_val:.4f} seconds")
+        print(f"  Q1 (25th %ile):    {q1:.4f} seconds")
+        print(f"  Q3 (75th %ile):    {q3:.4f} seconds")
+        print(f"  IQR (Q3 - Q1):     {iqr:.4f} seconds")
+        print(f"  Std Deviation:     {std_dev:.4f} seconds")
+        print(f"  Min:               {min_val:.4f} seconds")
+        print(f"  Max:               {max_val:.4f} seconds")
+        
+        labels.append(protocol_cc)
+        data.append(durations)
+    
+    if not data:
+        print("No valid interruption data for box plot.")
+        return
+    
+    print("\n" + "-" * 80)
+    print("Step 3: Creating box plot...")
+    
+    # Create box plot
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    # Create box plot
+    bp = ax.boxplot(data, labels=labels, patch_artist=True, 
+                    showmeans=True, meanline=True,
+                    boxprops=dict(linewidth=2),
+                    medianprops=dict(linewidth=2, color='red'),
+                    meanprops=dict(linewidth=2, linestyle='--', color='green'),
+                    whiskerprops=dict(linewidth=2),
+                    capprops=dict(linewidth=2))
+    
+    # Color boxes by protocol (QUIC = red, TCP = blue)
+    colors = []
+    for label in labels:
+        if label.startswith('QUIC'):
+            colors.append('lightcoral')
+        elif label.startswith('TCP'):
+            colors.append('lightblue')
+        else:
+            colors.append('lightgray')
+    
+    for patch, color in zip(bp['boxes'], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    
+    ax.set_xlabel('Protocol-CC Algorithm', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Total Interruption Duration (seconds)', fontsize=14, fontweight='bold')
+    ax.set_title('Interruption Duration Distribution by Protocol-CC', fontsize=16, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Rotate x-axis labels if needed
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='lightcoral', alpha=0.7, label='QUIC'),
+        Patch(facecolor='lightblue', alpha=0.7, label='TCP'),
+        plt.Line2D([0], [0], color='red', linewidth=2, label='Median'),
+        plt.Line2D([0], [0], color='green', linewidth=2, linestyle='--', label='Mean')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right')
+    
+    plt.tight_layout()
+    
+    filename = "interruption_duration_boxplot.png"
+    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved {filename}")
+    
+    # Step 4: Print summary comparison table
+    print("\n" + "-" * 80)
+    print("Step 4: Summary Comparison Table")
+    print("-" * 80)
+    print(f"{'Protocol-CC':<20} {'Mean':>12} {'Median':>12} {'IQR':>12} {'Std Dev':>12} {'Count':>8}")
+    print("-" * 80)
+    
+    for protocol_cc in sorted_keys:
+        if protocol_cc in statistics:
+            stats = statistics[protocol_cc]
+            print(f"{protocol_cc:<20} {stats['mean']:>12.4f} {stats['median']:>12.4f} "
+                  f"{stats['iqr']:>12.4f} {stats['std']:>12.4f} {stats['count']:>8}")
+    
+    print("-" * 80)
+    
+    # Step 5: Find best and worst performers
+    print("\nStep 5: Performance Ranking (by Mean Interruption Duration)")
+    print("-" * 80)
+    
+    # Sort by mean interruption duration (lower is better)
+    sorted_by_mean = sorted(statistics.items(), key=lambda x: x[1]['mean'])
+    
+    print("Best (lowest interruption duration) to Worst (highest):")
+    for rank, (protocol_cc, stats) in enumerate(sorted_by_mean, 1):
+        print(f"  {rank}. {protocol_cc:<20} Mean: {stats['mean']:.4f}s, Median: {stats['median']:.4f}s")
+    
+    print("\n" + "=" * 80)
+    print("Interruption Duration Analysis Complete!")
+    print("=" * 80 + "\n")
+
 def main():
     parser = argparse.ArgumentParser(description='Plot bitrate and playback status from simulation logs')
     parser.add_argument('--client_nodes', type=str, default=None, 
@@ -1385,6 +1570,9 @@ def main():
     # 6. Playback Grid Plots
     plot_playback_grid(all_stats, "QUIC", output_dir)
     plot_playback_grid(all_stats, "TCP", output_dir)
+    
+    # 7. Interruption Duration Box Plot
+    plot_interruption_duration_boxplot(all_stats, output_dir)
     
     print(f"\nAll plots saved to {output_dir}")
     print("=" * 60)

@@ -427,6 +427,19 @@ DashClient::MessageReceived(Packet message)
     MPEGHeader mpegHeader;
     HTTPHeader httpHeader;
 
+    // Validate packet has minimum required size (both headers) before processing
+    uint32_t httpHeaderSize = httpHeader.GetSerializedSize();
+    uint32_t mpegHeaderSize = mpegHeader.GetSerializedSize();
+    uint32_t minRequiredSize = httpHeaderSize + mpegHeaderSize;
+    
+    if (message.GetSize() < minRequiredSize)
+    {
+        NS_LOG_ERROR("Received packet size (" << message.GetSize() 
+                     << ") is smaller than minimum required size (" << minRequiredSize 
+                     << "). Dropping corrupted packet.");
+        return false;
+    }
+
     // Send the frame to the player
     // If it doesn't fit in the buffer, don't continue
     if (!m_player.ReceiveFrame(&message))
@@ -440,7 +453,30 @@ DashClient::MessageReceived(Packet message)
     Ptr<const Packet> packet = message.Copy();
     m_rxTrace(packet);
 
+    // Validate packet still has enough data for headers before removing them
+    // (packet should be unchanged after ReceiveFrame, but double-check for safety)
+    if (message.GetSize() < minRequiredSize)
+    {
+        NS_LOG_ERROR("Packet size (" << message.GetSize() 
+                     << ") is smaller than required header size (" << minRequiredSize 
+                     << ") after ReceiveFrame. Dropping corrupted packet.");
+        return false;
+    }
+
+    // Remove headers - both are fixed-size, so if size check passed, this should be safe
+    // However, if packet is corrupted, this may still fail with assertion
+    // The size validation above should catch most cases
     message.RemoveHeader(httpHeader);
+    
+    // Validate packet still has enough data for MPEG header after removing HTTP header
+    if (message.GetSize() < mpegHeaderSize)
+    {
+        NS_LOG_ERROR("Packet size (" << message.GetSize() 
+                     << ") is smaller than MPEG header size (" << mpegHeaderSize 
+                     << ") after removing HTTP header. Dropping corrupted packet.");
+        return false;
+    }
+    
     message.RemoveHeader(mpegHeader);
 
     // Calculate the buffering time

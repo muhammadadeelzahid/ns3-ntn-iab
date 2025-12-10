@@ -1171,7 +1171,7 @@ main (int argc, char *argv[])
   
   for (uint32_t i = 0; i < serverApps.GetN(); ++i)
   {
-    serverApps.Get(i)->SetStartTime(Seconds(0.2 + i * 0.1));
+    serverApps.Get(i)->SetStartTime(Seconds(0.1 + i * 0.1));
     // Stop apps 1 second before simulation stops to allow cleanup
     serverApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
@@ -1179,7 +1179,7 @@ main (int argc, char *argv[])
   // Clients start after servers with additional delay for QUIC handshake
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
-    clientApps.Get(i)->SetStartTime(Seconds(0.3 + i * 0.1));
+    clientApps.Get(i)->SetStartTime(Seconds(0.15 + i * 0.1));
     // Stop apps 1 second before simulation stops to allow cleanup
     clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
@@ -1190,12 +1190,12 @@ main (int argc, char *argv[])
   
   // Connect traces for remote host (now QUIC client) - schedule after app start
   uint32_t clientNodeId = remoteHost->GetId();
-  Time clientTraceTimeSched = Seconds(0.417614);  // After clients start at 0.3s
+  Time clientTraceTimeSched = Seconds(0.2);
   Simulator::Schedule(clientTraceTimeSched, &Traces, clientNodeId, "./client", ".txt");
   NS_LOG_UNCOND("  Scheduled QUIC traces for Client Node " << clientNodeId << " at t=" << clientTraceTimeSched.GetSeconds() << "s");
   
   // Connect traces for each UE node (now QUIC servers)
-  Time serverTraceTimeSched = Seconds(0.45);  // After server apps start at 0.2s
+  Time serverTraceTimeSched = Seconds(0.2);
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     uint32_t nodeId = ueNodes.Get(u)->GetId();

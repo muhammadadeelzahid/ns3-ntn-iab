@@ -92,6 +92,7 @@ class MpegPlayer
     uint64_t m_totalRate;
     uint32_t m_minRate;
     uint32_t m_framesPlayed;
+    Time m_totalPlaybackTime;  // Total time the video has been played (excluding interruptions)
     FrameBuffer m_frameBuffer;
 
   private:

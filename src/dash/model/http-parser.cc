@@ -88,6 +88,16 @@ HttpParser::ReadSocket(Ptr<Socket> socket)
         return;
     }
 
+    // Skip packets that are too small to be valid DASH packets
+    // Minimum DASH packet = HTTP header (28 bytes) + MPEG header (32 bytes) = 60 bytes
+    // Very small packets are likely QUIC control packets, not DASH data
+    if (pkt->GetSize() < 60)
+    {
+        NS_LOG_DEBUG("Skipping small packet (size=" << pkt->GetSize() 
+                    << " bytes) - likely QUIC control packet, not DASH data");
+        return;
+    }
+
     if (!m_pending_packet)
     {
         m_pending_packet = pkt;
@@ -105,6 +115,12 @@ HttpParser::TryToPushToPlayer()
 {
     NS_LOG_FUNCTION(this);
 
+    // Safety check: ensure we have a valid pending packet
+    if (!m_pending_packet)
+    {
+        return;
+    }
+
     while (true)
     {
         MPEGHeader mpeg_header;
@@ -113,38 +129,35 @@ HttpParser::TryToPushToPlayer()
         uint32_t mpegHeaderSize = mpeg_header.GetSerializedSize();
         uint32_t headersize = httpHeaderSize + mpegHeaderSize;
 
-        if (m_pending_packet->GetSize() < headersize)
+        // Safety check: ensure packet exists and has minimum size
+        if (!m_pending_packet || m_pending_packet->GetSize() < headersize)
         {
-            NS_LOG_INFO("### Headers incomplete ");
+            NS_LOG_INFO("### Headers incomplete (packet size: " 
+                       << (m_pending_packet ? m_pending_packet->GetSize() : 0) 
+                       << ", need: " << headersize << ")");
             return;
         }
 
-        // Validate packet integrity before processing headers
+        // Peek headers by copying and removing from copy (don't modify original)
         Ptr<Packet> headerPacket = m_pending_packet->Copy();
         
-        // Validate HTTP header can be removed
-        if (headerPacket->GetSize() < httpHeaderSize)
-        {
-            NS_LOG_ERROR("Packet size (" << headerPacket->GetSize() 
-                         << ") is smaller than HTTP header size (" << httpHeaderSize 
-                         << "). Dropping corrupted packet.");
-            return;
-        }
-        
+        // Remove headers to deserialize them - this will assert if packet is corrupted
+        // but we've checked size above, so this should be safe
         headerPacket->RemoveHeader(http_header);
-        
-        // Validate MPEG header can be removed after HTTP header
-        if (headerPacket->GetSize() < mpegHeaderSize)
-        {
-            NS_LOG_ERROR("Packet size (" << headerPacket->GetSize() 
-                         << ") is smaller than MPEG header size (" << mpegHeaderSize 
-                         << ") after removing HTTP header. Dropping corrupted packet.");
-            return;
-        }
-        
         headerPacket->RemoveHeader(mpeg_header);
 
-        m_pending_message_size = headersize + mpeg_header.GetSize();
+        // Validate frame size is reasonable before using it
+        uint32_t frameSize = mpeg_header.GetSize();
+        if (frameSize == 0 || frameSize > 10 * 1024 * 1024) // 10MB max frame size
+        {
+            NS_LOG_WARN("### Invalid frame size detected: " << frameSize 
+                       << " bytes. Packet may be corrupted or not a DASH packet. "
+                       << "Clearing pending packet.");
+            m_pending_packet = nullptr;
+            return;
+        }
+
+        m_pending_message_size = headersize + frameSize;
 
         NS_LOG_INFO("Total size is " << m_pending_packet->GetSize() << " pending message is "
                                      << m_pending_message_size);

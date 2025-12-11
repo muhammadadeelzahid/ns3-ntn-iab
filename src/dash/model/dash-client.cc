@@ -427,20 +427,11 @@ DashClient::MessageReceived(Packet message)
     MPEGHeader mpegHeader;
     HTTPHeader httpHeader;
 
-    // Validate packet has minimum required size (both headers) before processing
-    uint32_t httpHeaderSize = httpHeader.GetSerializedSize();
-    uint32_t mpegHeaderSize = mpegHeader.GetSerializedSize();
-    uint32_t minRequiredSize = httpHeaderSize + mpegHeaderSize;
-    
-    if (message.GetSize() < minRequiredSize)
-    {
-        NS_LOG_ERROR("Received packet size (" << message.GetSize() 
-                     << ") is smaller than minimum required size (" << minRequiredSize 
-                     << "). Dropping corrupted packet.");
-        return false;
-    }
+    Ptr<Packet> tempPacket = message.Copy();
+    tempPacket->RemoveHeader(httpHeader);
+    tempPacket->RemoveHeader(mpegHeader);
 
-    // Send the frame to the player
+    // Send the frame to the player (with headers intact - PlayFrame will remove them)
     // If it doesn't fit in the buffer, don't continue
     if (!m_player.ReceiveFrame(&message))
     {
@@ -448,38 +439,8 @@ DashClient::MessageReceived(Packet message)
     }
     m_segment_bytes += message.GetSize();
     m_totBytes += message.GetSize();
+    m_rxTrace(message.Copy());
 
-    // Fire Rx trace for received video segment
-    Ptr<const Packet> packet = message.Copy();
-    m_rxTrace(packet);
-
-    // Validate packet still has enough data for headers before removing them
-    // (packet should be unchanged after ReceiveFrame, but double-check for safety)
-    if (message.GetSize() < minRequiredSize)
-    {
-        NS_LOG_ERROR("Packet size (" << message.GetSize() 
-                     << ") is smaller than required header size (" << minRequiredSize 
-                     << ") after ReceiveFrame. Dropping corrupted packet.");
-        return false;
-    }
-
-    // Remove headers - both are fixed-size, so if size check passed, this should be safe
-    // However, if packet is corrupted, this may still fail with assertion
-    // The size validation above should catch most cases
-    message.RemoveHeader(httpHeader);
-    
-    // Validate packet still has enough data for MPEG header after removing HTTP header
-    if (message.GetSize() < mpegHeaderSize)
-    {
-        NS_LOG_ERROR("Packet size (" << message.GetSize() 
-                     << ") is smaller than MPEG header size (" << mpegHeaderSize 
-                     << ") after removing HTTP header. Dropping corrupted packet.");
-        return false;
-    }
-    
-    message.RemoveHeader(mpegHeader);
-
-    // Calculate the buffering time
     switch (m_player.m_state)
     {
     case MPEG_PLAYER_PLAYING:
@@ -584,7 +545,8 @@ DashClient::GetStats()
               << " avgRate: " << (1.0 * m_player.m_totalRate) / m_player.m_framesPlayed
               << " minRate: " << m_player.m_minRate
               << " AvgDt: " << m_sumDt.GetSeconds() / m_player.m_framesPlayed
-              << " changes: " << m_rateChanges << std::endl;
+              << " changes: " << m_rateChanges
+              << " TotalPlaybackTime: " << m_player.m_totalPlaybackTime.GetSeconds() << std::endl;
 }
 
 void

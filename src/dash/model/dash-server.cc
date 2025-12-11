@@ -285,63 +285,37 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
             return;
         }
 
-        // Don't remove packet from queue until we successfully send it
-        // This prevents packet loss if Send() fails
         Packet& queuedPacket = m_queues[socket].front();
-        
-        // Validate packet before processing
         uint32_t init_size = queuedPacket.GetSize();
-        if (init_size == 0)
-        {
-            NS_LOG_ERROR("Found zero-sized packet in queue. Removing corrupted packet.");
-            m_queues[socket].pop_front();
-            continue;
-        }
-
         Ptr<Packet> frame = queuedPacket.Copy();
-
-        // Validate copied packet
-        if (frame->GetSize() != init_size)
-        {
-            NS_LOG_ERROR("Packet copy size mismatch. Original=" << init_size 
-                         << " Copy=" << frame->GetSize() << ". Removing corrupted packet.");
-            m_queues[socket].pop_front();
-            continue;
-        }
 
         if (max_tx_size < init_size)
         {
-            NS_LOG_INFO("Insufficient space in send buffer, fragmenting");
-            Ptr<Packet> frag0 = frame->CreateFragment(0, max_tx_size);
-            Ptr<Packet> frag1 = frame->CreateFragment(max_tx_size, init_size - max_tx_size);
-
-            // Replace the original packet with the remaining fragment
-            m_queues[socket].pop_front();
-            m_queues[socket].push_front(*frag1);
-            frame = frag0;
+            NS_LOG_DEBUG("Insufficient buffer space to send complete packet. "
+                        << "Packet size=" << init_size 
+                        << " bytes, Available=" << max_tx_size 
+                        << " bytes. Waiting for more buffer space.");
+            // Don't remove packet from queue - retry later when buffer has more space
+            Simulator::Schedule(MilliSeconds(100), &DashServer::DataSend, this, socket, 0);
+            return;
         }
-
-        // FIX for QUIC: Handle partial sends
-        // Like the client, the server must handle partial sends from QUIC sockets.
-        // QUIC's flow control may limit how much data can be sent at once, but
-        // the protocol guarantees that all data will eventually be delivered.
         int bytes;
         bytes = socket->Send(frame);
         if (bytes < 0)
         {
-            NS_LOG_WARN("Couldn't send packet, bytes = " << bytes << ". Scheduling retry in 100ms.");
-            // Packet is still in queue, so we can retry later
+            NS_LOG_DEBUG("Couldn't send packet, bytes = " << bytes << ". Socket buffer may be full. Scheduling retry in 100ms.");
+            // Packet is still in queue, so we can retry later when buffer has space
             Simulator::Schedule (MilliSeconds (100), &DashServer::DataSend, this, socket, 0);
             return;
         }
         else if ((uint32_t)bytes < frame->GetSize())
         {
-            // QUIC socket sent partial data, acceptable.
-            // Remove the original packet since we've sent part of it
-            // The remaining part should be handled by fragmentation logic above
-            m_queues[socket].pop_front();
-            frames_sent++;
-            bytes_sent += bytes;
+            NS_LOG_ERROR("QUIC socket returned partial send: " << bytes << " of " << frame->GetSize() 
+                       << " bytes. Packets must be sent complete - no fragmentation allowed. "
+                       << "Keeping complete packet in queue for retry.");
+            
+            Simulator::Schedule(MilliSeconds(10), &DashServer::DataSend, this, socket, 0);
+            return;
         }
         else
         {
@@ -349,7 +323,7 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
             m_queues[socket].pop_front();
             frames_sent++;
             bytes_sent += bytes;
-            NS_LOG_WARN("DashServer Debug: Socket::Send success. Bytes: " << bytes << ". Queue left: " << m_queues[socket].size());
+            NS_LOG_DEBUG("Successfully sent complete packet. Bytes: " << bytes << ". Queue left: " << m_queues[socket].size());
         }
     }
     NS_LOG_DEBUG("DataSend finished. Sent frames: " << frames_sent << ", bytes: " << bytes_sent);

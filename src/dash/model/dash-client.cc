@@ -304,13 +304,6 @@ DashClient::CheckBuffer()
 {
     NS_LOG_FUNCTION(this);
     m_parser.ReadSocket(m_socket);
-    
-    // Schedule next check to ensure continuous reading even if callbacks stop firing
-    // This is critical for QUIC where data may arrive in bursts
-    if (m_connected && m_socket)
-    {
-        Simulator::Schedule(MilliSeconds(50), &DashClient::CheckBuffer, this);
-    }
 }
 
 void
@@ -349,10 +342,6 @@ DashClient::ConnectionSucceeded(Ptr<Socket> socket)
     socket->SetCloseCallbacks(MakeCallback(&DashClient::ConnectionNormalClosed, this),
                               MakeCallback(&DashClient::ConnectionErrorClosed, this));
 
-    // Start periodic CheckBuffer to ensure we read data even if callbacks stop firing
-    // This is critical because socket recv callbacks may not fire when socket buffer is full
-    Simulator::Schedule(MilliSeconds(50), &DashClient::CheckBuffer, this);
-
     RequestSegment();
 }
 
@@ -389,7 +378,7 @@ DashClient::SegmentRequestTimeout()
     NS_LOG_FUNCTION(this);
     if (m_RequestPending)
     {
-        NS_LOG_UNCOND("Segment request timed out for segment " << m_segmentId - 1 << ". Retrying...");
+        NS_LOG_INFO("Segment request timed out for segment " << m_segmentId - 1 << ". Retrying...");
         m_RequestPending = false;
         
         // Decrement segment ID to retry the same segment

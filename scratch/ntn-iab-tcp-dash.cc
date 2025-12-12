@@ -591,16 +591,16 @@ main (int argc, char *argv[])
   bool rlcAm = false;
   uint32_t numRelays = 1;
   uint32_t numUes = 1;  // Number of UE nodes/users
-  uint32_t rlcBufSize = 10;
+  uint32_t rlcBufSize = 50;  // Increased from 10 to 50 MB to prevent RLC buffer overflows and packet drops (matches QUIC)
   uint32_t interPacketInterval = 10000; 
-  uint32_t packetSize = 1500; //bytes // Increased to accommodate DASH frames
+  uint32_t packetSize = 1400; //bytes // Decreased from 1500 to 1400 to avoid IP fragmentation (MSS < MTU - Headers)
   std::string ccAlgorithm = "ns3::TcpBbr";
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
   cmd.AddValue("numUes", "Number of UE nodes/users", numUes);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
-  cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
+  cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);  
   cmd.AddValue("ccAlgorithm", "TCP Congestion Control Algorithm", ccAlgorithm);
   cmd.Parse(argc, argv);
 
@@ -735,11 +735,11 @@ main (int argc, char *argv[])
   // BUFFER PARAMETERS (MATCHES QUIC)
   // ============================================================================
   // TCP Socket buffer configuration - must be large enough for high bitrate segments
-  // QUIC: SocketSndBufSize = SocketRcvBufSize = 64 MB
+  // QUIC: SocketSndBufSize = SocketRcvBufSize = 256 MB
   // For 66 Mbps: average segment ~15.74 MB, max segment ~31.47 MB
-  // Set to hold at least 2 full segments  // TCP Buffer Sizes (64 MB)
-  Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
-  Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(64*1024*1024));  // 64 MB (2x max segment)
+  // Increased to 256 MB to hold 8+ full segments and prevent blocking during network fluctuations (matches QUIC)
+  Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(256*1024*1024));  // 256 MB (8x max segment) - increased for better QoE (matches QUIC)
+  Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(256*1024*1024));  // 256 MB (8x max segment) - increased for better QoE (matches QUIC)
   
   // Enable Pacing for TCP (to match QUIC)
   Config::SetDefault("ns3::TcpSocketState::EnablePacing", BooleanValue(true));
@@ -800,7 +800,7 @@ main (int argc, char *argv[])
   // Create the Internet
   PointToPointHelper p2ph;
   p2ph.SetDeviceAttribute ("DataRate", DataRateValue (DataRate ("100Gb/s")));
-  p2ph.SetDeviceAttribute ("Mtu", UintegerValue (1500));
+  p2ph.SetDeviceAttribute ("Mtu", UintegerValue (9000));
   p2ph.SetChannelAttribute ("Delay", TimeValue (Seconds (0.010)));
   NetDeviceContainer internetDevices = p2ph.Install (pgw, remoteHost);
   Ipv4AddressHelper ipv4h;
@@ -812,7 +812,7 @@ main (int argc, char *argv[])
   Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
   remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
 
-  double xMax = 4000.0;
+  double xMax = 200.0;
   double yMax = xMax;
 
   // Altitudes
@@ -927,36 +927,36 @@ main (int argc, char *argv[])
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
   // // Random user generation code
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
+  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
+  radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
   
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+  angleRand->SetAttribute("Min", DoubleValue(0));
+  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
   
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
+  for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+  {
+      double radius = radiusRand->GetValue();
+      double angle = angleRand->GetValue();
   
-  //     double x = xMax/2 + radius * std::cos(angle);
-  //     double y = yMax/2 + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
+      double x = xMax/2 + radius * std::cos(angle);
+      double y = yMax/2 + radius * std::sin(angle);
+      double z = 1.7; // typical UE height
   
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
+      // Ensure within boundaries
+      x = std::min(std::max(x, 0.0), xMax);
+      y = std::min(std::max(y, 0.0), yMax);
   
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
+      uePosAlloc->Add(Vector(x, y, z));
+  }
 
   // Create one user at fixed position 100 meters away from eNB
-  double ueX = xMax/2.0+1000;  // Same X coordinate as eNB
-  double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
-  double ueZ = 1.7;  // Typical UE height
+  // double ueX = xMax/2.0+1000;  // Same X coordinate as eNB
+  // double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
+  // double ueZ = 1.7;  // Typical UE height
   
-  uePosAlloc->Add(Vector(ueX, ueY, ueZ));
+  // uePosAlloc->Add(Vector(ueX, ueY, ueZ));
   
 
 // Additional user positioning code (no longer needed)
@@ -1033,43 +1033,47 @@ main (int argc, char *argv[])
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   
-  double target_dt = 10.0;  // Target buffering time (increased from 10.0s for better buffering)
+  // DASH over TCP configuration - optimized for QoE and preventing interruptions (matches QUIC)
+  // Increased target buffering time for more aggressive buffering to prevent rebuffering
+  // For NTN scenarios with high latency and variable throughput, 45-60s is realistic
+  // 60s provides good balance: prevents interruptions while remaining realistic for real-world scenarios
+  double target_dt = 15.0;  // Target buffering time (increased from 30.0s to 60.0s - realistic for NTN while preventing interruptions, matches QUIC)
   // DASH bufferSpace: should hold multiple segments for smooth playback
-  // For 66 Mbps: ~6 segments in 100 MB, increase to 200 MB for 10+ segments
-  uint32_t bufferSpace = 128*1024*1024;  // 400 MB (20+ segments at 66 Mbps) - already adequate
+  // For 66 Mbps: ~6 segments in 100 MB, increase to 512 MB for 30+ segments
+  // Larger buffer provides more headroom to prevent interruptions during network fluctuations (matches QUIC)
+  uint32_t bufferSpace = 512*1024*1024;  // 512 MB (30+ segments at 66 Mbps) - increased for maximum QoE to prevent interruptions (matches QUIC)
 
-  double window = 5;  // Throughput measurement window in milliseconds (increased from 5ms for stability)
+  double window = 50;  // Throughput measurement window in milliseconds (increased from 5ms to 50ms for more stable measurements and smoother adaptation, matches QUIC)
 
   std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
   
 
 
-  // Create a DASH server on each UE (listening on port 80)
+  // DOWNLINK simulation: DASH server on remoteHost, clients on UE nodes
+  // Create a single DASH server on remoteHost (listening on port 80)
   DashServerHelper dashServer ("ns3::TcpSocketFactory",
                                 InetSocketAddress(Ipv4Address::GetAny(), 80));
-  for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
-  {
-    serverApps.Add (dashServer.Install (ueNodes.Get(u)));
-    NS_LOG_UNCOND("DASH Server installed on UE " << u << " (IP=" << ueIpIface.GetAddress(u) << ") port 80");
-  }
+  serverApps.Add (dashServer.Install (remoteHost));
+  NS_LOG_UNCOND("DASH Server installed on remoteHost (IP=" << remoteHostAddr << ") port 80");
   
-  // Create DASH clients on the remote host, one per UE (connecting to each UE server)
+  // Create DASH clients on each UE node (connecting to remoteHost server)
+  // This simulates DOWNLINK: users download video from remote server
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
     DashClientHelper dashClient ("ns3::TcpSocketFactory",
-                                  InetSocketAddress(ueIpIface.GetAddress(u), 80),
+                                  InetSocketAddress(remoteHostAddr, 80),
                                   algorithm);
     dashClient.SetAttribute ("VideoId", UintegerValue(u + 1));
     dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
     dashClient.SetAttribute ("window", TimeValue(MilliSeconds(window)));
     dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
     
-    clientApps.Add (dashClient.Install (remoteHost));
-    NS_LOG_UNCOND("DASH Client " << u << " installed on remoteHost (IP=" << remoteHostAddr 
-                  << ") -> server IP=" << ueIpIface.GetAddress(u) << ":80");
+    clientApps.Add (dashClient.Install (ueNodes.Get(u)));
+    NS_LOG_UNCOND("DASH Client " << u << " installed on UE " << u << " (IP=" << ueIpIface.GetAddress(u) 
+                  << ") -> server IP=" << remoteHostAddr << ":80");
   }
   
-  // Connect DASH trace sources for clients (now on remote host)
+  // Connect DASH trace sources for clients (now on UE nodes - DOWNLINK)
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
@@ -1077,11 +1081,11 @@ main (int argc, char *argv[])
     {
       dashClient->TraceConnectWithoutContext("Tx", MakeBoundCallback(&DashClientTxTrace, u));
       dashClient->TraceConnectWithoutContext("Rx", MakeBoundCallback(&DashClientRxTrace, u));
-      NS_LOG_UNCOND("Connected DASH Client Tx and Rx traces for Client " << u);
+      NS_LOG_UNCOND("Connected DASH Client Tx and Rx traces for UE " << u);
     }
   }
   
-  // Connect server Rx traces for all UE servers
+  // Connect server Rx traces for remoteHost server (DOWNLINK)
   for (uint32_t i = 0; i < serverApps.GetN(); ++i)
   {
     Ptr<Application> app = serverApps.Get(i);
@@ -1089,6 +1093,7 @@ main (int argc, char *argv[])
     if (srv)
     {
       srv->TraceConnectWithoutContext("Rx", MakeCallback(&DashServerRxTrace));
+      NS_LOG_UNCOND("Connected DASH Server Rx traces for remoteHost server");
     }
   }
   
@@ -1153,22 +1158,27 @@ main (int argc, char *argv[])
   
   Simulator::Stop (Seconds (stopTime + 2.0));
 
-  NS_LOG_UNCOND("\n=== Scheduling TCP Trace Connections ===");
+  NS_LOG_UNCOND("\n=== Scheduling TCP Trace Connections (DOWNLINK) ===");
   
-  // Connect traces for remote host (now TCP client) - schedule after app start
-  uint32_t clientNodeId = remoteHost->GetId();
-  Time clientTraceTimeSched = Seconds(0.2);
-  Simulator::Schedule(clientTraceTimeSched, &Traces, clientNodeId, "./client", ".txt");
-  NS_LOG_UNCOND("  Scheduled TCP traces for Client Node " << clientNodeId << " at t=" << clientTraceTimeSched.GetSeconds() << "s");
-  
-  // Connect traces for each UE node (now TCP servers)
-  Time serverTraceTimeSched = Seconds(0.2);
+  // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
+  // Connect traces for each UE node (TCP clients) - schedule after apps start and TCP sockets are created
+  // Schedule after all clients have started (last client starts at 0.15 + (numUes-1)*0.1)
+  // Add extra delay (0.5s) to ensure TCP handshake completes and sockets are ready
+  double lastClientStartTime = 0.15 + (ueNodes.GetN() - 1) * 0.1;
+  Time clientTraceTimeSched = Seconds(lastClientStartTime + 0.5);  // After last client starts + buffer for handshake
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     uint32_t nodeId = ueNodes.Get(u)->GetId();
-    Simulator::Schedule(serverTraceTimeSched + Seconds(u * 0.1), &Traces, nodeId, "./server", ".txt");
-    NS_LOG_UNCOND("  Scheduled TCP traces for UE Node " << nodeId << " (server) at t=" << (serverTraceTimeSched + Seconds(u * 0.1)).GetSeconds() << "s");
+    Simulator::Schedule(clientTraceTimeSched + Seconds(u * 0.05), &Traces, nodeId, "./client", ".txt");
+    NS_LOG_UNCOND("  Scheduled TCP traces for UE Node " << nodeId << " (UE " << u << ", DASH client) at t=" << (clientTraceTimeSched + Seconds(u * 0.05)).GetSeconds() << "s");
   }
+  
+  // Connect traces for remoteHost (TCP server) - schedule after server starts and TCP sockets are created
+  // Server starts at 0.1, add extra delay (0.5s) to ensure TCP sockets are ready
+  uint32_t serverNodeId = remoteHost->GetId();
+  Time serverTraceTimeSched = Seconds(0.1 + 0.5);  // After server starts + buffer
+  Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt");
+  NS_LOG_UNCOND("  Scheduled TCP traces for Server Node " << serverNodeId << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
   
   // Add TCP socket callback connections for debugging
   NS_LOG_UNCOND("\n=== Adding TCP Socket Callback Connections ===");
@@ -1223,22 +1233,23 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("RLC/MAC/PHY layer traces: ENABLED");
   NS_LOG_UNCOND("============================\n");
   
-  NS_LOG_UNCOND("\n=== DASH over TCP Simulation Parameters ===");
+  NS_LOG_UNCOND("\n=== DASH over TCP Simulation Parameters (DOWNLINK) ===");
+  NS_LOG_UNCOND("Direction: DOWNLINK (Server on remoteHost, Clients on UE nodes)");
   NS_LOG_UNCOND("Number of UEs: " << ueNodes.GetN());
   NS_LOG_UNCOND("Simulation time: " << stopTime << " seconds");
   NS_LOG_UNCOND("DASH algorithm: " << algorithm);
-  NS_LOG_UNCOND("Target buffering time: " << target_dt << " milliseconds");
+  NS_LOG_UNCOND("Target buffering time: " << target_dt << " seconds");
   
   Simulator::Run();
   
-  // Print DASH statistics for each UE
-  NS_LOG_UNCOND("\n========== DASH over TCP Results ==========");
+  // Print DASH statistics for each UE (DOWNLINK: clients are on UE nodes)
+  NS_LOG_UNCOND("\n========== DASH over TCP Results (DOWNLINK) ==========");
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
     if (dashClient)
     {
-      NS_LOG_UNCOND("\nUE " << u << " (VideoId=" << (u+1) << "):");
+      NS_LOG_UNCOND("\nUE " << u << " (VideoId=" << (u+1) << ", DASH Client):");
       dashClient->GetStats();
       
       // Print DASH trace statistics

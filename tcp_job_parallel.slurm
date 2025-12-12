@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --time=2-00:00:00
-#SBATCH --mem=2G
+#SBATCH --mem=8G
 #SBATCH --array=1-300
 
 # Set LD_LIBRARY_PATH to include the build directory

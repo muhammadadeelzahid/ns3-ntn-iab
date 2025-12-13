@@ -217,8 +217,11 @@ def parse_playback_log(filename):
     playback_events.sort(key=lambda x: x[1])
     return playback_events
 
-def calculate_playback_stats(playback_events):
-    """Calculate total playback and interruption times."""
+def calculate_playback_stats(playback_events, end_time=None):
+    """
+    Calculate total playback and interruption times.
+    If end_time is provided (and > last event time), extends the final state to end_time.
+    """
     if not playback_events:
         return 0.0, 0.0, [], []
     
@@ -253,14 +256,20 @@ def calculate_playback_stats(playback_events):
             state = 'playing'
             state_start_time = time
             
+    # Handle final segment
+    last_event_time = sorted_events[-1][1]
+    final_time = last_event_time
+    
+    # Extend to end_time if provided and greater than last event
+    if end_time is not None and end_time > last_event_time:
+        final_time = end_time
+        
     if state == 'playing' and state_start_time is not None:
-        last_time = sorted_events[-1][1]
-        playback_time += last_time - state_start_time
-        playback_periods.append((state_start_time, last_time))
+        playback_time += final_time - state_start_time
+        playback_periods.append((state_start_time, final_time))
     elif state == 'interrupted' and state_start_time is not None:
-        last_time = sorted_events[-1][1]
-        interruption_time += last_time - state_start_time
-        interruption_periods.append((state_start_time, last_time))
+        interruption_time += final_time - state_start_time
+        interruption_periods.append((state_start_time, final_time))
         
     return playback_time, interruption_time, playback_periods, interruption_periods
 
@@ -1006,16 +1015,24 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
         tp = parse_dash_throughput(run_dir, prefix)
         all_throughputs.extend(tp)
             
-        # Stats
-        pt, it, _, _ = calculate_playback_stats(playback)
-        total_play_time.append(pt)
-        total_inter_time.append(it)
-        
     # Calculate global max time
-    global_max_time = 0
+    # Initialize to 60.0 to ensure interruptions are calculated up to simulation end
+    global_max_time = 60.0
+    
     for run in all_playback:
         if run:
             global_max_time = max(global_max_time, run[-1][1])
+            
+    # Check bitrate logs as well
+    for run in all_bitrates:
+        if run:
+            global_max_time = max(global_max_time, run[-1][0])
+            
+    # Stats
+    for playback in all_playback:
+         pt, it, _, _ = calculate_playback_stats(playback, end_time=global_max_time)
+         total_play_time.append(pt)
+         total_inter_time.append(it)
             
     # Aggregate Bitrate
     b_time, b_mean, b_std = aggregate_bitrate(all_bitrates, global_max_time=global_max_time)
@@ -1264,15 +1281,15 @@ def plot_playback_grid(all_stats, protocol_type, output_dir):
         stats = all_stats[name]
         
         times, probs = calculate_interruption_prob(stats['playback_runs'])
-        probs = smooth_data(probs, window_size=5)
+        probs = smooth_data(probs, window_size=15) # Increased smoothing
         
         # Truncate at T=60 and pad missing data with interruption probability = 1.0 using quantized bins
-        times, probs = truncate_and_pad_playback_prob(times, probs, max_time=60.0, end_time=63.0, time_bin=1.0)
+        times, probs = truncate_and_pad_playback_prob(times, probs, max_time=60.0, end_time=63.0, time_bin=0.1) # Finer granularity
         
         playing_probs = [1.0 - p for p in probs]
         
-        ax.fill_between(times, 0, playing_probs, color='green', alpha=0.5, label='Playing')
-        ax.fill_between(times, playing_probs, 1.0, color='red', alpha=0.5, label='Interrupted')
+        ax.fill_between(times, 0, playing_probs, color='green', alpha=0.3, label='Playing') # Softer alpha
+        ax.fill_between(times, playing_probs, 1.0, color='red', alpha=0.3, label='Interrupted') # Softer alpha
         
         ax.set_title(name, fontsize=12, fontweight='bold')
         ax.set_ylim(0, 1.0)

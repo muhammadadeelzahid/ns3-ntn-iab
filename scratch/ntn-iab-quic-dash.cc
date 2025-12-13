@@ -434,13 +434,13 @@ int
 main (int argc, char *argv[])
 {
 
-  LogComponentDisable("DashClient", LOG_LEVEL_ALL);
+  // LogComponentDisable("DashClient", LOG_LEVEL_ALL);
   
   // Enable DASH logging for debugging
   // LogComponentEnable("DashClient", LOG_LEVEL_ALL);
   // LogComponentEnable("DashServer", LOG_LEVEL_ALL);
   // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
-  LogComponentEnable("MpegPlayer", LOG_LEVEL_ALL);
+  LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
   
   // Enable QUIC socket logging to see connection events and data flow
   // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
@@ -453,8 +453,8 @@ main (int argc, char *argv[])
   // LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);     // LOG_LEVEL_DEBUG to see UDP operations
   // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
   
-    LogComponentEnable("DashServer", LOG_LEVEL_ALL);
-    LogComponentEnable("HttpParser", LOG_LEVEL_ALL);
+    // LogComponentEnable("DashServer", LOG_LEVEL_INFO);
+    LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicSocketTxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicSocketRxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
@@ -1084,9 +1084,9 @@ main (int argc, char *argv[])
 
   // QUIC stream buffer configuration - must hold multiple large frames (up to 330 KB each)
   // At 66 Mbps, frames accumulate faster than they can be transmitted
-  // Increased to 256 MB to match socket buffers and handle burst accumulation without blocking
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (256*1024*1024));  // 256 MB (Match Socket buffer) - increased for better QoE
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (256*1024*1024));  // 256 MB (Match Socket buffer) - increased for better QoE
+  // Reduced to 16 MB to match socket buffers and prevent OOM
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (16*1024*1024));  // 16 MB (Match Socket buffer)
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (16*1024*1024));  // 16 MB (Match Socket buffer)
 
   // DASH over QUIC configuration - optimized for QoE and preventing interruptions
   // Increased target buffering time for more aggressive buffering to prevent rebuffering
@@ -1094,9 +1094,9 @@ main (int argc, char *argv[])
   // 60s provides good balance: prevents interruptions while remaining realistic for real-world scenarios
   double target_dt = 15.0;  // Target buffering time (increased from 45.0s to 60.0s - realistic for NTN while preventing interruptions)
   // DASH bufferSpace: should hold multiple segments for smooth playback
-  // For 66 Mbps: ~6 segments in 100 MB, increase to 512 MB for 30+ segments
-  // Larger buffer provides more headroom to prevent interruptions during network fluctuations
-  uint32_t bufferSpace = 512*1024*1024;  // 512 MB (30+ segments at 66 Mbps) - increased for maximum QoE to prevent interruptions
+  // For 66 Mbps: ~6 segments in 100 MB
+  // Reduced to 64 MB to prevents OOM while keeping reasonable buffering
+  uint32_t bufferSpace = 64*1024*1024;  // 64 MB (Reduced from 512MB)
 
   double window = 50;  // Throughput measurement window in milliseconds (increased from 10ms to 50ms for more stable measurements and smoother adaptation)
 

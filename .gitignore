@@ -22,7 +22,6 @@
 *.out
 *_artifacts
 simulation_results/*
-*.slurm
 
 [D|U]l[A-Z][a-z]*Stats.txt
 seventh-packet-byte-count.png

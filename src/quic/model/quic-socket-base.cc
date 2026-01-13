@@ -606,6 +606,7 @@ QuicSocketBase::QuicSocketBase (const QuicSocketBase& sock)   // Copy constructo
     m_rxTrace (sock.m_rxTrace),
     m_enableMultipath(sock.m_enableMultipath),
     m_pathManager(sock.m_pathManager),
+    m_schedulingTypeId (sock.m_schedulingTypeId),
     m_scheduler (sock.m_scheduler),
     m_subflows (sock.m_subflows),
     m_appCloseSentListNoEmpty (sock.m_appCloseSentListNoEmpty)
@@ -616,6 +617,9 @@ QuicSocketBase::QuicSocketBase (const QuicSocketBase& sock)   // Copy constructo
   m_rxBuffer = CopyObject (sock.m_rxBuffer);
 
   m_receivedPacketNumbers = std::vector<SequenceNumber32> ();
+
+  // Ensure each socket gets its own scheduler and queue.
+  InitializeScheduling ();
 
 
   // m_tcb = CopyObject (sock.m_tcb);

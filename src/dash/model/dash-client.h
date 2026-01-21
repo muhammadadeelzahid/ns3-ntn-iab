@@ -91,6 +91,7 @@ class DashClient : public Application
     }
 
     void CheckBuffer();
+    void PeriodicBufferCheck(); // Periodically check buffer even when player is paused
 
   protected:
     virtual void DoDispose(void);
@@ -188,6 +189,7 @@ class DashClient : public Application
 
     EventId m_keepAliveTimer;
     EventId m_requestTimeoutTimer; // Timer for segment request timeout
+    EventId m_periodicBufferCheckTimer; // Timer for periodic buffer check when player is paused
     Time m_maxVideoDuration;  // Maximum video duration - stops requesting segments after this time
     uint32_t m_maxSegments;   // Maximum number of segments to request (calculated from m_maxVideoDuration using frame duration)
 

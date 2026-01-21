@@ -110,6 +110,7 @@ DashClient::DashClient()
       m_window(Seconds(10)),
       m_segmentFetchTime(Seconds(0)),
       m_keepAliveTimer(),
+      m_periodicBufferCheckTimer(),
       m_maxVideoDuration(Seconds(0)),
       m_maxSegments(0)
 {
@@ -216,6 +217,7 @@ DashClient::StopApplication(void) // Called at time specified by Stop
         m_connected = false;
         m_player.m_state = MPEG_PLAYER_DONE;
         m_requestTimeoutTimer.Cancel();
+        m_periodicBufferCheckTimer.Cancel();
     }
     else
     {
@@ -304,6 +306,45 @@ DashClient::CheckBuffer()
 {
     NS_LOG_FUNCTION(this);
     m_parser.ReadSocket(m_socket);
+}
+
+void
+DashClient::PeriodicBufferCheck()
+{
+    NS_LOG_FUNCTION(this);
+    
+    // Periodically check buffer even when player is paused
+    // This ensures we continue receiving data that may have arrived while paused
+    // Without this, if HandleRead callback doesn't fire, we'd never check for data
+    if (m_connected && m_socket)
+    {
+        uint32_t rxAvailable = m_socket->GetRxAvailable();
+        
+        // Check if there's data available to read
+        if (rxAvailable > 0)
+        {
+            m_parser.ReadSocket(m_socket);
+        }
+        else
+        {
+        }
+        
+        // Continue periodic checks if player is paused
+        // Stop if player is done or not started
+        if (m_player.m_state == MPEG_PLAYER_PAUSED)
+        {
+            m_periodicBufferCheckTimer = Simulator::Schedule(MilliSeconds(50), 
+                                                             &DashClient::PeriodicBufferCheck, this);
+        }
+        else
+        {
+            // Player resumed or done, cancel periodic checks
+            m_periodicBufferCheckTimer.Cancel();
+        }
+    }
+    else
+    {
+    }
 }
 
 void

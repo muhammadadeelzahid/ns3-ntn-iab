@@ -94,7 +94,7 @@ MmWaveHelper::MmWaveHelper(void)
 	m_iabAntennaModelFactory.SetTypeId (AntennaArrayModel::GetTypeId ());
 
 	m_ueAntennaModelFactory.Set("AntennaGain", DoubleValue(3));  // Set UE gain
-	m_iabAntennaModelFactory.Set("AntennaGain", DoubleValue(25));  // Set UE gain
+	m_iabAntennaModelFactory.Set("AntennaGain", DoubleValue(40));  // Set IAB gain
 	m_satelliteAntennaModelFactory.Set("AntennaGain", DoubleValue(40));  // Satellite Antenna Gain
 
 	m_lteUeAntennaModelFactory.SetTypeId (IsotropicAntennaModel::GetTypeId ());
@@ -823,7 +823,7 @@ MmWaveHelper::InstallSingleIabDevice(Ptr<Node> n)
 	//ulPhy->SetHarqPhyModule (harq);
 	accessPhy->SetHarqPhyModule (accessHarq);
 	accessPhy->SetConfigurationParameters (m_phyMacCommon);
-	accessPhy->SetTxPower(30);
+	accessPhy->SetTxPower(40);
 	std::vector<Ptr<MmWaveSpectrumPhy>>::iterator itSpec;
 	for (itSpec = accessDlPhyList.begin (); itSpec != accessDlPhyList.end (); itSpec++)
 	{

@@ -27,6 +27,7 @@
 #define QUICSOCKETTXSCHEDULER_H
 
 #include "quic-socket.h"
+#include <string>
 #include <queue>
 #include <vector>
 
@@ -180,6 +181,15 @@ public:
   void AddScheduleItem (Ptr<QuicSocketTxScheduleItem> item, bool retx);
 
   /**
+   * Set identifiers used when tracing scheduled/sent packets.
+   *
+   * \param connectionId the QUIC connection identifier
+   * \param nodeId the node identifier hosting the socket
+   * \param socketAddress the socket address string (local)
+   */
+  void SetTraceContext (uint64_t connectionId, uint32_t nodeId, const std::string &socketAddress);
+
+  /**
    * indicate the offset in order to out-of-order schedule
    */
   uint32_t ofo_offset = 2920; 
@@ -189,6 +199,10 @@ private:
   typedef std::priority_queue<Ptr<QuicSocketTxScheduleItem>, std::vector<Ptr<QuicSocketTxScheduleItem> >, CompareScheduleItems> QuicTxPacketList;        //!< container for data stored in the buffer
   QuicTxPacketList m_appList;
   uint32_t m_appSize;
+  uint64_t m_connectionId { 0 };          //!< Connection identifier for tracing
+  uint32_t m_nodeId { 0 };                //!< Node identifier for tracing
+  std::string m_socketAddress;            //!< Socket address for tracing
+
 };
 
 } // namespace ns-3

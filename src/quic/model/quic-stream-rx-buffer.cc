@@ -25,6 +25,7 @@
 #include "ns3/packet.h"
 #include "ns3/fatal-error.h"
 #include "ns3/log.h"
+#include "ns3/simulator.h"
 // #include "ns3/ipv4-end-point-demux.h"
 // #include "ns3/ipv6-end-point-demux.h"
 // #include "ns3/ipv4-end-point.h"
@@ -33,6 +34,7 @@
 // #include "ns3/ipv6-l3-protocol.h"
 // #include "ns3/ipv6-routing-protocol.h"
 #include <algorithm>
+#include <sstream>
 #include "quic-stream-rx-buffer.h"
 #include "quic-subheader.h"
 
@@ -97,8 +99,17 @@ QuicStreamRxBuffer::~QuicStreamRxBuffer ()
 {
 }
 
+void
+QuicStreamRxBuffer::SetTraceContext (uint64_t connectionId, uint32_t nodeId, uint64_t streamId, const std::string &socketAddress)
+{
+  m_connectionId = connectionId;
+  m_nodeId = nodeId;
+  m_streamId = streamId;
+  m_socketAddress = socketAddress;
+}
+
 bool
-QuicStreamRxBuffer::Add (Ptr<Packet> p, const QuicSubheader& sub)
+QuicStreamRxBuffer::Add (Ptr<Packet> p, const QuicSubheader& sub, uint64_t expectedOffset)
 {
   NS_LOG_FUNCTION (this << p << sub);
 

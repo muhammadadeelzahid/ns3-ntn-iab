@@ -5,21 +5,21 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --time=2-00:00:00
-#SBATCH --mem=4G
-#SBATCH --array=1-100
+#SBATCH --mem=16G
+#SBATCH --array=1-4
 
 # Set LD_LIBRARY_PATH to include the build directory
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/build
 
 # Determine Algorithm and Run ID based on Task ID
-if [ $SLURM_ARRAY_TASK_ID -le 50 ]; then
+if [ $SLURM_ARRAY_TASK_ID -le 2 ]; then
     CC_ALGO="ns3::QuicCongestionControl"
     SHORT_NAME="NewReno"
     RUN_ID=$SLURM_ARRAY_TASK_ID
 else
     CC_ALGO="ns3::QuicBbr"
     SHORT_NAME="BBR"
-    RUN_ID=$(($SLURM_ARRAY_TASK_ID - 50))
+    RUN_ID=$(($SLURM_ARRAY_TASK_ID - 2))
 fi
 
 # Create directory structure

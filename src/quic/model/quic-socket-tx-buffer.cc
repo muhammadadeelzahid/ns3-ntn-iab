@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <string>
 #include <sstream>
 #include "ns3/simulator.h"
 
@@ -254,6 +255,11 @@ bool QuicSocketTxBuffer::Add (Ptr<Packet> p)
   NS_LOG_FUNCTION (this << p);
   QuicSubheader qsb;
   uint32_t headerSize = p->PeekHeader (qsb);
+
+  if (headerSize > 0 && qsb.IsStream ())
+    {
+    }
+
   NS_LOG_INFO (
     "Try to append " << p->GetSize () << " bytes " << ", availSize=" << Available () << " offset " << qsb.GetOffset () << " on stream " << qsb.GetStreamId ());
 
@@ -390,6 +396,8 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::OnAckUpdate (
   std::vector<uint32_t> compGaps = gaps;
 
   std::vector<Ptr<QuicSocketTxItem> > newlyAcked;
+  std::vector<uint32_t> newlyAckedSeq;
+  std::vector<uint32_t> lostSeq;
   Ptr<QuicSocketState> tcbd = dynamic_cast<QuicSocketState*> (&(*tcb));
 
   compAckBlocks.insert (compAckBlocks.begin (), largestAcknowledged);
@@ -448,6 +456,7 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::OnAckUpdate (
               (*sent_it)->m_sacked = true;
               (*sent_it)->m_ackTime = Now ();
               newlyAcked.push_back ((*sent_it));
+              newlyAckedSeq.push_back ((*sent_it)->m_packetNumber.GetValue ());
               UpdateRateSample ((*sent_it), tcb);
             }
 
@@ -490,6 +499,7 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::OnAckUpdate (
               if (gap >= tcbd->m_kReorderingThreshold)
                 {
                   (*sent_it)->m_lost = true;
+                  lostSeq.push_back ((*sent_it)->m_packetNumber.GetValue ());
                   lost = true;
                   NS_LOG_INFO (
                     "Largest ACK " << largestAcknowledged << ", lost packet " << (*sent_it)->m_packetNumber.GetValue () << " - reordering " << tcbd->m_kReorderingThreshold);
@@ -506,6 +516,7 @@ std::vector<Ptr<QuicSocketTxItem> > QuicSocketTxBuffer::OnAckUpdate (
                       NS_LOG_UNCOND (
                         "Largest ACK " << largestAcknowledged << ", lost packet " << (*sent_it)->m_packetNumber.GetValue () << " - time " << rhsComparison);
                       (*sent_it)->m_lost = true;
+                      lostSeq.push_back ((*sent_it)->m_packetNumber.GetValue ());
                       lost = true;
                     }
                 }
@@ -722,6 +733,18 @@ void QuicSocketTxBuffer::SetScheduler (Ptr<QuicSocketTxScheduler> sched)
 {
   NS_LOG_FUNCTION (this);
   m_scheduler = sched;
+}
+
+void QuicSocketTxBuffer::SetTraceContext (uint64_t connectionId, uint32_t nodeId, const std::string &socketAddress)
+{
+  m_connectionId = connectionId;
+  m_nodeId = nodeId;
+  m_socketAddress = socketAddress;
+}
+
+Ptr<QuicSocketTxScheduler> QuicSocketTxBuffer::GetScheduler () const
+{
+  return m_scheduler;
 }
 
 void QuicSocketTxBuffer::UpdatePacketSent (SequenceNumber32 seq, uint32_t sz, uint8_t pathId, Ptr<QuicSocketState> tcb)

@@ -101,6 +101,9 @@ class DashServer : public Application
     std::map<Ptr<Socket>, std::deque<Packet>> m_queues;
 
     Ptr<Packet> m_pending_packet = nullptr;
+    
+    EventId m_periodicSendEvent;  // Periodic event to ensure fair sending to all connections
+    void PeriodicSendCheck();     // Periodically check all sockets and try to send
 };
 
 } // namespace ns3

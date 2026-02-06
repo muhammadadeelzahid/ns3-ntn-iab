@@ -236,7 +236,7 @@ MmWaveHelper::DoInitialize()
 	m_Satellitechannel = m_channelFactory.Create<SpectrumChannel> ();
 
 	m_phyMacCommon = CreateObject <MmWavePhyMacCommon> () ;
-	m_phyMacCommon->SetNumEnbLayers(2);
+	m_phyMacCommon->SetNumEnbLayers(4);
 	if (!m_pathlossModelType.empty ())
 	{
 		m_pathlossModel = m_pathlossModelFactory.Create ();
@@ -2743,7 +2743,9 @@ void
 MmWaveHelper::AttachToSingleClosestEnb (Ptr<NetDevice> ueDevice, NetDeviceContainer enbDevices)
 {
 	NS_LOG_FUNCTION (this);
-	NS_LOG_DEBUG("AttachToSingleClosestEnb called for UE device: " << ueDevice->GetInstanceTypeId());
+	uint32_t ueNodeId = ueDevice->GetNode () ? ueDevice->GetNode ()->GetId () : 0;
+	NS_LOG_DEBUG("AttachToSingleClosestEnb called for UE device: " << ueDevice->GetInstanceTypeId()
+		<< " node_id: " << ueNodeId);
 	NS_ASSERT_MSG (enbDevices.GetN () > 0, "empty enb device container");
 	Vector uepos = ueDevice->GetNode ()->GetObject<MobilityModel> ()->GetPosition ();
 	double minDistance = std::numeric_limits<double>::infinity ();
@@ -2759,10 +2761,13 @@ MmWaveHelper::AttachToSingleClosestEnb (Ptr<NetDevice> ueDevice, NetDeviceContai
 	    }
 	}
 	NS_ASSERT (closestEnbDevice != 0);
-	NS_LOG_DEBUG("Closest eNB found at distance: " << minDistance);
+	uint32_t closestEnbNodeId = closestEnbDevice->GetNode () ? closestEnbDevice->GetNode ()->GetId () : 0;
+	NS_LOG_DEBUG("Closest eNB found at distance: " << minDistance
+		<< " node_id: " << closestEnbNodeId);
 
 	Ptr<MmWaveUeNetDevice> mmWaveUe = ueDevice->GetObject<MmWaveUeNetDevice> ();
-	NS_LOG_DEBUG("UE device cast result: " << (mmWaveUe != 0 ? "SUCCESS" : "FAILED"));
+	NS_LOG_DEBUG("UE device cast result: " << (mmWaveUe != 0 ? "SUCCESS" : "FAILED")
+		<< " node_id: " << ueNodeId);
 
 	// Necessary operation to connect MmWave UE to eNB at lower layers
   	for(NetDeviceContainer::Iterator i = enbDevices.Begin (); i != enbDevices.End(); ++i)

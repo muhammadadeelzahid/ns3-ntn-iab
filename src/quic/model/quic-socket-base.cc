@@ -69,12 +69,32 @@
 #include <algorithm>
 #include <vector>
 #include <sstream>
+#include <string>
 #include <ns3/core-module.h>
 
 #include "mp-quic-scheduler.h"
 #include "mp-quic-congestion-ops.h"
 
 namespace ns3 {
+
+namespace {
+
+std::string
+GetSocketAddressString (Ipv4EndPoint *endpoint4, Ipv6EndPoint *endpoint6)
+{
+  std::ostringstream ss;
+  if (endpoint4 != nullptr)
+    {
+      ss << InetSocketAddress (endpoint4->GetLocalAddress (), endpoint4->GetLocalPort ());
+    }
+  else if (endpoint6 != nullptr)
+    {
+      ss << Inet6SocketAddress (endpoint6->GetLocalAddress (), endpoint6->GetLocalPort ());
+    }
+  return ss.str ();
+}
+
+} // namespace
 
 NS_LOG_COMPONENT_DEFINE ("QuicSocketBase");
 
@@ -1310,6 +1330,20 @@ QuicSocketBase::SendDataPacket (SequenceNumber32 packetNumber, uint32_t maxSize,
     }
 
   uint32_t sz = p->GetSize ();
+  if (sz > 0)
+    {
+      QuicSubheader qsb;
+      std::ostringstream info;
+      info << "Pkt=" << packetNumber.GetValue () << " Path=" << static_cast<uint32_t> (pathId)
+           << " Size=" << sz;
+      if (p->PeekHeader (qsb))
+        {
+          info << " StreamId=" << qsb.GetStreamId ()
+               << " Offset=" << qsb.GetOffset ()
+               << " Length=" << qsb.GetLength ();
+        }
+      info << " AckOnly=" << ((sz == 0 && withAck) ? "true" : "false");
+    }
 
   // check whether the connection is appLimited, i.e. not enough data to fill a packet
   if (sz < maxSize and m_txBuffer->AppSize () == 0 and m_subflows[pathId]->m_tcb->m_bytesInFlight.Get () < m_subflows[pathId]->m_tcb->m_cWnd)
@@ -1949,6 +1983,21 @@ QuicSocketBase::SetConnectionId (uint64_t connectionId)
   NS_LOG_FUNCTION_NOARGS ();
 
   m_connectionId = connectionId;
+  Ptr<QuicSocketTxScheduler> scheduler = (m_txBuffer ? m_txBuffer->GetScheduler () : nullptr);
+  if (scheduler != nullptr)
+    {
+      scheduler->SetTraceContext (m_connectionId, m_node ? m_node->GetId () : 0, GetSocketAddressString (m_endPoint, m_endPoint6));
+    }
+  if (m_txBuffer != nullptr)
+    {
+      m_txBuffer->SetTraceContext (m_connectionId, m_node ? m_node->GetId () : 0, GetSocketAddressString (m_endPoint, m_endPoint6));
+    }
+}
+
+std::string
+QuicSocketBase::GetLocalAddressString () const
+{
+  return GetSocketAddressString (m_endPoint, m_endPoint6);
 }
 
 void
@@ -1957,7 +2006,9 @@ QuicSocketBase::InitializeScheduling ()
   ObjectFactory schedulerFactory;
   schedulerFactory.SetTypeId (m_schedulingTypeId);
   Ptr<QuicSocketTxScheduler> sched = schedulerFactory.Create<QuicSocketTxScheduler> ();
+  sched->SetTraceContext (m_connectionId, m_node ? m_node->GetId () : 0, GetSocketAddressString (m_endPoint, m_endPoint6));
   m_txBuffer->SetScheduler (sched);
+  m_txBuffer->SetTraceContext (m_connectionId, m_node ? m_node->GetId () : 0, GetSocketAddressString (m_endPoint, m_endPoint6));
   SetDefaultLatency (m_defaultLatency);
 }
 
@@ -2275,6 +2326,25 @@ QuicSocketBase::OnSendingAckFrame (uint8_t pathId)
         }
     }
 
+  std::ostringstream blockStream;
+  blockStream << largestAcknowledged.GetValue ();
+  for (auto b : additionalAckBlocks)
+    {
+      blockStream << " " << b;
+    }
+  std::ostringstream gapStream;
+  for (auto g : gaps)
+    {
+      if (gapStream.tellp () > 0)
+        {
+          gapStream << " ";
+        }
+      gapStream << g;
+    }
+  std::ostringstream info;
+  info << "LargestAck=" << largestAcknowledged.GetValue ()
+       << " Blocks=[" << blockStream.str () << "]"
+       << " Gaps=[" << gapStream.str () << "]";
 
   Time delay = Simulator::Now () - m_lastReceived;
   uint64_t ack_delay = delay.GetMicroSeconds ();

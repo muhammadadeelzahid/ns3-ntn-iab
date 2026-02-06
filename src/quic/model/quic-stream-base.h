@@ -36,6 +36,7 @@
 #include "quic-header.h"
 #include "quic-l5-protocol.h"
 //#include "quic-frame-manager.h"
+#include <string>
 
 
 namespace ns3 {
@@ -150,6 +151,11 @@ public:
    * \param maxStreamData a uint32_t with the maximum amount of data
    */
   void SetMaxStreamData (uint32_t maxStreamData);
+
+  /**
+   * Update receive buffer trace context.
+   */
+  void UpdateRxTraceContext (const std::string &socketAddress);
 
   /**
    * \brief Get the maximum amount of data that can be sent in this stream

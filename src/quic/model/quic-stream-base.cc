@@ -38,9 +38,11 @@
 #include "ns3/double.h"
 #include "ns3/pointer.h"
 #include "ns3/trace-source-accessor.h"
+#include <sstream>
 #include "quic-stream-base.h"
 #include "quic-header.h"
 #include "quic-transport-parameters.h"
+#include "quic-socket-base.h"
 
 namespace ns3 {
 
@@ -119,6 +121,20 @@ QuicStreamBase::SetQuicL5 (Ptr<QuicL5Protocol> quicl5)
   m_quicl5 = quicl5;
   SetStreamRcvBufSize (m_streamRxBufferSize);
   SetStreamSndBufSize (m_streamTxBufferSize);
+}
+
+void
+QuicStreamBase::UpdateRxTraceContext (const std::string &socketAddress)
+{
+  std::string addr = socketAddress;
+  if (addr.empty () && m_quicl5 && m_quicl5->GetSocket ())
+    {
+      addr = m_quicl5->GetSocket ()->GetLocalAddressString ();
+    }
+  if (m_rxBuffer != nullptr)
+    {
+      m_rxBuffer->SetTraceContext (m_connectionId, m_node ? m_node->GetId () : 0, m_streamId, addr);
+    }
 }
 
 
@@ -268,11 +284,12 @@ QuicStreamBase::SendDataFrame (SequenceNumber32 seq, uint32_t maxSize)
     }
 
   Ptr<Packet> frame = m_txBuffer->NextSequence (maxSize, seq);
+  uint32_t payloadSize = frame->GetSize ();
 
   bool lengthBit = true;
 
-  QuicSubheader sub = QuicSubheader::CreateStreamSubHeader (m_streamId, (uint64_t)seq.GetValue (), frame->GetSize (), m_sentSize != 0, lengthBit, m_fin);
-  // std::cout<<"size"<< frame->GetSize ()<<std::endl;
+  QuicSubheader sub = QuicSubheader::CreateStreamSubHeader (m_streamId, (uint64_t)seq.GetValue (), payloadSize, m_sentSize != 0, lengthBit, m_fin);
+  // Track bytes written on the stream
   m_sentSize += frame->GetSize ();
 
   frame->AddHeader (sub);
@@ -512,7 +529,7 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
             }
           NS_LOG_INFO ("Buffering unordered received frame - offset " << m_recvSize << ", frame offset " << sub.GetOffset ());
           // std::cout<<"quic-stream-base.cc  Buffering unordered received frame of size " << sub.GetLength () <<" m_recvSize: "<<m_recvSize<< ", frame offset " << sub.GetOffset ()<<std::endl;
-          if (!m_rxBuffer->Add (frame, sub) && frame->GetSize () > 0)
+          if (!m_rxBuffer->Add (frame, sub, m_recvSize) && frame->GetSize () > 0)
             {
               // Insert failed: No or duplicate data, or RX buffer full
               NS_LOG_WARN ("Dropping packet as it could not be inserted in RX buffer");
@@ -686,6 +703,7 @@ QuicStreamBase::SetNode (Ptr<Node> node)
 {
   NS_LOG_FUNCTION (this);
   m_node = node;
+  UpdateRxTraceContext ("");
 }
 
 void
@@ -693,6 +711,7 @@ QuicStreamBase::SetStreamId (uint64_t streamId)
 {
   NS_LOG_FUNCTION (this);
   m_streamId = streamId;
+  UpdateRxTraceContext ("");
 
   uint64_t mask = 0x00000003;
 
@@ -726,6 +745,7 @@ QuicStreamBase::SetConnectionId (uint64_t connId)
 {
   NS_LOG_FUNCTION (this << connId);
   m_connectionId = connId;
+  UpdateRxTraceContext ("");
 }
 
 std::string

@@ -434,7 +434,7 @@ main (int argc, char *argv[])
   CommandLine cmd; 
   unsigned run = 0;
   bool rlcAm = false;
-  uint32_t numRelays = 0;
+  uint32_t numRelays = 1;
   uint32_t rlcBufSize = 10;
   uint32_t packetSize = 1400; //bytes // according to IETF, min size should be 1280 bytes
   uint32_t maxBytes = 1024 * 1024 * 1024;
@@ -628,7 +628,7 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(1);  // Create 2 UE nodes for 2 streams
+  ueNodes.Create(10);  // Create 2 UE nodes for 2 streams
   // Install Mobility Model
   
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();

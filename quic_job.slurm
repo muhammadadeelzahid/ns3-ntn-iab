@@ -3,7 +3,7 @@
 #SBATCH --account=def-ekram
 #SBATCH --time=2-00:00:00
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=16G
+#SBATCH --mem=4G
 #SBATCH --output=quic_%j.out
 #SBATCH --error=quic_%j.err
 

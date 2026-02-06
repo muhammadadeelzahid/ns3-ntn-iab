@@ -32,6 +32,7 @@
 #include "ns3/node.h"
 #include "ns3/simulator.h"
 #include <iomanip>
+#include <sstream>
 // #include "ns3/ipv4-route.h"
 // #include "ns3/ipv6-route.h"
 
@@ -105,6 +106,7 @@ QuicL5Protocol::CreateStream (
   stream->SetConnectionId (m_connectionId);
 
   stream->SetStreamId ((uint64_t) m_streams.size ());
+  stream->UpdateRxTraceContext (m_socket ? m_socket->GetLocalAddressString () : "");
 
   uint64_t mask = 0x00000003;
   if ((m_streams.size () & mask) == QuicStream::CLIENT_INITIATED_BIDIRECTIONAL
@@ -165,6 +167,12 @@ QuicL5Protocol::SetSocket (Ptr<QuicSocketBase> sock)
 {
   NS_LOG_FUNCTION (this);
   m_socket = sock;
+}
+
+Ptr<QuicSocketBase>
+QuicL5Protocol::GetSocket () const
+{
+  return m_socket;
 }
 
 int
@@ -429,6 +437,16 @@ QuicL5Protocol::DisgregateRecv (Ptr<Packet> data)
       data->RemoveHeader (sub);
       NS_LOG_INFO ("subheader " << sub << " dataSizeByte " << dataSizeByte
                                 << " remaining " << data->GetSize () << " frame size " << sub.GetLength ());
+      if (sub.IsStream ())
+        {
+          uint8_t frameType = sub.GetFrameType ();
+          bool lengthBit = (frameType == QuicSubheader::STREAM010
+                            || frameType == QuicSubheader::STREAM011
+                            || frameType == QuicSubheader::STREAM110
+                            || frameType == QuicSubheader::STREAM111);
+          uint64_t lengthField = sub.GetLength ();
+          uint64_t derivedLength = lengthBit ? lengthField : data->GetSize ();
+        }
       Ptr<Packet> remainingfragment = data->CreateFragment (0, sub.GetLength ());
       NS_LOG_INFO ("fragment size " << remainingfragment->GetSize ());
 

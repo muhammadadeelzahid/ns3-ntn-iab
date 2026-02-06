@@ -641,6 +641,7 @@ public:
   virtual uint32_t GetRxAvailable (void) const;
   virtual enum SocketErrno GetErrno (void) const;
   virtual enum SocketType GetSocketType (void) const;
+  std::string GetLocalAddressString () const;
 
   /**
    * Set the latency bound for a specified stream

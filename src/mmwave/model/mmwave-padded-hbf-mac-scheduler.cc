@@ -1801,6 +1801,8 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       uint8_t layerIdxDl = 0;
       uint8_t blockIdxUl = 0;
       uint8_t layerIdxUl = 0;
+      uint16_t lastScheduledRnti = 0;
+      uint32_t dlBlockStart = nextSymAvail;
       
       // NEW APPROACH: Buffer-based priority scheduling instead of pure Round Robin
       // Phase 1: Allocate DL for all UEs (including IAB) with buffer-based priority
@@ -1816,42 +1818,25 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       }
             
       
-      // Phase 1: DL Allocation for all UEs (including IAB) with buffer-based priority
+      // Phase 1: DL Allocation for all UEs using round-robin scheduling
       NS_LOG_DEBUG("PHASE 1: DL ALLOCATION START");
       
       // Create a priority queue based on buffer size to prevent buffer overflow
-      std::vector<std::pair<uint16_t, uint32_t>> uePriorityList;
-      for (auto& uePair : ueInfo) {
-        if (!uePair.second.m_dlAllocDone && uePair.second.m_maxDlBufSize > 0) {
-          uePriorityList.push_back(std::make_pair(uePair.first, uePair.second.m_maxDlBufSize));
-        }
-      }
-            
-      // // Sort by buffer size (largest first) to prioritize UEs with buffer overflow
-      // std::sort(uePriorityList.begin(), uePriorityList.end(), 
-      //           [](const std::pair<uint16_t, uint32_t>& a, const std::pair<uint16_t, uint32_t>& b) {
-      //             return a.second > b.second; // Sort by buffer size descending
-      //           });
+
       
       
       bool dlPhaseDone = false;
-      size_t priorityIndex = 0;
-      
-      while (!dlPhaseDone && priorityIndex < uePriorityList.size()) {
-        uint16_t currentRnti = uePriorityList[priorityIndex].first;
-        auto itUeInfoDl = ueInfo.find(currentRnti);
-        
-        if (itUeInfoDl == ueInfo.end()) {
-          priorityIndex++;
-          continue;
-        }
-        
-        UeSchedInfo &ueSchedInfo = itUeInfoDl->second;
+
+      while (!dlPhaseDone && !ueInfo.empty())
+      {
+        uint16_t currentRnti = itUeInfo->first;
+        UeSchedInfo &ueSchedInfo = itUeInfo->second;
         
         // Allocate DL for all UEs (including IAB) with buffer-based priority
         if (!ueSchedInfo.m_dlAllocDone && ueSchedInfo.m_maxDlBufSize > 0) {
-          NS_LOG_DEBUG("UE HAS DATA: RNTI=" << currentRnti 
+          NS_LOG_DEBUG("UE DATA: RNTI=" << currentRnti 
                         << " IAB=" << ueSchedInfo.m_iab 
+                        << " dlAllocDone=" << ueSchedInfo.m_dlAllocDone 
                         << " maxDlBufSize=" << ueSchedInfo.m_maxDlBufSize 
                         << " at time " << Simulator::Now().GetSeconds() << "s");
         } else {
@@ -1885,11 +1870,11 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
                         << " Block=" << (int)blockIdxDl
                         << " at time " << Simulator::Now().GetSeconds() << "s");
           
-          // Choose DL start symbol avoiding IAB busy symbols if split mode is active
-          uint32_t allocStartDl = nextSymAvail;
+          // Choose DL start symbol; keep the same block across layers before advancing
+          uint32_t allocStartDl = dlBlockStart;
           if (ueSchedInfo.m_dlSymbols > 0 && m_split && CheckOverlapWithBusyResources(allocStartDl, ueSchedInfo.m_dlSymbols, layerIdxDl)) 
           {
-            uint8_t tmp = static_cast<uint8_t>(nextSymAvail);
+            uint8_t tmp = static_cast<uint8_t>(dlBlockStart);
             bool found = false;
             while ((uint32_t)tmp + ueSchedInfo.m_dlSymbols <= firstUlSymbol) {
               int freeCnt = GetNumFreeSymbols(tmp, ueSchedInfo.m_dlSymbols);
@@ -1900,8 +1885,10 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
             if (!found) {
               // No room without overlap in DL region for this UE in this round
               ueSchedInfo.m_dlAllocDone = true;
-              priorityIndex++;
-              if (priorityIndex >= uePriorityList.size()) { dlPhaseDone = true; }
+              // move to next UE in RR
+              ++itUeInfo;
+              if (itUeInfo == ueInfo.end()) { itUeInfo = ueInfo.begin(); }
+              if (itUeInfo == itUeInfoStart) { dlPhaseDone = true; }
               continue;
             }
           }
@@ -1986,15 +1973,17 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
                          tempDlslotAllocInfo[layerIdxDl].push_back(slotInfo);
              ret.m_sfAllocInfo.m_numSymAlloc += dci.m_numSym;
              
-             // Update allocation flags after DL allocation
-             ueSchedInfo.m_dlAllocDone = true;
-             ueSchedInfo.m_allocUlLast = false;
-            nextSymAvail = std::max(nextSymAvail, (uint32_t)dci.m_symStart) + symPerDlBlock;
+            // Update allocation flags after DL allocation
+            ueSchedInfo.m_dlAllocDone = true;
+            ueSchedInfo.m_allocUlLast = false;
+            lastScheduledRnti = currentRnti;
             layerIdxDl++;
             if (layerIdxDl == m_phyMacConfig->GetNumEnbLayers()) {
               layerIdxDl = 0;
               blockIdxDl++;
               NS_ASSERT(blockIdxDl <= nDlFlowsPerLayer);
+              nextSymAvail = std::max(nextSymAvail, (uint32_t)dci.m_symStart) + symPerDlBlock;
+              dlBlockStart = nextSymAvail;
             }
           } else {
             ueSchedInfo.m_dlAllocDone = true; // Mark as done even if no allocation
@@ -2003,8 +1992,14 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
           ueSchedInfo.m_dlAllocDone = true; // Mark as done if no buffer or already done
         }
 
-        priorityIndex++; // Move to next UE in priority list
-        if (priorityIndex >= uePriorityList.size()) {
+        // Move to next UE in RR order
+        ++itUeInfo;
+        if (itUeInfo == ueInfo.end())
+        {
+          itUeInfo = ueInfo.begin();
+        }
+        if (itUeInfo == itUeInfoStart)
+        {
           dlPhaseDone = true;
         }
       }
@@ -2096,6 +2091,7 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
             // Update allocation flags after UL allocation
             ueSchedInfo.m_ulAllocDone = true;
             ueSchedInfo.m_allocUlLast = true;
+            lastScheduledRnti = itUeInfoUl->first;
             std::vector<uint16_t> ueChunkMap;
             for (unsigned i = 0; i < m_phyMacConfig->GetTotalNumChunk(); i++) {
               ueChunkMap.push_back(dci.m_rnti);
@@ -2136,7 +2132,27 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
       NS_LOG_DEBUG("UL Symbols Per Block: " << (int)symPerUlBlock << " Total UL Symbols: " << (int)nUlSymPerLayer);
             // Update the main iterator for compatibility with existing code
       itUeInfo = itUeInfoStart;
-      m_nextRnti = itUeInfo->first;
+      if (lastScheduledRnti != 0)
+        {
+          auto itNext = ueInfo.find (lastScheduledRnti);
+          if (itNext != ueInfo.end ())
+            {
+              ++itNext;
+              if (itNext == ueInfo.end ())
+                {
+                  itNext = ueInfo.begin ();
+                }
+              m_nextRnti = itNext->first;
+            }
+          else
+            {
+              m_nextRnti = itUeInfo->first;
+            }
+        }
+      else
+        {
+          m_nextRnti = itUeInfo->first;
+        }
     }
 
   NS_LOG_INFO ("Fr "<< (int)ret.m_sfnSf.m_frameNum<<" Sf "<<(int)ret.m_sfnSf.m_sfNum <<" DL slot no. "<< 0 << " DL CTRL sym range "<<(int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_symStart << " to "<<(int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_numSym+(int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_symStart-1 << " of " << m_phyMacConfig->GetSymbolsPerSubframe () <<" layerIdx " << (int) ret.m_sfAllocInfo.m_slotAllocInfo[0].m_dci.m_layerInd <<" of "<< (int) ret.m_sfAllocInfo.m_numAllocLayers);

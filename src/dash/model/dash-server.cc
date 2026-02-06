@@ -28,6 +28,8 @@
 #include "ns3/inet-socket-address.h"
 #include "ns3/inet6-socket-address.h"
 #include "ns3/log.h"
+#include <sstream>
+#include <fstream>
 #include "ns3/node.h"
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
@@ -239,6 +241,19 @@ void
 DashServer::HandleAccept(Ptr<Socket> s, const Address& from)
 {
     NS_LOG_FUNCTION(this << s << from);
+    
+    std::string fromInfo = "Unknown";
+    if (InetSocketAddress::IsMatchingType(from))
+    {
+        Ipv4Address fromIp = InetSocketAddress::ConvertFrom(from).GetIpv4();
+        uint16_t fromPort = InetSocketAddress::ConvertFrom(from).GetPort();
+        std::ostringstream oss;
+        oss << fromIp << ":" << fromPort;
+        fromInfo = oss.str();
+    }
+    
+    NS_LOG_UNCOND("DashServer - ACCEPTED connection from " << fromInfo << " at time " << Simulator::Now().GetSeconds() << "s. Total connections: " << (m_socketList.size() + 1));
+        
     s->SetRecvCallback(MakeCallback(&DashServer::HandleRead, this));
     s->SetSendCallback(MakeCallback(&DashServer::DataSend, this));
     m_socketList.push_back(s);
@@ -269,12 +284,6 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
     //       }
     //   }
 
-    uint32_t frames_sent = 0;
-    uint32_t bytes_sent = 0;
-    
-    NS_LOG_DEBUG("DataSend called. Queue size: " << m_queues[socket].size() 
-                << ". Socket TxAvailable: " << socket->GetTxAvailable());
-
     while (!m_queues[socket].empty())
     {
         uint32_t max_tx_size = socket->GetTxAvailable();
@@ -285,49 +294,35 @@ DashServer::DataSend(Ptr<Socket> socket, uint32_t)
             return;
         }
 
-        Packet& queuedPacket = m_queues[socket].front();
-        uint32_t init_size = queuedPacket.GetSize();
-        Ptr<Packet> frame = queuedPacket.Copy();
+        Ptr<Packet> frame = m_queues[socket].front().Copy();
+        m_queues[socket].pop_front();
+
+        uint32_t init_size = frame->GetSize();
 
         if (max_tx_size < init_size)
         {
-            NS_LOG_DEBUG("Insufficient buffer space to send complete packet. "
-                        << "Packet size=" << init_size 
-                        << " bytes, Available=" << max_tx_size 
-                        << " bytes. Waiting for more buffer space.");
-            // Don't remove packet from queue - retry later when buffer has more space
-            Simulator::Schedule(MilliSeconds(100), &DashServer::DataSend, this, socket, 0);
-            return;
+            NS_LOG_INFO("Insufficient space in send buffer, fragmenting");
+            Ptr<Packet> frag0 = frame->CreateFragment(0, max_tx_size);
+            Ptr<Packet> frag1 = frame->CreateFragment(max_tx_size, init_size - max_tx_size);
+
+            m_queues[socket].push_front(*frag1);
+            frame = frag0;
         }
-        int bytes;
-        bytes = socket->Send(frame);
-        if (bytes < 0)
+
+        uint32_t bytes;
+        if ((bytes = socket->Send(frame)) < frame->GetSize())
         {
-            NS_LOG_DEBUG("Couldn't send packet, bytes = " << bytes << ". Socket buffer may be full. Scheduling retry in 100ms.");
-            // Packet is still in queue, so we can retry later when buffer has space
-            Simulator::Schedule (MilliSeconds (100), &DashServer::DataSend, this, socket, 0);
-            return;
-        }
-        else if ((uint32_t)bytes < frame->GetSize())
-        {
-            NS_LOG_ERROR("QUIC socket returned partial send: " << bytes << " of " << frame->GetSize() 
-                       << " bytes. Packets must be sent complete - no fragmentation allowed. "
-                       << "Keeping complete packet in queue for retry.");
-            
+            NS_LOG_WARN("Couldn't send packet, though space should be available");
             Simulator::Schedule(MilliSeconds(10), &DashServer::DataSend, this, socket, 0);
-            return;
         }
         else
         {
-            // Successfully sent the entire packet, remove it from queue
-            m_queues[socket].pop_front();
-            frames_sent++;
-            bytes_sent += bytes;
-            NS_LOG_DEBUG("Successfully sent complete packet. Bytes: " << bytes << ". Queue left: " << m_queues[socket].size());
+            NS_LOG_INFO("Just sent " << frame->GetSerializedSize() << " " << frame->GetSize());
+            // socket->Send(Create<Packet>(0));
         }
     }
-    NS_LOG_DEBUG("DataSend finished. Sent frames: " << frames_sent << ", bytes: " << bytes_sent);
 }
+
 
 void
 DashServer::SendSegment(uint32_t video_id,
@@ -377,6 +372,7 @@ DashServer::SendSegment(uint32_t video_id,
         m_queues[socket].push_back(*frame);
     }
     
+    NS_LOG_UNCOND("SendSegment: Queued " << MPEG_FRAMES_PER_SEGMENT << " frames for socket=" << socket << ". Calling DataSend.");
     DataSend(socket, 0);
 }
 

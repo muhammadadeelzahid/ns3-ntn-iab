@@ -78,6 +78,13 @@ public:
   void SetSocket (Ptr<QuicSocketBase> sock);
 
   /**
+   * \brief Get the Quic Socket associated with this stack
+   *
+   * \return the associated socket
+   */
+  Ptr<QuicSocketBase> GetSocket () const;
+
+  /**
    * \brief Set the node associated with this stack
    *
    * \param node the node to be associated with

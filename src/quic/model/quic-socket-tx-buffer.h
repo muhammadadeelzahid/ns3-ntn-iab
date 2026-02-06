@@ -31,6 +31,7 @@
 #include "ns3/traced-value.h"
 #include "ns3/sequence-number.h"
 #include "ns3/nstime.h"
+#include <string>
 #include "quic-subheader.h"
 #include "ns3/packet.h"
 #include "ns3/tcp-socket-base.h"
@@ -300,6 +301,19 @@ public:
    * \param The scheduler object
    */
   void SetScheduler (Ptr<QuicSocketTxScheduler> sched);
+  /**
+   * Set identifiers used when tracing ACK/loss recovery.
+   *
+   * \param connectionId the QUIC connection identifier
+   * \param nodeId the node identifier hosting the socket
+   * \param socketAddress the socket address string (local)
+   */
+  void SetTraceContext (uint64_t connectionId, uint32_t nodeId, const std::string &socketAddress);
+  /**
+   * Get the current socket scheduler
+   * \return The scheduler object
+   */
+  Ptr<QuicSocketTxScheduler> GetScheduler () const;
 
   /**
    * Updates per packet variables required for rate sampling on each packet transmission
@@ -396,6 +410,10 @@ private:
   std::vector<QuicTxPacketList> m_subflowSentList;
   std::vector<uint32_t> m_sentSizeList;                       //!< Size of all data in the sent list
   
+  uint64_t m_connectionId { 0 };            //!< Connection identifier for tracing
+  uint32_t m_nodeId { 0 };                  //!< Node identifier for tracing
+  std::string m_socketAddress;              //!< Socket address for tracing
+
   /**
    * pass m_sentList 0 or m_sentList1 by reference to m_sentList
    *

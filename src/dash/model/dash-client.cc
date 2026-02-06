@@ -28,6 +28,7 @@
 #include <ns3/simulator.h>
 #include <ns3/tcp-socket-factory.h>
 #include <ns3/uinteger.h>
+#include <sstream>
 
 NS_LOG_COMPONENT_DEFINE("DashClient");
 
@@ -193,6 +194,18 @@ DashClient::StartApplication(void) // Called at time specified by Start
             m_socket->Bind();
         }
 
+        // Log connection attempt
+        std::string peerInfo = "Unknown";
+        if (InetSocketAddress::IsMatchingType(m_peer))
+        {
+            Ipv4Address peerIp = InetSocketAddress::ConvertFrom(m_peer).GetIpv4();
+            uint16_t peerPort = InetSocketAddress::ConvertFrom(m_peer).GetPort();
+            std::ostringstream oss;
+            oss << peerIp << ":" << peerPort;
+            peerInfo = oss.str();
+        }
+        
+
         m_socket->Connect(m_peer);
         m_socket->SetRecvCallback(MakeCallback(&DashClient::HandleRead, this));
         m_socket->SetConnectCallback(MakeCallback(&DashClient::ConnectionSucceeded, this),
@@ -216,7 +229,6 @@ DashClient::StopApplication(void) // Called at time specified by Stop
         m_socket->Close();
         m_connected = false;
         m_player.m_state = MPEG_PLAYER_DONE;
-        m_requestTimeoutTimer.Cancel();
         m_periodicBufferCheckTimer.Cancel();
     }
     else
@@ -234,7 +246,6 @@ DashClient::RequestSegment()
 
     if (m_RequestPending)
     {
-        NS_LOG_INFO("Not requesting, found pending m_segmentId = " << m_segmentId);
         return;
     }
     m_RequestPending = true;
@@ -248,11 +259,9 @@ DashClient::RequestSegment()
     {
         if (m_segmentId >= m_maxSegments)
         {
-            NS_LOG_INFO("Maximum segments reached, not requesting more segments.");
             return;
         }
     }
-
 
     Ptr<Packet> packet = Create<Packet>(0);
 
@@ -273,7 +282,9 @@ DashClient::RequestSegment()
     else if ((unsigned)res != packet->GetSize())
     {
         // QUIC socket sent partial data, acceptable.
-        NS_LOG_INFO("Partial send: res=" << res << " size=" << packet->GetSize());
+    }
+    else
+    {
     }
 
     // Fire Tx trace for logging
@@ -281,9 +292,6 @@ DashClient::RequestSegment()
 
     m_requestTime = Simulator::Now();
     m_segment_bytes = 0;
-
-    // Schedule timeout for this segment request
-    m_requestTimeoutTimer = Simulator::Schedule(Seconds(3.0), &DashClient::SegmentRequestTimeout, this);
 }
 
 void
@@ -378,7 +386,7 @@ void
 DashClient::ConnectionSucceeded(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
-    NS_LOG_LOGIC("DashClient Connection succeeded");
+    NS_LOG_UNCOND("DashClient " << m_id << " (VideoId=" << m_videoId << ") - Connection SUCCEEDED at time " << Simulator::Now().GetSeconds() << "s");
     m_connected = true;
     socket->SetCloseCallbacks(MakeCallback(&DashClient::ConnectionNormalClosed, this),
                               MakeCallback(&DashClient::ConnectionErrorClosed, this));
@@ -390,7 +398,7 @@ void
 DashClient::ConnectionFailed(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
-    NS_LOG_LOGIC("DashClient " << m_id << ", Connection Failed, retrying...");
+    NS_LOG_UNCOND("DashClient " << m_id << " (VideoId=" << m_videoId << ") - Connection FAILED at time " << Simulator::Now().GetSeconds() << "s - Retrying...");
     m_socket = 0;
     m_connected = false;
     StartApplication();
@@ -411,26 +419,6 @@ DashClient::ConnectionErrorClosed(Ptr<Socket> socket)
     m_socket = 0;
     m_connected = false;
     StartApplication();
-}
-
-void
-DashClient::SegmentRequestTimeout()
-{
-    NS_LOG_FUNCTION(this);
-    if (m_RequestPending)
-    {
-        NS_LOG_INFO("Segment request timed out for segment " << m_segmentId - 1 << ". Retrying...");
-        m_RequestPending = false;
-        
-        // Decrement segment ID to retry the same segment
-        if (m_segmentId > 0)
-        {
-            m_segmentId--;
-        }
-        
-        // Retry immediately
-        RequestSegment();
-    }
 }
 
 void
@@ -456,6 +444,14 @@ DashClient::MessageReceived(Packet message)
 
     MPEGHeader mpegHeader;
     HTTPHeader httpHeader;
+    const uint32_t headerSize = httpHeader.GetSerializedSize() + mpegHeader.GetSerializedSize();
+
+    if (message.GetSize() < headerSize)
+    {
+        NS_LOG_UNCOND("Dropping undersized message: size=" << message.GetSize()
+                                                         << " headerSize=" << headerSize);
+        return true;
+    }
 
     Ptr<Packet> tempPacket = message.Copy();
     tempPacket->RemoveHeader(httpHeader);
@@ -486,20 +482,10 @@ DashClient::MessageReceived(Packet message)
         NS_FATAL_ERROR("WRONG STATE");
     }
 
-    NS_LOG_INFO("Received frame " << mpegHeader.GetFrameId() << " out of "
-                                  << MPEG_FRAMES_PER_SEGMENT);
-
-    // If we received the last frame of the segment
     if (mpegHeader.GetFrameId() == MPEG_FRAMES_PER_SEGMENT - 1)
     {
-        m_requestTimeoutTimer.Cancel();
         m_RequestPending = false;
         m_segmentFetchTime = Simulator::Now() - m_requestTime;
-
-        NS_LOG_INFO(Simulator::Now().GetSeconds()
-                    << " bytes: " << m_segment_bytes
-                    << " segmentTime: " << m_segmentFetchTime.GetSeconds()
-                    << " segmentRate: " << 8 * m_segment_bytes / m_segmentFetchTime.GetSeconds());
 
         // Feed the bitrate info to the player
         AddBitRate(Simulator::Now(), 8 * m_segment_bytes / m_segmentFetchTime.GetSeconds());
@@ -527,7 +513,6 @@ DashClient::MessageReceived(Packet message)
 
         if (bufferDelay == Seconds(0))
         {
-            NS_LOG_INFO("Requesting frame immediately due zero buffer delay");
             RequestSegment();
         }
         else
@@ -535,7 +520,7 @@ DashClient::MessageReceived(Packet message)
             Simulator::Schedule(bufferDelay, &DashClient::RequestSegment, this);
         }
 
-        std::cout << Simulator::Now().GetSeconds() << " Node: " << m_id
+        std::cout << Simulator::Now().GetSeconds() << " ue-id: " << GetNode()->GetId()
                   << " newBitRate: " << m_bitRate << " oldBitRate: " << old
                   << " estBitRate: " << GetBitRateEstimate()
                   << " interTime: " << m_player.m_interruption_time.GetSeconds()
@@ -570,7 +555,8 @@ DashClient::GetStats()
     // and the interruption time wasn't recorded because playback never resumed
     m_player.FinalizeInterruptionTime();
     
-    std::cout << " InterruptionTime: " << m_player.m_interruption_time.GetSeconds()
+    std::cout << " ue-id: " << GetNode()->GetId()
+              << " InterruptionTime: " << m_player.m_interruption_time.GetSeconds()
               << " interruptions: " << m_player.m_interrruptions
               << " avgRate: " << (1.0 * m_player.m_totalRate) / m_player.m_framesPlayed
               << " minRate: " << m_player.m_minRate

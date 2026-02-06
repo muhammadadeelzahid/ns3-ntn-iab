@@ -138,7 +138,10 @@ MpegPlayer::ReceiveFrame(Ptr<Packet> message)
 
     if (m_state == MPEG_PLAYER_PAUSED)
     {
-        NS_LOG_INFO("Play resumed");
+        NS_LOG_UNCOND("[MPEG_PLAYER] Play resumed at t=" << Simulator::Now().GetSeconds() 
+                      << "s. Player ID=" << (m_dashClient ? m_dashClient->m_id : -1)
+                      << " Pause duration=" << (Simulator::Now() - m_lastpaused).GetSeconds() 
+                      << "s. Total interruption time=" << m_interruption_time.GetSeconds() << "s");
         m_state = MPEG_PLAYER_PLAYING;
         m_interruption_time += (Simulator::Now() - m_lastpaused);
         PlayFrame();
@@ -175,7 +178,9 @@ MpegPlayer::PlayFrame(void)
     }
     if (m_frameBuffer.empty())
     {
-        NS_LOG_INFO(Simulator::Now().GetSeconds() << " No frames to play");
+        NS_LOG_UNCOND("[MPEG_PLAYER] No frames to play at t=" << Simulator::Now().GetSeconds() 
+                      << "s. Player ID=" << (m_dashClient ? m_dashClient->m_id : -1)
+                      << " State changing to PAUSED. Interruptions=" << m_interrruptions);
         m_state = MPEG_PLAYER_PAUSED;
         m_lastpaused = Simulator::Now();
         m_interrruptions++;
@@ -193,6 +198,15 @@ MpegPlayer::PlayFrame(void)
 
     MPEGHeader mpeg_header;
     HTTPHeader http_header;
+    const uint32_t headerSize = http_header.GetSerializedSize() + mpeg_header.GetSerializedSize();
+
+    if (message->GetSize() < headerSize)
+    {
+        NS_LOG_UNCOND("Dropping undersized frame: size=" << message->GetSize()
+                                                       << " headerSize=" << headerSize);
+        Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
+        return;
+    }
 
     message->RemoveHeader(http_header);
     message->RemoveHeader(mpeg_header);

@@ -26,6 +26,7 @@
 #define QUICSTREAMRXBUFFER_H
 
 #include <map>
+#include <string>
 #include "ns3/traced-value.h"
 #include "ns3/trace-source-accessor.h"
 #include "ns3/sequence-number.h"
@@ -103,6 +104,8 @@ public:
    */
   void Print (std::ostream & os) const;
 
+  void SetTraceContext (uint64_t connectionId, uint32_t nodeId, uint64_t streamId, const std::string &socketAddress);
+
   /**
    * Get the max size of the buffer
    *
@@ -140,7 +143,7 @@ public:
    * \param sub the QuicSubheader of the packet
    * \return true if the insertion was successful
    */
-  bool Add (Ptr<Packet> p, const QuicSubheader& sub);
+  bool Add (Ptr<Packet> p, const QuicSubheader& sub, uint64_t expectedOffset);
 
   /**
    * Extract maxSize bytes from the buffer
@@ -174,6 +177,10 @@ private:
   uint32_t m_finalSize;                     //!< Final buffer size
   uint32_t m_maxBuffer;                     //!< Maximum buffer size
   bool m_recvFin;                           //!< FIN bit reception flag
+  uint64_t m_connectionId { 0 };            //!< Connection identifier for tracing
+  uint32_t m_nodeId { 0 };                  //!< Node identifier for tracing
+  uint64_t m_streamId { 0 };                //!< Stream identifier for tracing
+  std::string m_socketAddress;              //!< Socket address for tracing
 
 };
 

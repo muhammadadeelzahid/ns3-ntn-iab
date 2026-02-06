@@ -427,7 +427,7 @@ main (int argc, char *argv[])
   // LogComponentEnable("DashClient", LOG_LEVEL_ALL);  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
   // LogComponentEnable("DashServer", LOG_LEVEL_ALL);
   // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
-  LogComponentEnable("MpegPlayer", LOG_LEVEL_ALL);
+  LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
   
   // Enable TCP socket logging to see connection events and data flow
   // LogComponentEnable("TcpSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
@@ -468,7 +468,7 @@ main (int argc, char *argv[])
   // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
-  LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
+  LogComponentEnable("MmWaveHelper", LOG_LEVEL_INFO);
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
@@ -590,7 +590,7 @@ main (int argc, char *argv[])
   unsigned run = 0;
   bool rlcAm = false;
   uint32_t numRelays = 1;
-  uint32_t numUes = 1;  // Number of UE nodes/users
+  uint32_t numUes = 5;  // Number of UE nodes/users
   uint32_t rlcBufSize = 50;  // Increased from 10 to 50 MB to prevent RLC buffer overflows and packet drops (matches QUIC)
   uint32_t interPacketInterval = 10000; 
   uint32_t packetSize = 1400; //bytes // Decreased from 1500 to 1400 to avoid IP fragmentation (MSS < MTU - Headers)

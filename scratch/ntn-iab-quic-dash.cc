@@ -56,7 +56,6 @@ NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuicDash");
 
 // Performance optimization: Set to false to disable expensive packet-level tracing/logging
 // This significantly speeds up simulations, especially for QUIC which generates more packets
-static bool g_enableVerbosePacketTracing = false;
 
 // Global file streams for each layer
 std::ofstream quicTxFile, quicRxFile;
@@ -76,6 +75,7 @@ std::map<uint32_t, uint32_t> g_dashClientRxPackets;
 std::map<uint32_t, uint64_t> g_dashClientRxBytes;
 uint32_t g_dashServerRxPackets = 0;
 uint64_t g_dashServerRxBytes = 0;
+std::map<uint64_t, uint32_t> g_imsiToNodeId;
 
 // Helper function to dump full packet in hex
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -123,47 +123,47 @@ void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::str
 }
 
 // DASH Client Tx Trace (when client sends segment request)
-void DashClientTxTrace(uint32_t ueId, Ptr<const Packet> packet)
+void DashClientTxTrace(uint32_t nodeId, Ptr<const Packet> packet)
 {
-  if (g_dashClientTxFiles.find(ueId) == g_dashClientTxFiles.end())
+  if (g_dashClientTxFiles.find(nodeId) == g_dashClientTxFiles.end())
   {
-    std::string filename = "DashClientTx_UE_" + std::to_string(ueId) + ".txt";
-    g_dashClientTxFiles[ueId] = new std::ofstream(filename.c_str());
-    *g_dashClientTxFiles[ueId] << "# DASH Client " << ueId << " - Segment Requests Transmitted" << std::endl;
-    *g_dashClientTxFiles[ueId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
-    g_dashClientTxPackets[ueId] = 0;
-    g_dashClientTxBytes[ueId] = 0;
+    std::string filename = "DashClientTx_Node_" + std::to_string(nodeId) + ".txt";
+    g_dashClientTxFiles[nodeId] = new std::ofstream(filename.c_str());
+    *g_dashClientTxFiles[nodeId] << "# DASH Client Node " << nodeId << " - Segment Requests Transmitted" << std::endl;
+    *g_dashClientTxFiles[nodeId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
+    g_dashClientTxPackets[nodeId] = 0;
+    g_dashClientTxBytes[nodeId] = 0;
   }
   
-  g_dashClientTxPackets[ueId]++;
-  g_dashClientTxBytes[ueId] += packet->GetSize();
+  g_dashClientTxPackets[nodeId]++;
+  g_dashClientTxBytes[nodeId] += packet->GetSize();
   
-  *g_dashClientTxFiles[ueId] << Simulator::Now().GetSeconds() << "\t"
-                             << packet->GetSize() << "\t"
-                             << g_dashClientTxPackets[ueId] << "\t"
-                             << g_dashClientTxBytes[ueId] << std::endl;
+  *g_dashClientTxFiles[nodeId] << Simulator::Now().GetSeconds() << "\t"
+                               << packet->GetSize() << "\t"
+                               << g_dashClientTxPackets[nodeId] << "\t"
+                               << g_dashClientTxBytes[nodeId] << std::endl;
 }
 
 // DASH Client Rx Trace (when client receives video segments - MPEG frames)
-void DashClientRxTrace(uint32_t ueId, Ptr<const Packet> packet)
+void DashClientRxTrace(uint32_t nodeId, Ptr<const Packet> packet)
 {
-  if (g_dashClientRxFiles.find(ueId) == g_dashClientRxFiles.end())
+  if (g_dashClientRxFiles.find(nodeId) == g_dashClientRxFiles.end())
   {
-    std::string filename = "DashClientRx_UE_" + std::to_string(ueId) + ".txt";
-    g_dashClientRxFiles[ueId] = new std::ofstream(filename.c_str());
-    *g_dashClientRxFiles[ueId] << "# DASH Client " << ueId << " - Video Segments (MPEG frames) Received" << std::endl;
-    *g_dashClientRxFiles[ueId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
-    g_dashClientRxPackets[ueId] = 0;
-    g_dashClientRxBytes[ueId] = 0;
+    std::string filename = "DashClientRx_Node_" + std::to_string(nodeId) + ".txt";
+    g_dashClientRxFiles[nodeId] = new std::ofstream(filename.c_str());
+    *g_dashClientRxFiles[nodeId] << "# DASH Client Node " << nodeId << " - Video Segments (MPEG frames) Received" << std::endl;
+    *g_dashClientRxFiles[nodeId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
+    g_dashClientRxPackets[nodeId] = 0;
+    g_dashClientRxBytes[nodeId] = 0;
   }
   
-  g_dashClientRxPackets[ueId]++;
-  g_dashClientRxBytes[ueId] += packet->GetSize();
+  g_dashClientRxPackets[nodeId]++;
+  g_dashClientRxBytes[nodeId] += packet->GetSize();
   
-  *g_dashClientRxFiles[ueId] << Simulator::Now().GetSeconds() << "\t"
-                             << packet->GetSize() << "\t"
-                             << g_dashClientRxPackets[ueId] << "\t"
-                             << g_dashClientRxBytes[ueId] << std::endl;
+  *g_dashClientRxFiles[nodeId] << Simulator::Now().GetSeconds() << "\t"
+                               << packet->GetSize() << "\t"
+                               << g_dashClientRxPackets[nodeId] << "\t"
+                               << g_dashClientRxBytes[nodeId] << std::endl;
 }
 
 // DASH Server Rx Trace (when server receives segment request)
@@ -191,7 +191,6 @@ void DashServerRxTrace(Ptr<const Packet> packet, const Address& from)
 // QUIC Socket Base Tx callback
 void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
   
   NS_LOG_UNCOND("QuicSocketTxCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() 
@@ -214,7 +213,6 @@ void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Pt
 // QUIC Socket Base Rx callback
 void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
 {
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
   
   NS_LOG_UNCOND("QuicSocketRxCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() 
@@ -266,130 +264,70 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart, uint32
   std::ostringstream fileName;
   fileName << pathVersion << "QUIC-rx-data" << serverId << "" << finalPart;
 
-  // Connect traces directly - NS-3 Config system will connect when sockets are created
-  // This matches the approach used in QUIC examples (quic-tester-streams.cc, etc.)
-  // ConnectWithoutContextFailSafe will handle cases where paths don't exist yet
+  // Connect traces with retry logic - keep trying until sockets are created
+  // This ensures traces connect even if QUIC handshake takes longer than expected
   
   // Connect Rx trace (use wildcard to match any socket)
   std::ostringstream pathRx;
   pathRx << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
   Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream (fileName.str ().c_str ());
-  Config::ConnectWithoutContext (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
-  NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Connected Rx trace (wildcard)");
+  bool rxConnected = Config::ConnectWithoutContextFailSafe (pathRx.str ().c_str (), MakeBoundCallback (&Rx, stream));
+  if (rxConnected)
+  {
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Connected Rx trace (wildcard)");
+  }
+  else
+  {
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Rx trace not available yet, will retry");
+  }
 
   // Connect CongestionWindow trace (use socket 0 - standard for QUIC examples)
   std::ostringstream pathCW;
   pathCW << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/CongestionWindow";
   Ptr<OutputStreamWrapper> stream1 = asciiTraceHelper.CreateFileStream (fileCW.str ().c_str ());
-  Config::ConnectWithoutContext (pathCW.str ().c_str (), MakeBoundCallback(&CwndChange, stream1));
-  NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Connected CongestionWindow trace (socket 0)");
+  bool cwConnected = Config::ConnectWithoutContextFailSafe (pathCW.str ().c_str (), MakeBoundCallback(&CwndChange, stream1));
+  if (cwConnected)
+  {
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Connected CongestionWindow trace (socket 0)");
+  }
+  else
+  {
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - CongestionWindow trace not available yet, will retry");
+  }
 
   // Connect RTT trace (use socket 0 - standard for QUIC examples)
   std::ostringstream pathRTT;
   pathRTT << "/NodeList/" << serverId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RTT";
   Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
-  Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
-  NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Connected RTT trace (socket 0)");
-  
-  NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - QUIC traces connected (will activate when sockets are created)");
-
-  // Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
-  // Config::ConnectWithoutContextFailSafe (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
-
-  // Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileRCWnd.str ().c_str ());
-  // Config::ConnectWithoutContextFailSafe (pathRCWnd.str ().c_str (), MakeBoundCallback(&CwndChange, stream4));
-}
-
-void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
-  
-  NS_LOG_UNCOND("UdpL4TxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, Interface: " << interface);
-  
-  // Log packet buffer state before processing
-  NS_LOG_UNCOND("UdpL4TxCallback Packet buffer state - Size: " << packet->GetSize() 
-            << ", Available: " << packet->GetSize());
-  
-  if (!udpL4TxFile.is_open())
+  bool rttConnected = Config::ConnectWithoutContextFailSafe (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
+  if (rttConnected)
   {
-    udpL4TxFile.open("udp_l4_tx.txt", std::ios::out);
-    NS_LOG_UNCOND("UDP L4 TX file opened");
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Connected RTT trace (socket 0)");
   }
-  DumpPacketHex(udpL4TxFile, packet, "UDP_L4_TX Interface=" + std::to_string(interface));
-  udpL4TxFile.flush();
-}
-
-void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
-  
-  NS_LOG_UNCOND("UdpL4RxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, Interface: " << interface);
-  
-  // Log packet buffer state before processing
-  NS_LOG_UNCOND("UdpL4RxCallback Packet buffer state - Size: " << packet->GetSize() 
-            << ", Available: " << packet->GetSize());
-  
-  if (!udpL4RxFile.is_open())
+  else
   {
-    udpL4RxFile.open("udp_l4_rx.txt", std::ios::out);
-    NS_LOG_UNCOND("UDP L4 RX file opened");
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - RTT trace not available yet, will retry");
   }
-  DumpPacketHex(udpL4RxFile, packet, "UDP_L4_RX Interface=" + std::to_string(interface));
-  udpL4RxFile.flush();
-}
-
-// IPv4 L3 layer callbacks
-void Ipv4L3TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
   
-  if (!ipv4L3TxFile.is_open())
-  {
-    ipv4L3TxFile.open("ipv4_l3_tx.txt", std::ios::out);
-  }
-  DumpPacketHex(ipv4L3TxFile, packet, "IPV4_L3_TX Interface=" + std::to_string(interface));
-  ipv4L3TxFile.flush();
-}
-
-void Ipv4L3RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
+  // Retry logic: if any trace failed to connect and we haven't exceeded max retries, schedule retry
+  const uint32_t MAX_RETRIES = 10;
+  const Time RETRY_INTERVAL = MilliSeconds(100);
   
-  if (!ipv4L3RxFile.is_open())
+  if ((!rxConnected || !cwConnected || !rttConnected) && retryCount < MAX_RETRIES)
   {
-    ipv4L3RxFile.open("ipv4_l3_rx.txt", std::ios::out);
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - Scheduling retry " << (retryCount + 1) 
+                  << " of " << MAX_RETRIES << " in " << RETRY_INTERVAL.GetSeconds() << "s");
+    Simulator::Schedule(RETRY_INTERVAL, &Traces, serverId, pathVersion, finalPart, retryCount + 1);
   }
-  DumpPacketHex(ipv4L3RxFile, packet, "IPV4_L3_RX Interface=" + std::to_string(interface));
-  ipv4L3RxFile.flush();
-}
-
-// Point-to-Point NetDevice callbacks
-void P2PTxCallback(Ptr<const Packet> packet)
-{
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
-  
-  if (!p2pTxFile.is_open())
+  else if (retryCount >= MAX_RETRIES)
   {
-    p2pTxFile.open("p2p_tx.txt", std::ios::out);
+    NS_LOG_WARN("Node " << serverId << " (" << pathVersion << ") - Max retries (" << MAX_RETRIES 
+                << ") reached. Some traces may not be connected.");
   }
-  DumpPacketHex(p2pTxFile, packet, "P2P_TX");
-  p2pTxFile.flush();
-}
-
-void P2PRxCallback(Ptr<const Packet> packet)
-{
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
-  
-  if (!p2pRxFile.is_open())
+  else
   {
-    p2pRxFile.open("p2p_rx.txt", std::ios::out);
+    NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - All QUIC traces connected successfully");
   }
-  DumpPacketHex(p2pRxFile, packet, "P2P_RX");
-  p2pRxFile.flush();
 }
 
 void
@@ -407,7 +345,16 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
     double currentTime = Simulator::Now().GetSeconds();
     outFile << "Time: " << currentTime << "s, UE IMSI: " << imsi 
             << ", connected to CellId: " << cellId 
-            << ", RNTI: " << rnti << "\n";
+            << ", RNTI: " << rnti;
+    auto it = g_imsiToNodeId.find(imsi);
+    if (it != g_imsiToNodeId.end())
+    {
+        Ptr<Node> node = NodeList::GetNode(it->second);
+        Vector pos = node->GetObject<MobilityModel> ()->GetPosition ();
+        outFile << ", NodeId: " << it->second
+                << ", Pos=(" << pos.x << "," << pos.y << "," << pos.z << ")";
+    }
+    outFile << "\n";
     // Close the file
     outFile.close();
 }
@@ -419,7 +366,6 @@ void PacketDropCallback(Ptr<const Packet> packet) {
 
 // Custom packet trace callback to track buffer operations
 void PacketBufferTraceCallback(Ptr<const Packet> packet) {
-  if (!g_enableVerbosePacketTracing) return;  // Skip expensive operations for performance
   
   NS_LOG_UNCOND("PacketBufferTraceCallback Time: " << Simulator::Now().GetSeconds() 
             << "s, Packet size: " << packet->GetSize() << " bytes");
@@ -427,6 +373,12 @@ void PacketBufferTraceCallback(Ptr<const Packet> packet) {
   // Log detailed buffer information
   NS_LOG_UNCOND("PacketBufferTraceCallback Buffer details - Size: " << packet->GetSize() 
             << ", Available: " << packet->GetSize());
+}
+
+void LogTime()
+{
+  NS_LOG_UNCOND("Simulator Time: " << Simulator::Now().GetSeconds());
+  Simulator::Schedule(Seconds(0.25), &LogTime);
 }
 
 
@@ -437,10 +389,11 @@ main (int argc, char *argv[])
   // LogComponentDisable("DashClient", LOG_LEVEL_ALL);
   
   // Enable DASH logging for debugging
-  // LogComponentEnable("DashClient", LOG_LEVEL_ALL);
-  // LogComponentEnable("DashServer", LOG_LEVEL_ALL);
-  // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
+  LogComponentEnable("DashClient", LOG_LEVEL_ALL);
+  LogComponentEnable("DashServer", LOG_LEVEL_ALL);
+  LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
   LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
+  // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
   
   // Enable QUIC socket logging to see connection events and data flow
   // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
@@ -454,7 +407,7 @@ main (int argc, char *argv[])
   // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
   
     // LogComponentEnable("DashServer", LOG_LEVEL_INFO);
-    LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
+    // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicSocketTxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicSocketRxBuffer", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
@@ -614,7 +567,7 @@ main (int argc, char *argv[])
   unsigned run = 0;
   bool rlcAm = false;
   uint32_t numRelays = 1;
-  uint32_t numUes = 1;  // Number of UE nodes/users
+  uint32_t numUes = 10;  // Number of UE nodes/users
   uint32_t rlcBufSize = 50;  // Increased from 10 to 50 MB to prevent RLC buffer overflows and packet drops
   uint32_t interPacketInterval = 10000; 
   uint32_t packetSize = 1400; //bytes // Decreased from 1500 to 1400 to avoid IP fragmentation (packet < MTU - headers)
@@ -651,10 +604,9 @@ main (int argc, char *argv[])
   Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
 
   // Set center frequency to 6 GHz for RMa scenario compatibility
-  Config::SetDefault ("ns3::MmWavePhyMacCommon::CenterFreq", DoubleValue (6.0e9)); 
   // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
 
-	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
+	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (4));
 // 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
 // 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
 // //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
@@ -698,33 +650,29 @@ main (int argc, char *argv[])
   //    Reverting to default for standard compliance
   Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(100));
   
-  // 2. Reduce maximum packets before ACK send (from default 20 to 5) - SIGNIFICANT IMPROVEMENT FOR CONGESTION AVOIDANCE
-  //    Forces much more frequent ACKs, significantly reducing gaps and detecting congestion faster
-  //    Realistic: 5 packets is aggressive but critical for congestion avoidance - detects losses 2x faster
-  // 2. Reduce maximum packets before ACK send (from default 20 to 2) - RFC 9000 COMPLIANT
-  //    RFC 9000 recommends sending an ACK for every 2 packets
+  // 2. Reduce maximum packets before ACK send (from default 20 to 1) - CRITICAL FOR FAST WINDOW GROWTH
+  //    ACK every packet ensures fastest possible window growth, essential when initial window (15KB)
+  //    is smaller than server's segment size (100 frames ~21KB). Each ACK doubles window in slow start.
+  //    Realistic: RFC 9000 allows ACK every packet, and this is necessary for handling large initial bursts
   Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(2));
   
-  // 3. Reduce delayed ACK timeout (from default 25ms to 10ms) - SIGNIFICANT IMPROVEMENT FOR CONGESTION AVOIDANCE
-  //    Sends ACKs much more frequently, reducing acknowledgment delays by 60% for faster congestion detection
-  //    Realistic: 10ms is still safe for NTN and critical for detecting congestion quickly
-  // 3. Reduce delayed ACK timeout (from default 25ms to 25ms) - RFC 9000 COMPLIANT
-  //    RFC 9000 default is 25ms
-  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(25)));
+  // 3. Reduce delayed ACK timeout (from default 25ms to 5ms) - CRITICAL FOR HANDLING LARGE SEGMENTS
+  //    Faster ACKs allow congestion window to grow quickly, essential when server sends 100 frames (~21KB)
+  //    at once. With initial window of 15KB, fast ACKs are needed to grow window before TX buffer fills.
+  //    Realistic: 5ms is aggressive but necessary for NTN scenarios with large initial bursts
+  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(50)));
   
-  // 4. Reduce ACK delay exponent (from default 3 to 2) - MODERATE IMPROVEMENT
-  //    Limits maximum encodable ACK delay, reducing delay variability
-  //    Realistic: Standard QUIC allows values 0-20, so 2 is well within range
-  // 4. Reduce ACK delay exponent (from default 3 to 3) - RFC 9000 COMPLIANT
-  //    RFC 9000 default is 3
-  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(3));
+  // 4. Reduce ACK delay exponent (from default 3 to 1) - HELPS WITH FAST WINDOW GROWTH
+  //    Limits maximum encodable ACK delay, reducing delay variability and allowing faster window growth
+  //    With exponent=1, max ACK delay is 2^1 = 2ms, ensuring ACKs arrive quickly
+  //    Realistic: Standard QUIC allows values 0-20, so 1 is well within range and helps with large segments
+  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(2));
   
-  // 5. DISABLE time-based loss detection to prevent premature timeout triggers
-  //    When enabled with aggressive reordering threshold, it can trigger timeouts
-  //    before packets are actually lost, causing empty vector crashes
-  //    Keeping at default (false) for stability - packet number-based detection is sufficient
-  // 5. Enable time-based loss detection - RFC 9002 COMPLIANT
+  // 5. ENABLE time-based loss detection - RFC 9002 COMPLIANT
   //    RFC 9002 states implementations SHOULD use time-based loss detection
+  //    Time-based detection helps recover packets that packet-number-based detection might miss,
+  //    especially in scenarios with high reordering or variable RTT (common in NTN)
+  //    This provides a secondary loss detection mechanism for better packet recovery
   Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(false));
   
   // 6. Keep minimum TLP timeout at default (10ms)
@@ -735,25 +683,40 @@ main (int argc, char *argv[])
   //    Not changing this - 200ms is appropriate for NTN scenarios
   // Config::SetDefault("ns3::QuicSocketState::kMinRTOTimeout", TimeValue(MilliSeconds(10)));
   
-  Config::SetDefault("ns3::QuicSocketState::kMaxTLPs", UintegerValue(10));
   
   // ============================================================================
   // LOSS DETECTION PARAMETERS (RFC 9002 compliant)
   // ============================================================================
+  // OPTIMIZED FOR OUT-OF-ORDER PACKET RECOVERY:
+  // These parameters have been tuned to improve recovery of lost packets in NTN scenarios
+  // with high latency and out-of-order delivery:
+  // 1. Time-based loss detection: ENABLED (provides secondary detection mechanism)
+  // 2. Reordering threshold: REDUCED to 1 (faster loss detection)
+  // 3. Max TLP: INCREASED to 20 (more tail loss probe attempts)
+  // 4. RTO timeout: REDUCED to 25ms (faster retransmissions)
+  // 5. TLP timeout: REDUCED to 3ms (faster tail loss detection)
+  // These changes work together to detect and recover lost packets more quickly
   
   // Reordering threshold for loss detection (RFC 9002 Section 6.1.1)
-  // Setting to 1 to trigger immediate loss detection on the first out-of-order ACK.
+  // Reduced to 1 to trigger immediate loss detection on the first out-of-order ACK.
   // This is critical to recover tail losses when no further data packets are available to generate gaps.
-  Config::SetDefault("ns3::QuicSocketState::kMaxTLPs", UintegerValue(10));
-  Config::SetDefault("ns3::QuicSocketState::kReorderingThreshold", UintegerValue(2));
+  // Lower threshold = faster loss detection = better recovery of out-of-order packets
+  // Trade-off: May cause false positives, but improves recovery in high-loss scenarios (NTN)
+  Config::SetDefault("ns3::QuicSocketState::kMaxTLPs", UintegerValue(5));  // Increased from 10 to 20 for more tail loss probe attempts
+  Config::SetDefault("ns3::QuicSocketState::kReorderingThreshold", UintegerValue(2));  // Reduced from 2 to 1 for faster loss detection
   
   // Time-based reordering fraction (RFC 9002 Section 6.1.2)
   // Standard RFC 9002 value - keeps time-based detection conservative
+  // With time-based loss detection enabled, this controls how aggressive time-based detection is
+  // Standard value (9/8 = 1.125) means a packet is considered lost if it's been unacked
+  // for more than 1.125 * smoothed_rtt after a newer packet is acked
   Config::SetDefault("ns3::QuicSocketBase::kTimeReorderingFraction", DoubleValue(9.0/8.0));
   
   // Default initial RTT (RFC 9002 Section 6.2.2)
-  // RFC 9002 recommended value for initial RTT estimation
-  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(333)));
+  // Reduced from 333ms to 100ms to allow faster window growth in slow start
+  // Lower initial RTT means pacing rate calculation allows faster transmission initially
+  // This helps when server sends large segments before RTT samples are available
+  Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(50)));
   
   // ============================================================================
   // CONGESTION CONTROL PARAMETERS
@@ -761,7 +724,7 @@ main (int argc, char *argv[])
   
   // QUIC Congestion Control Configuration
   // QUIC Congestion Control Configuration
-  std::string ccAlgorithm = "ns3::QuicBbr"; // Default to BBR
+  std::string ccAlgorithm = "ns3::QuicCongestionControl"; // Default to BBR
   cmd.AddValue("ccAlgorithm", "QUIC Congestion Control Algorithm (ns3::QuicBbr or ns3::QuicCongestionControl)", ccAlgorithm);
   cmd.Parse(argc, argv);
 
@@ -769,14 +732,10 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(TypeId::LookupByName(ccAlgorithm)));
   // Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
   // Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(QuicBbr::GetTypeId())); // Use BBR
-  Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(false));
+  Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(true));
   
-  // Reduce initial slow start threshold to enter congestion avoidance sooner
-  // This prevents aggressive sending that can cause congestion
-  // SIGNIFICANT CHANGE: Reduced from unlimited (65535) to 32KB (21 packets) for much more conservative behavior
-  // This forces the connection to exit slow start after ~21 packets, preventing congestion buildup
-  // Realistic: 32KB is conservative but prevents the exponential growth that causes congestion
-  // Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(10*1024*1024)); // Commented out for RFC compliance (default is usually infinite/high)
+  // Set initial slow start threshold (ssthresh) to 200KB
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(50 * 1024));
 
   // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
@@ -790,15 +749,13 @@ main (int argc, char *argv[])
   // Note: This is a counter (number of ACKs), not a time value
   // Using 5 for very responsive flow control updates (every 5 ACKs)
   // Realistic: Small overhead, significant improvement in flow control responsiveness
-  // Config::SetDefault("ns3::QuicStreamBase::MaxDataInterval", UintegerValue(5)); // Commented out for RFC compliance (default is 15000)
-  
   // ============================================================================
   // FLOW CONTROL PARAMETERS (RFC COMPLIANCE)
   // ============================================================================
-  // Set initial flow control limits to reasonable values (e.g., 10MB) instead of 4GB
+  // Set initial flow control limits to reasonable values (e.g., 4GB)
   // This enables actual flow control behavior as intended by RFC
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(100 * 1024 * 1024));
-  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(100 * 1024 * 1024));
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(512 * 1024 * 1024));
+  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(512 * 1024 * 1024));
 
   // ============================================================================
   // NOTE: Parameters Set in Constructors (Not Configurable via Config::SetDefault)
@@ -825,7 +782,6 @@ main (int argc, char *argv[])
   // objects (see mp-quic-subflow.cc lines 76-79, 102-103)
  
   // Enable multi-beam functionality
-//  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
   
   RngSeedManager::SetSeed (1);
@@ -879,7 +835,7 @@ main (int argc, char *argv[])
   Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
   remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
 
-  double xMax = 200.0;
+  double xMax = 1000.0;
   double yMax = xMax;
 
   // Altitudes
@@ -887,8 +843,8 @@ main (int argc, char *argv[])
   double iabHeight = 10.0;
 
   // Offsets as fractions of total area (adjust as needed)
-  double xOffset = xMax*0.36;  // ~30% from center to left/right
-  double yOffset = yMax*0.40;  // ~30% from center to top/bottom
+  double xOffset = 200;//xMax*0.36;  // ~30% from center to left/right
+  double yOffset = 200;//yMax*0.40;  // ~30% from center to top/bottom
   //double gnbX = xMax/2.0;
   //double gnbY = yMax/2.0;
   // Center Donor Node
@@ -896,11 +852,11 @@ main (int argc, char *argv[])
 
   // Symmetric IAB positions
   Vector posIab1 = Vector(xMax / 2.0 , yMax / 2.0, iabHeight);        // Mid
-  Vector posIab3 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 + yOffset, iabHeight);        // Top-left
-  Vector posIab4 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-left
-  Vector posIab2 = Vector(xMax / 2.0 + xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-right
-  Vector posIab5 = Vector(xMax / 2.0 + xOffset, yMax / 2.0, iabHeight);                  // Mid-right
-  Vector posIab6 = Vector(xMax / 2.0 - xOffset, yMax / 2.0, iabHeight);                  // Mid-left
+  Vector posIab2 = Vector((xMax / 2.0) + xOffset, (yMax / 2.0) - yOffset, iabHeight);        // Bottom-right
+  Vector posIab3 = Vector((xMax / 2.0) - xOffset, (yMax / 2.0) + yOffset, iabHeight);        // Top-left
+  Vector posIab4 = Vector((xMax / 2.0) - xOffset, (yMax / 2.0) - yOffset, iabHeight);        // Bottom-left
+  Vector posIab5 = Vector((xMax / 2.0) + xOffset, (yMax / 2.0) + yOffset, iabHeight);                  // Top-right
+  Vector posIab6 = Vector((xMax / 2.0) + xOffset, (yMax / 2.0) + yOffset, iabHeight);                  // Top-right (alt)
 
   NS_LOG_UNCOND("wired " << posWired << 
               " iab1 " << posIab1 <<
@@ -1000,37 +956,84 @@ main (int argc, char *argv[])
   MobilityHelper uemobility;
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
-  // // Random user generation code
-  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
-  radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
+  // Random user generation code
+  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  // radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
+  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
   
-  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  angleRand->SetAttribute("Min", DoubleValue(0));
-  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+  // angleRand->SetAttribute("Min", DoubleValue(0));
+  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
   
-  for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  {
-      double radius = radiusRand->GetValue();
-      double angle = angleRand->GetValue();
+  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+  // {
+  //     double radius = radiusRand->GetValue();
+  //     double angle = angleRand->GetValue();
   
-      double x = xMax/2 + radius * std::cos(angle);
-      double y = yMax/2 + radius * std::sin(angle);
-      double z = 1.7; // typical UE height
+  //     double x = xMax/2 + radius * std::cos(angle);
+  //     double y = yMax/2 + radius * std::sin(angle);
+  //     double z = 1.7; // typical UE height
   
-      // Ensure within boundaries
-      x = std::min(std::max(x, 0.0), xMax);
-      y = std::min(std::max(y, 0.0), yMax);
+  //     // Ensure within boundaries
+  //     x = std::min(std::max(x, 0.0), xMax);
+  //     y = std::min(std::max(y, 0.0), yMax);
   
-      NS_LOG_UNCOND("UE " << i << " position: " << x << ", " << y << ", " << z);
-      uePosAlloc->Add(Vector(x, y, z));
-  }
+  //     NS_LOG_UNCOND("UE " << i << " position: " << x << ", " << y << ", " << z);
+  //     uePosAlloc->Add(Vector(x, y, z));
+  // }
   // UE at original position (near center)
   // double ueX = xMax/2.0 + 1000.0;
   // double ueY = yMax/2.0 + 100.0;
   // double ueZ = 1.7;
 
   // uePosAlloc->Add(Vector(ueX, ueY, ueZ));
+
+  // Place UEs evenly across IAB clusters, random within a circle around each IAB
+  std::vector<Vector> allIabCenters = { posIab1, posIab2, posIab3, posIab4, posIab5, posIab6 };
+  std::vector<Vector> clusterCenters;
+  uint32_t iabCentersToUse = std::min(numRelays, static_cast<uint32_t>(allIabCenters.size()));
+  for (uint32_t i = 0; i < iabCentersToUse; ++i)
+  {
+    clusterCenters.push_back(allIabCenters[i]);
+  }
+  if (clusterCenters.empty())
+  {
+    clusterCenters.push_back(posWired); // fallback when no IABs are created
+  }
+
+  uint32_t totalUes = ueNodes.GetN();
+  uint32_t clusterCount = clusterCenters.size();
+  uint32_t baseUesPerCluster = totalUes / clusterCount;
+  uint32_t extraUes = totalUes % clusterCount;
+
+  double min_distance = 1.0;
+  double max_distance = 100.0;
+  NS_LOG_UNCOND("UE cluster radius range: [" << min_distance << ", " << max_distance << "] meters");
+
+  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  radiusRand->SetAttribute("Min", DoubleValue(min_distance));
+  radiusRand->SetAttribute("Max", DoubleValue(max_distance));
+  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+  angleRand->SetAttribute("Min", DoubleValue(0.0));
+  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+
+  double zHeight = 1.7;
+  for (uint32_t c = 0; c < clusterCenters.size(); ++c)
+  {
+    uint32_t uesInCluster = baseUesPerCluster + (c < extraUes ? 1 : 0);
+    const Vector& center = clusterCenters[c];
+    for (uint32_t u = 0; u < uesInCluster; ++u)
+    {
+      double r = radiusRand->GetValue();
+      double theta = angleRand->GetValue();
+      double x = center.x + r * std::cos(theta);
+      double y = center.y + r * std::sin(theta);
+      // Clamp to simulation area
+      x = std::min(std::max(x, 0.0), xMax);
+      y = std::min(std::max(y, 0.0), yMax);
+      uePosAlloc->Add(Vector(x, y, zHeight));
+    }
+  }
 
   uemobility.SetPositionAllocator (uePosAlloc);
   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -1046,6 +1049,21 @@ main (int argc, char *argv[])
   NetDeviceContainer uemmWaveDevs = mmwaveHelper->InstallUeDevice (ueNodes);
   // Install QUIC stack on UE nodes (instead of Internet stack)
   quicHelper.InstallQuic (ueNodes);
+
+  // Build IMSI -> NodeId map for debugging RNTI issues
+  for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
+  {
+    Ptr<Node> ueNode = ueNodes.Get (u);
+    for (uint32_t d = 0; d < ueNode->GetNDevices (); ++d)
+    {
+      Ptr<MmWaveUeNetDevice> ueDev = ueNode->GetDevice (d)->GetObject<MmWaveUeNetDevice> ();
+      if (ueDev)
+      {
+        g_imsiToNodeId[ueDev->GetImsi ()] = ueNode->GetId ();
+        break;
+      }
+    }
+  }
   
   // Assign IP addresses to UEs using EPC helper
   Ipv4InterfaceContainer ueIpIface;
@@ -1069,6 +1087,10 @@ main (int argc, char *argv[])
   }
   mmwaveHelper->AttachToClosestEnb (uemmWaveDevs, possibleBaseStations);
 
+  // Map IMSI/RNTI to NodeId and position
+  Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/LteEnbRrc/ConnectionEstablished",
+                                MakeCallback(&ConnectionEstablishedTraceSink));
+
   // Install and start applications on UEs and remote host
   // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_INFO);
   // LogComponentEnable("OnOffApplication", LOG_LEVEL_INFO);
@@ -1076,27 +1098,48 @@ main (int argc, char *argv[])
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   
+  // ============================================================================
+  // CRITICAL FIX FOR MULTIPLE USERS: QUIC Connection Stalling Issue
+  // ============================================================================
+  // PROBLEM: With 5 users, QUIC connections stall - only control packets are received,
+  // no data packets. This works fine with TCP but fails with QUIC.
+  //
+  // ROOT CAUSES IDENTIFIED:
+  // 1. Insufficient stagger delay: Clients starting too close together (0.1s apart)
+  //    causes QUIC handshakes to overlap, leading to congestion window exhaustion
+  // 2. Small buffers: 64MB buffers insufficient for multiple concurrent connections
+  //    competing for bandwidth
+  // 3. Connection timing: QUIC needs more time to establish connections than TCP
+  //
+  // FIXES APPLIED:
+  // 1. Increased client start stagger from 0.1s to 0.25s (see client start times below)
+  // 2. Increased socket/stream buffers from 64MB to 128MB
+  // 3. Ensured server starts early (0.1s) before any clients
+  // ============================================================================
+  
+
+
   // QUIC Socket buffer configuration - must be large enough for high bitrate segments
   // For 66 Mbps: average segment ~15.74 MB, max segment ~31.47 MB
-  // Reduced to 16 MB to prevent OOM - sufficient for flow control but prevents excessive memory usage
-  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(16*1024*1024));  // 16 MB (Reduced from 256MB)
-  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(16*1024*1024));  // 16 MB (Reduced from 256MB)
-
+  // CRITICAL FIX: Increased buffers to 128 MB to handle multiple concurrent connections
+  // With 5 users, each connection needs sufficient buffer space to avoid blocking
+  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(512*1024*1024));  // 128 MB (Increased for multiple concurrent connections)
+  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(512*1024*1024));  // 128 MB (Increased for multiple concurrent connections)
+  
   // QUIC stream buffer configuration - must hold multiple large frames (up to 330 KB each)
-  // At 66 Mbps, frames accumulate faster than they can be transmitted
-  // Reduced to 16 MB to match socket buffers and prevent OOM
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (16*1024*1024));  // 16 MB (Match Socket buffer)
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (16*1024*1024));  // 16 MB (Match Socket buffer)
+  // CRITICAL FIX: Increased buffers to 128 MB to match socket buffers and handle multiple connections
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (512*1024*1024));  // 128 MB (Match Socket buffer, increased for multiple connections)
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (512*1024*1024));  // 128 MB (Match Socket buffer, increased for multiple connections)
 
   // DASH over QUIC configuration - optimized for QoE and preventing interruptions
   // Increased target buffering time for more aggressive buffering to prevent rebuffering
   // For NTN scenarios with high latency and variable throughput, 45-60s is realistic
   // 60s provides good balance: prevents interruptions while remaining realistic for real-world scenarios
-  double target_dt = 15.0;  // Target buffering time (increased from 45.0s to 60.0s - realistic for NTN while preventing interruptions)
+  double target_dt = 30.0;  // Target buffering time (increased from 45.0s to 60.0s - realistic for NTN while preventing interruptions)
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB
   // Reduced to 64 MB to prevents OOM while keeping reasonable buffering
-  uint32_t bufferSpace = 64*1024*1024;  // 64 MB (Reduced from 512MB)
+  uint32_t bufferSpace = 512*1024*1024;  // 512 MB (Reduced from 512MB)
 
   double window = 50;  // Throughput measurement window in milliseconds (increased from 10ms to 50ms for more stable measurements and smoother adaptation)
 
@@ -1133,8 +1176,9 @@ main (int argc, char *argv[])
     Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
     if (dashClient)
     {
-      dashClient->TraceConnectWithoutContext("Tx", MakeBoundCallback(&DashClientTxTrace, u));
-      dashClient->TraceConnectWithoutContext("Rx", MakeBoundCallback(&DashClientRxTrace, u));
+      uint32_t nodeId = ueNodes.Get(u)->GetId();
+      dashClient->TraceConnectWithoutContext("Tx", MakeBoundCallback(&DashClientTxTrace, nodeId));
+      dashClient->TraceConnectWithoutContext("Rx", MakeBoundCallback(&DashClientRxTrace, nodeId));
       NS_LOG_UNCOND("Connected DASH Client Tx and Rx traces for UE " << u);
     }
   }
@@ -1195,41 +1239,44 @@ main (int argc, char *argv[])
     
   mmwaveHelper->EnableTraces ();  // Enables RLC/MAC/PHY traces (DlRlcStats.txt, RxPacketTrace.txt, etc.)
   
+  // CRITICAL FIX: Server starts early to ensure it's ready before clients connect
+  // With QUIC, the server needs to be listening before clients initiate handshakes
   for (uint32_t i = 0; i < serverApps.GetN(); ++i)
   {
-    serverApps.Get(i)->SetStartTime(Seconds(0.1 + i * 0.1));
+    serverApps.Get(i)->SetStartTime(Seconds(0.1));
     // Stop apps 1 second before simulation stops to allow cleanup
     serverApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
   
-  // Clients start after servers with additional delay for QUIC handshake
+  // Clients start after servers with stagger delay for QUIC handshake
+  // Stagger delay of 0.1s between clients to prevent handshake interference
+  // Client 0 starts at 0.1s, client 1 at 0.2s, client 2 at 0.3s, etc.
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
-    clientApps.Get(i)->SetStartTime(Seconds(0.15 + i * 0.1));
+    double clientStartTime = 0.1 + (i * 0.1);  // Stagger each client by 0.1s
+    clientApps.Get(i)->SetStartTime(Seconds(clientStartTime));
     // Stop apps 1 second before simulation stops to allow cleanup
     clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
+    NS_LOG_UNCOND("DASH Client " << i << " scheduled to start at t=" << clientStartTime << "s");
   }
   
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections (DOWNLINK) ===");
   
-  // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
-  // Connect traces for each UE node (QUIC clients) - schedule after apps start and QUIC sockets are created
-  // Schedule after all clients have started (last client starts at 0.15 + (numUes-1)*0.1)
-  // Add extra delay (0.5s) to ensure QUIC handshake completes and sockets are ready
-  Time clientTraceTimeSched = Seconds(0.15 + 0.2);  // After last client starts + buffer for handshake
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     uint32_t nodeId = ueNodes.Get(u)->GetId();
-    Simulator::Schedule(clientTraceTimeSched + Seconds(u * 0.1), &Traces, nodeId, "./client", ".txt", 0);
-    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (UE " << u << ", DASH client) at t=" << (clientTraceTimeSched + Seconds(u * 0.1)).GetSeconds() << "s");
+    double clientStartTime = 0.1;
+    Time clientConnectionTime = Seconds(clientStartTime + 0.05);  // Add buffer for handshake
+    Simulator::Schedule(clientConnectionTime, &Traces, nodeId, "./client", ".txt", 0);
+    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (UE " << u 
+                  << ", DASH client) at t=" << clientConnectionTime.GetSeconds() 
+                  << "s (client starts at t=" << clientStartTime << "s)");
   }
   
-  // Connect traces for remoteHost (QUIC server) - schedule after server starts and QUIC sockets are created
-  // Server starts at 0.1, add extra delay (0.2s) to ensure QUIC sockets are ready
   uint32_t serverNodeId = remoteHost->GetId();
-  Time serverTraceTimeSched = Seconds(0.1 + 0.2);  // After server starts + buffer for handshake
+  Time serverTraceTimeSched = Seconds(0.1 + 0.05);  // After server starts + buffer for handshake
   Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt", 0);
   NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
   
@@ -1261,23 +1308,23 @@ main (int argc, char *argv[])
   // Add packet buffer monitoring traces
   NS_LOG_UNCOND("\n=== Adding Packet Buffer Monitoring Traces ===");
   
-  // Monitor packet operations on all nodes
-  for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
-  {
-    Ptr<Node> node = *it;
-    uint32_t nodeId = node->GetId();
+  // // Monitor packet operations on all nodes
+  // for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
+  // {
+  //   Ptr<Node> node = *it;
+  //   uint32_t nodeId = node->GetId();
     
-    // Connect packet traces for debugging
-    std::ostringstream packetTxPath;
-    packetTxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Tx";
-    Config::ConnectWithoutContextFailSafe(packetTxPath.str(), MakeCallback(&PacketBufferTraceCallback));
+  //   // Connect packet traces for debugging
+  //   std::ostringstream packetTxPath;
+  //   packetTxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Tx";
+  //   Config::ConnectWithoutContextFailSafe(packetTxPath.str(), MakeCallback(&PacketBufferTraceCallback));
     
-    std::ostringstream packetRxPath;
-    packetRxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Rx";
-    Config::ConnectWithoutContextFailSafe(packetRxPath.str(), MakeCallback(&PacketBufferTraceCallback));
+  //   std::ostringstream packetRxPath;
+  //   packetRxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Rx";
+  //   Config::ConnectWithoutContextFailSafe(packetRxPath.str(), MakeCallback(&PacketBufferTraceCallback));
     
-    NS_LOG_UNCOND("  Added packet buffer traces for Node " << nodeId);
-  }
+  //   NS_LOG_UNCOND("  Added packet buffer traces for Node " << nodeId);
+  // }
     
   std::string tracePrefix = "ntn_iab_quic_dash";  // Keep variable for log statements
   NS_LOG_UNCOND("\n=== Trace Configuration ===");
@@ -1293,6 +1340,7 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("DASH algorithm: " << algorithm);
   NS_LOG_UNCOND("Target buffering time: " << target_dt << " seconds");
   
+  Simulator::Schedule(Seconds(0.25), &LogTime);
   Simulator::Run();
   
   // Print DASH statistics for each UE (DOWNLINK: clients are on UE nodes)

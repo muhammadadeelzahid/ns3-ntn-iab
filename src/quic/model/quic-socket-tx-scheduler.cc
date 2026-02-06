@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <string>
 #include <sstream>
 #include "ns3/simulator.h"
 
@@ -121,7 +122,13 @@ QuicSocketTxScheduleItem::SetPriority (double priority)
   m_priority = priority;
 }
 
-
+void
+QuicSocketTxScheduler::SetTraceContext (uint64_t connectionId, uint32_t nodeId, const std::string &socketAddress)
+{
+  m_connectionId = connectionId;
+  m_nodeId = nodeId;
+  m_socketAddress = socketAddress;
+}
 
 TypeId
 QuicSocketTxScheduler::GetTypeId (void)
@@ -139,7 +146,10 @@ QuicSocketTxScheduler::QuicSocketTxScheduler () : m_appSize (0)
   m_appList = QuicTxPacketList ();
 }
 
-QuicSocketTxScheduler::QuicSocketTxScheduler (const QuicSocketTxScheduler &other) : m_appSize (other.m_appSize)
+QuicSocketTxScheduler::QuicSocketTxScheduler (const QuicSocketTxScheduler &other) : m_appSize (other.m_appSize),
+  m_connectionId (other.m_connectionId),
+  m_nodeId (other.m_nodeId),
+  m_socketAddress (other.m_socketAddress)
 {
   m_appList = other.m_appList;
 }
@@ -304,8 +314,7 @@ QuicSocketTxScheduler::GetNewSegment (uint32_t numBytes, uint8_t pathId)
               QuicSocketTxItem::MergeItems (*outItem, *currentItem);
               outItemSize += currentItem->m_packet->GetSize ();
 
-              m_appList.push (CreateObject<QuicSocketTxScheduleItem> (scheduleItem->GetStreamId (), scheduleItem->GetOffset (), scheduleItem->GetPriority (), toBeBuffered));
-              m_appSize += toBeBuffered->m_packet->GetSize ();
+              AddScheduleItem (CreateObject<QuicSocketTxScheduleItem> (scheduleItem->GetStreamId (), newOffset, scheduleItem->GetPriority (), toBeBuffered), false);
 
 
               NS_LOG_LOGIC ("Buffer size: " << m_appSize << " (put back " << toBeBuffered->m_packet->GetSize () << " bytes)");

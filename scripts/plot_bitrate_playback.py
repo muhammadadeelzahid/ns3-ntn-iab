@@ -213,7 +213,6 @@ def parse_playback_log(filename):
         return playback_events
     
     current_resolution = None
-    resume_pending = False
     
     for line in lines:
         play_match = re.search(r'(\d+\.?\d*)\s+PLAYING FRAME:.*?Res:\s+(\d+)', line)
@@ -226,15 +225,15 @@ def parse_playback_log(filename):
                 resume_pending = False
             playback_events.append(('playing', time, resolution))
         
-        interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', line)
+        interrupt_match = re.search(r'No frames to play at t=([0-9.]+)s\..*Player ID=(\d+)', line)
         if interrupt_match:
             time = float(interrupt_match.group(1))
             playback_events.append(('interrupted', time, current_resolution))
-            resume_pending = False
         
-        resume_match = re.search(r'Play resumed', line)
+        resume_match = re.search(r'Play resumed at t=([0-9.]+)s\..*Player ID=(\d+)', line)
         if resume_match:
-            resume_pending = True
+            time = float(resume_match.group(1))
+            playback_events.append(('resumed', time, current_resolution))
             
     playback_events.sort(key=lambda x: x[1])
     return playback_events
@@ -513,6 +512,97 @@ def generate_all_users_summary_plot(rows, output_dir, title_prefix):
     filename = f"users_summary_{rows[0]['algo'].replace(' ', '_')}_{rows[0]['run_id']}.png"
     fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+
+def _average_series_on_grid(series_list, grid):
+    """Interpolate each series onto grid and return mean across series."""
+    if not series_list or not grid.size:
+        return None
+    interp_values = []
+    for series in series_list:
+        if not series:
+            continue
+        times = np.array([t for t, _ in series])
+        values = np.array([v for _, v in series])
+        if times.size == 0:
+            continue
+        v = np.interp(grid, times, values)
+        interp_values.append(v)
+    if not interp_values:
+        return None
+    return np.mean(interp_values, axis=0)
+
+
+def _plot_aggregated_user_summaries(rows, output_dir):
+    """
+    Average time series across runs and users per algorithm.
+    Combined plot: bitrate, throughput, rtt, cwnd with both algorithms.
+    Separate plots: playback state per algorithm.
+    """
+    grid = np.arange(0, 60.5, 0.5)
+    time_grid = grid.tolist()
+
+    # Group by algo
+    by_algo = defaultdict(list)
+    for r in rows:
+        by_algo[r["algo"]].append(r)
+
+    if not by_algo:
+        return
+
+    # Combined figure: 4 shared subplots (bitrate, throughput, rtt, cwnd) + 1 playback state per algorithm
+    n_algos = len(by_algo)
+    n_axes = 4 + n_algos  # 4 metrics + playback per algo
+    n_cols = 2
+    n_rows = (n_axes + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 4 * n_rows))
+    axes = axes.flatten()
+    algo_list = sorted(by_algo.keys())
+    colors = {algo: f"C{i % 10}" for i, algo in enumerate(algo_list)}
+
+    # Metrics shared by both algos
+    metric_plots = [
+        ("Bitrate over time (Kbps)", "bitrate_series", "Kbps"),
+        ("Throughput over time (Kbps)", "throughput_series", "Kbps"),
+        ("RTT over time", "rtt_series", "RTT"),
+        ("CWND over time", "cwnd_series", "CWND"),
+    ]
+    for ax, (title, key, ylabel) in zip(axes[:4], metric_plots):
+        for algo in algo_list:
+            series_list = [r.get(key, []) for r in by_algo[algo]]
+            avg = _average_series_on_grid(series_list, grid)
+            if avg is not None:
+                ax.step(time_grid, avg, where="post", linewidth=1.5, label=algo, color=colors[algo])
+        ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
+        ax.set_xlabel("Time (s)", fontsize=9)
+        ax.set_ylabel(ylabel, fontsize=9)
+        ax.set_xlim(0, 60)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    # Separate playback state subplot per algorithm
+    for i, algo in enumerate(algo_list):
+        ax = axes[4 + i]
+        series_list = [r.get("playback_state_series", []) for r in by_algo[algo]]
+        avg = _average_series_on_grid(series_list, grid)
+        if avg is not None:
+            ax.fill_between(time_grid, 0, avg, step="post", alpha=0.3, color="green")
+            ax.fill_between(time_grid, avg, 1, step="post", alpha=0.3, color="red")
+        ax.set_title(f"Playback state (1=play, 0=stall) – {algo}", fontsize=11, fontweight="bold", pad=6)
+        ax.set_xlabel("Time (s)", fontsize=9)
+        ax.set_ylabel("State")
+        ax.set_xlim(0, 60)
+        ax.set_ylim(0, 1)
+        ax.grid(True, alpha=0.3)
+
+    for ax in axes[n_axes:]:
+        ax.axis("off")
+    fig.suptitle("User Summary (avg across runs)", fontsize=14, fontweight="bold", y=0.98)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.savefig(os.path.join(output_dir, "users_summary_combined.png"), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print("Saved users_summary_combined.png")
+
 
 def calculate_playback_stats(playback_events, end_time=None):
     """
@@ -871,6 +961,91 @@ def aggregate_bitrate(all_runs_bitrate, time_bin=1.0, global_max_time=None):
             
     return bin_centers, mean_bitrates, std_bitrates
 
+def aggregate_bitrate_percentiles(all_runs_bitrate_by_node, time_bin=1.0, global_max_time=None):
+    """
+    For each run, compute per-time percentile across users (nodes),
+    then aggregate across runs by taking the median of each percentile curve.
+    Returns (time_points, p50, p25, p75).
+    """
+    if not all_runs_bitrate_by_node:
+        return [], [], [], []
+    
+    # Determine global time range
+    min_time = float('inf')
+    max_time = float('-inf')
+    for run_nodes in all_runs_bitrate_by_node:
+        for series in run_nodes.values():
+            if series:
+                min_time = min(min_time, series[0][0])
+                max_time = max(max_time, series[-1][0])
+    
+    if global_max_time is not None:
+        max_time = max(max_time, global_max_time)
+    
+    if min_time == float('inf'):
+        return [], [], [], []
+    
+    bins = np.arange(min_time, max_time + time_bin, time_bin)
+    bin_centers = bins[:-1] + time_bin / 2
+    
+    run_p50 = []
+    run_p25 = []
+    run_p75 = []
+    
+    for run_nodes in all_runs_bitrate_by_node:
+        # Pre-sort each node series
+        node_series = {}
+        for node_id, series in run_nodes.items():
+            if series:
+                node_series[node_id] = sorted(series, key=lambda x: x[0])
+        
+        if not node_series:
+            continue
+        
+        # Track current index per node
+        node_idx = {nid: 0 for nid in node_series}
+        node_last = {nid: 0 for nid in node_series}
+        
+        p50_vals = []
+        p25_vals = []
+        p75_vals = []
+        
+        for bin_end in bins[1:]:
+            values = []
+            for nid, series in node_series.items():
+                idx = node_idx[nid]
+                while idx < len(series) and series[idx][0] <= bin_end:
+                    node_last[nid] = series[idx][1]
+                    idx += 1
+                node_idx[nid] = idx
+                values.append(node_last[nid])
+            
+            if values:
+                p50_vals.append(float(np.percentile(values, 50)))
+                p25_vals.append(float(np.percentile(values, 25)))
+                p75_vals.append(float(np.percentile(values, 75)))
+            else:
+                p50_vals.append(0.0)
+                p25_vals.append(0.0)
+                p75_vals.append(0.0)
+        
+        run_p50.append(p50_vals)
+        run_p25.append(p25_vals)
+        run_p75.append(p75_vals)
+    
+    if not run_p50:
+        return [], [], [], []
+    
+    run_p50 = np.array(run_p50)
+    run_p25 = np.array(run_p25)
+    run_p75 = np.array(run_p75)
+    
+    median_p50 = np.median(run_p50, axis=0).tolist()
+    median_p25 = np.median(run_p25, axis=0).tolist()
+    median_p75 = np.median(run_p75, axis=0).tolist()
+    
+    return bin_centers, median_p50, median_p25, median_p75
+
 def calculate_interruption_prob(all_runs_playback, time_bin=1.0):
     if not all_runs_playback: return [], []
     
@@ -1088,7 +1263,7 @@ def truncate_and_pad_data(times, values, max_time=60.0, end_time=63.0, time_bin=
 
 def plot_single_algo(stats, algo_name, output_dir):
     """Create plots for a single algorithm."""
-    if not stats['bitrate_mean']:
+    if not stats['bitrate_mean'] and not stats.get('bitrate_p50'):
         print(f"Skipping plots for {algo_name} (no bitrate data)")
         return
 
@@ -1106,39 +1281,50 @@ def plot_single_algo(stats, algo_name, output_dir):
 
     # Bitrate Plot
     fig, ax = plt.subplots(figsize=(10, 6))
-    times = stats['bitrate_time']
-    means = [b/1e6 for b in stats['bitrate_mean']]
-    stds = [b/1e6 for b in stats['bitrate_std']]
+    # Prefer percentile-based typical time series if available
+    if stats.get('bitrate_p50'):
+        times = stats['bitrate_p_time']
+        p50 = [b/1e6 for b in stats['bitrate_p50']]
+        p25 = [b/1e6 for b in stats['bitrate_p25']]
+        p75 = [b/1e6 for b in stats['bitrate_p75']]
+    else:
+        times = stats['bitrate_time']
+        p50 = [b/1e6 for b in stats['bitrate_mean']]
+        p25 = [b/1e6 for b in stats['bitrate_mean']]
+        p75 = [b/1e6 for b in stats['bitrate_mean']]
     
     # Truncate at T=60 and pad missing data with zeros using quantized bins
     # Save original times for stds processing
     times_orig = times
-    times, means = truncate_and_pad_data(times, means, max_time=60.0, end_time=63.0)
-    # Use original times for stds, then align to the padded times from means
-    times_std, stds = truncate_and_pad_data(times_orig, stds, max_time=60.0, end_time=63.0)
+    times, p50 = truncate_and_pad_data(times, p50, max_time=60.0, end_time=63.0)
+    times_p25, p25 = truncate_and_pad_data(times_orig, p25, max_time=60.0, end_time=63.0)
+    times_p75, p75 = truncate_and_pad_data(times_orig, p75, max_time=60.0, end_time=63.0)
     
     # Ensure lengths match - use times from means and interpolate/pad stds if needed
     times = np.array(times)
-    means = np.array(means)
-    stds = np.array(stds)
+    p50 = np.array(p50)
+    p25 = np.array(p25)
+    p75 = np.array(p75)
     
-    if len(times) != len(times_std) or not np.allclose(times, times_std):
-        # Use times from means and interpolate stds to match
-        if len(stds) > 0 and len(times_std) > 0:
-            stds = np.interp(times, times_std, stds)
+    if len(times) != len(times_p25) or not np.allclose(times, times_p25):
+        if len(p25) > 0 and len(times_p25) > 0:
+            p25 = np.interp(times, times_p25, p25)
         else:
-            stds = np.zeros(len(times))
+            p25 = np.zeros(len(times))
+    if len(times) != len(times_p75) or not np.allclose(times, times_p75):
+        if len(p75) > 0 and len(times_p75) > 0:
+            p75 = np.interp(times, times_p75, p75)
+        else:
+            p75 = np.zeros(len(times))
     
     # Convert back to lists for consistency
     times = times.tolist()
-    means = means.tolist()
-    stds = stds.tolist()
+    p50 = p50.tolist()
+    p25 = p25.tolist()
+    p75 = p75.tolist()
     
-    ax.plot(times, means, 'b-', linewidth=2, label=f"{algo_name} (Avg)")
-    ax.fill_between(times, 
-                    [m - s for m, s in zip(means, stds)],
-                    [m + s for m, s in zip(means, stds)],
-                    color='blue', alpha=0.2)
+    ax.plot(times, p50, 'b-', linewidth=2, label=f"{algo_name} (Median)")
+    ax.fill_between(times, p25, p75, color='blue', alpha=0.2)
     
     ax.set_xlabel('Time (s)', fontsize=12)
     ax.set_ylabel('Bitrate (Mbps)', fontsize=12)
@@ -1186,10 +1372,14 @@ def plot_combined_bitrate(all_stats, protocol_type, output_dir):
     max_time = 0
     
     for name, stats in all_stats.items():
-        if protocol_type in name and stats['bitrate_mean']:
+        if protocol_type in name and (stats['bitrate_mean'] or stats.get('bitrate_p50')):
             has_data = True
-            times = stats['bitrate_time']
-            means = [b/1e6 for b in stats['bitrate_mean']]
+            if stats.get('bitrate_p50'):
+                times = stats['bitrate_p_time']
+                means = [b/1e6 for b in stats['bitrate_p50']]
+            else:
+                times = stats['bitrate_time']
+                means = [b/1e6 for b in stats['bitrate_mean']]
             
             # Truncate at T=60 and pad missing data with zeros using quantized bins and pad missing data with interruption probability = 1.0 using quantized bins and pad missing data with zeros using quantized bins
             times, means = truncate_and_pad_data(times, means, max_time=60.0, end_time=63.0)
@@ -1302,29 +1492,16 @@ def parse_playback_logs_bulk(log_files):
                     results[filename].append(('playing', time, resolution))
                     continue
                 
-                interrupt_match = re.search(r'(\d+\.?\d*)\s+No frames to play', content)
+                interrupt_match = re.search(r'No frames to play at t=([0-9.]+)s\..*Player ID=(\d+)', content)
                 if interrupt_match:
                     time = float(interrupt_match.group(1))
                     results[filename].append(('interrupted', time, None))
                     continue
                 
-                resume_match = re.search(r'Play resumed', content)
+                resume_match = re.search(r'Play resumed at t=([0-9.]+)s\..*Player ID=(\d+)', content)
                 if resume_match:
-                    # We need time for resumed? usually it's just a flag.
-                    # But we need to associate it with a time.
-                    # If the line has a timestamp at start?
-                    # "2.345 Play resumed" ?
-                    # Let's check the regex in original: re.search(r'Play resumed', line)
-                    # It didn't extract time. It just set resume_pending=True.
-                    # But we need time to sort events.
-                    # The original code iterated lines in order.
-                    # Here we get lines in order per file.
-                    # So we can just store it as an event without time if we process sequentially later?
-                    # Or we try to extract time if present.
-                    # If no time, we can't sort it easily if we mix.
-                    # But grep output is ordered by line number.
-                    # So we can just append to the list and process later.
-                    results[filename].append(('resumed', 0, None)) # Time 0 placeholder, order matters
+                    time = float(resume_match.group(1))
+                    results[filename].append(('resumed', time, None))
                     
         except Exception as e:
             print(f"Error in grep batch: {e}")
@@ -1332,31 +1509,8 @@ def parse_playback_logs_bulk(log_files):
     # Post-process to handle 'resumed' logic and sorting
     final_results = {}
     for filename, events in results.items():
-        # Events are in order of appearance in file (thanks to grep)
-        # We need to handle the 'resumed' logic which depended on state
-        
-        processed_events = []
-        resume_pending = False
-        
-        for evt in events:
-            evt_type = evt[0]
-            
-            if evt_type == 'resumed':
-                resume_pending = True
-            elif evt_type == 'playing':
-                time = evt[1]
-                res = evt[2]
-                if resume_pending:
-                    processed_events.append(('resumed', time, res))
-                    resume_pending = False
-                processed_events.append(('playing', time, res))
-            elif evt_type == 'interrupted':
-                time = evt[1]
-                processed_events.append(('interrupted', time, None))
-                resume_pending = False
-                
-        processed_events.sort(key=lambda x: x[1])
-        final_results[filename] = processed_events
+        events.sort(key=lambda x: x[1])
+        final_results[filename] = events
         
     return final_results
 
@@ -1366,6 +1520,7 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
     client_nodes: Optional list of client node IDs. If provided, bitrate will be aggregated across these nodes.
     """
     all_bitrates = []
+    all_bitrates_by_node = []
     all_playback = []
     all_throughputs = []
     
@@ -1401,11 +1556,13 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
         log_file = log_mapping.get(run_dir)
         
         bitrate = []
+        bitrate_by_node = {}
         playback = []
         
         if log_file:
             # Parse bitrate with optional node filtering
             bitrate = parse_bitrate_log(log_file, node_ids=client_nodes)
+            bitrate_by_node = parse_bitrate_log_per_user(log_file, node_ids=client_nodes)
             
             # Also try to parse throughput from client data files if client_nodes provided
             if client_nodes:
@@ -1419,6 +1576,7 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
                 playback = bulk_playback_data[target_file]
         
         all_bitrates.append(bitrate)
+        all_bitrates_by_node.append(bitrate_by_node)
         all_playback.append(playback)
         
         # Throughput from DashClientRx files in run dir
@@ -1447,12 +1605,20 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
             
     # Aggregate Bitrate
     b_time, b_mean, b_std = aggregate_bitrate(all_bitrates, global_max_time=global_max_time)
+    p_time, p50, p25, p75 = aggregate_bitrate_percentiles(
+        all_bitrates_by_node,
+        global_max_time=global_max_time
+    )
     
     return {
         'count': len(runs),
         'bitrate_time': b_time,
         'bitrate_mean': b_mean,
         'bitrate_std': b_std,
+        'bitrate_p_time': p_time,
+        'bitrate_p50': p50,
+        'bitrate_p25': p25,
+        'bitrate_p75': p75,
         'playback_runs': all_playback,
         'throughputs': all_throughputs,
         'play_times': total_play_time,
@@ -2066,15 +2232,11 @@ def generate_per_user_stats(run_groups, log_mapping, output_dir):
                 row_csv.pop("playback_state_series", None)
                 rows_for_csv.append(row_csv)
                 run_rows.append(row)
-                
-                # Per-user plot
-                title_prefix = f"{algo_name} {run_id} Player {player_id}"
-                generate_user_summary_plot(row, output_dir, title_prefix)
-            
-            # Combined plot for all users in this run
-            if run_rows:
-                title_prefix = f"{algo_name} {run_id} - All Users Summary"
-                generate_all_users_summary_plot(run_rows, output_dir, title_prefix)
+    
+    # Averaged user summaries: one combined plot (both algos) for bitrate/throughput/rtt/cwnd,
+    # separate playback state plot per algorithm
+    if rows:
+        _plot_aggregated_user_summaries(rows, output_dir)
     
     if rows_for_csv:
         csv_path = os.path.join(output_dir, "per_user_stats.csv")
@@ -2168,6 +2330,164 @@ def generate_per_user_stats(run_groups, log_mapping, output_dir):
             writer.writeheader()
             writer.writerows(output_rows)
         print(f"Saved per-algorithm percentile stats CSV: {output_path}")
+
+    # Box plots per metric: pool all users across runs, one box per algorithm
+    # Box: p25-p75, median: p50, whiskers: p10-p90 (percentiles of pooled distribution)
+    if rows_for_csv:
+        # Pool users across all runs per (algo, metric)
+        pooled = defaultdict(lambda: defaultdict(list))
+        for r in rows_for_csv:
+            algo = r["algo"]
+            # Metrics
+            for metric in metrics:
+                try:
+                    pooled[metric][algo].append(float(r[metric]))
+                except (ValueError, TypeError):
+                    continue
+            # Fraction stalled: 1 if had interruption, 0 otherwise
+            try:
+                stalled = 1.0 if float(r["interruption_duration"]) > 0 else 0.0
+                pooled["fraction_stalled_users"][algo].append(stalled)
+            except (ValueError, TypeError):
+                continue
+
+        def _plot_pooled_boxplot(data_by_algo, title, ylabel, filename):
+            if not data_by_algo:
+                return
+            labels = sorted(data_by_algo.keys())
+            data = [data_by_algo[label] for label in labels]
+            if not any(data):
+                return
+            fig, ax = plt.subplots(figsize=(12, 6))
+            # whis=(10, 95): whiskers at p10 and p95; box is p25-p75, median at p50
+            bp = ax.boxplot(
+                data, labels=labels, patch_artist=True, showmeans=True,
+                whis=(10, 95),
+            )
+            colors = []
+            for label in labels:
+                if label.startswith("QUIC"):
+                    colors.append("lightcoral")
+                elif label.startswith("TCP"):
+                    colors.append("lightblue")
+                else:
+                    colors.append("lightgray")
+            for patch, color in zip(bp["boxes"], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+            ax.set_title(title, fontsize=12, fontweight="bold")
+            ax.set_xlabel("Algorithm")
+            ax.set_ylabel(ylabel)
+            ax.grid(True, axis="y", alpha=0.3)
+            plt.xticks(rotation=30, ha="right")
+            plt.tight_layout()
+            fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches="tight")
+            plt.close(fig)
+            print(f"Saved {filename}")
+
+        for metric in metrics:
+            _plot_pooled_boxplot(
+                pooled.get(metric, {}),
+                f"Pooled user distribution (p10-p95 whiskers, p25-p75 box): {metric}",
+                metric,
+                f"boxplot_{metric}.png",
+            )
+        _plot_pooled_boxplot(
+            pooled.get("fraction_stalled_users", {}),
+            "Pooled user distribution: fraction stalled (1=had interruption)",
+            "Fraction stalled",
+            "boxplot_fraction_stalled_users.png",
+        )
+
+    # Median CDF across runs per algorithm (throughput + bitrate)
+    if rows_for_csv:
+        def _cdf_values(sorted_vals, x_grid):
+            if not sorted_vals:
+                return None
+            n = len(sorted_vals)
+            idx = 0
+            cdf = []
+            for x in x_grid:
+                while idx < n and sorted_vals[idx] <= x:
+                    idx += 1
+                cdf.append(idx / n)
+            return cdf
+        
+        # Group per run
+        run_values = defaultdict(list)
+        for r in rows_for_csv:
+            run_key = (r["algo"], r["run_id"])
+            try:
+                run_values[run_key].append({
+                    "mean_throughput_kbps": float(r["mean_throughput_kbps"]),
+                    "avg_playback_bitrate_kbps": float(r["avg_playback_bitrate_kbps"])
+                })
+            except (ValueError, TypeError):
+                continue
+        
+        # Organize by algorithm
+        algo_runs = defaultdict(list)
+        for (algo, run_id), vals in run_values.items():
+            algo_runs[algo].append(vals)
+        
+        for algo, runs in algo_runs.items():
+            # Throughput CDF aggregation
+            max_thr = 0.0
+            for vals in runs:
+                max_thr = max(max_thr, max(v["mean_throughput_kbps"] for v in vals))
+            if max_thr > 0:
+                x_grid = np.linspace(0, max_thr, 200)
+                cdfs = []
+                for vals in runs:
+                    sorted_vals = sorted(v["mean_throughput_kbps"] for v in vals)
+                    cdf = _cdf_values(sorted_vals, x_grid)
+                    if cdf is not None:
+                        cdfs.append(cdf)
+                if cdfs:
+                    cdfs = np.array(cdfs)
+                    median_cdf = np.median(cdfs, axis=0)
+                    p25 = np.percentile(cdfs, 25, axis=0)
+                    p75 = np.percentile(cdfs, 75, axis=0)
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    ax.plot(x_grid, median_cdf, linewidth=2, label="Median CDF")
+                    ax.fill_between(x_grid, p25, p75, alpha=0.2, label="IQR")
+                    ax.set_title(f"Median CDF of mean throughput (Kbps)\n{algo}", fontsize=11, fontweight="bold")
+                    ax.set_xlabel("Mean throughput (Kbps)")
+                    ax.set_ylabel("CDF")
+                    ax.grid(True, alpha=0.3)
+                    ax.legend()
+                    filename = f"cdf_throughput_{algo.replace(' ', '_')}.png"
+                    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches="tight")
+                    plt.close(fig)
+            
+            # Bitrate CDF aggregation
+            max_br = 0.0
+            for vals in runs:
+                max_br = max(max_br, max(v["avg_playback_bitrate_kbps"] for v in vals))
+            if max_br > 0:
+                x_grid = np.linspace(0, max_br, 200)
+                cdfs = []
+                for vals in runs:
+                    sorted_vals = sorted(v["avg_playback_bitrate_kbps"] for v in vals)
+                    cdf = _cdf_values(sorted_vals, x_grid)
+                    if cdf is not None:
+                        cdfs.append(cdf)
+                if cdfs:
+                    cdfs = np.array(cdfs)
+                    median_cdf = np.median(cdfs, axis=0)
+                    p25 = np.percentile(cdfs, 25, axis=0)
+                    p75 = np.percentile(cdfs, 75, axis=0)
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    ax.plot(x_grid, median_cdf, linewidth=2, color="purple", label="Median CDF")
+                    ax.fill_between(x_grid, p25, p75, alpha=0.2, color="purple", label="IQR")
+                    ax.set_title(f"Median CDF of avg playback bitrate (Kbps)\n{algo}", fontsize=11, fontweight="bold")
+                    ax.set_xlabel("Avg playback bitrate (Kbps)")
+                    ax.set_ylabel("CDF")
+                    ax.grid(True, alpha=0.3)
+                    ax.legend()
+                    filename = f"cdf_bitrate_{algo.replace(' ', '_')}.png"
+                    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches="tight")
+                    plt.close(fig)
 
 def main():
     parser = argparse.ArgumentParser(description='Plot bitrate and playback status from simulation logs')

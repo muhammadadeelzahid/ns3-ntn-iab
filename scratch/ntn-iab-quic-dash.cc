@@ -48,8 +48,13 @@
 #include "ns3/quic-module.h"
 #include "ns3/quic-socket-base.h"
 #include "ns3/quic-header.h"
+#include "ns3/quic-bbr.h"
 #include "ns3/dash-module.h"
 #include <iomanip>
+#include <fstream>
+#include <sstream>
+#include <mutex>
+#include <regex>
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuicDash");
@@ -76,6 +81,10 @@ std::map<uint32_t, uint64_t> g_dashClientRxBytes;
 uint32_t g_dashServerRxPackets = 0;
 uint64_t g_dashServerRxBytes = 0;
 std::map<uint64_t, uint32_t> g_imsiToNodeId;
+
+// BBR CSV log file (shared across connections)
+std::ofstream g_bbrStatsCsvFile;
+std::mutex g_bbrStatsCsvMutex;
 
 // Helper function to dump full packet in hex
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -328,6 +337,34 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart, uint32
   {
     NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - All QUIC traces connected successfully");
   }
+}
+
+// Parse node_id and conn_id (socket index) from Config path
+static void ParseNodeAndConnFromContext(const std::string& context, uint32_t& nodeId, uint32_t& connId)
+{
+  nodeId = 0;
+  connId = 0;
+  std::regex nodeRegex("/NodeList/(\\d+)/");
+  std::regex socketRegex("/SocketList/(\\d+)/");
+  std::smatch m;
+  if (std::regex_search(context, m, nodeRegex) && m.size() > 1)
+    nodeId = static_cast<uint32_t>(std::stoul(m[1].str()));
+  if (std::regex_search(context, m, socketRegex) && m.size() > 1)
+    connId = static_cast<uint32_t>(std::stoul(m[1].str()));
+}
+
+// BBR stats trace callback - logs to CSV with node_id and conn_id (csvLine: time,btlBw,...,state)
+static void QuicBbrStatsCsvCallback(std::string context, std::string csvLine)
+{
+  std::lock_guard<std::mutex> lock(g_bbrStatsCsvMutex);
+  if (!g_bbrStatsCsvFile.is_open())
+    {
+      g_bbrStatsCsvFile.open("bbr_stats_QUIC.csv");
+      g_bbrStatsCsvFile << "protocol,node_id,conn_id,time_s,btlBw_bps,rtProp_s,pacingGain,cwndGain,pacingRate_bps,targetCwnd,cwnd,bytesInFlight,state" << std::endl;
+    }
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  g_bbrStatsCsvFile << "QUIC," << nodeId << "," << connId << "," << csvLine << std::endl;
 }
 
 void
@@ -724,12 +761,21 @@ main (int argc, char *argv[])
   
   // QUIC Congestion Control Configuration
   // QUIC Congestion Control Configuration
-  std::string ccAlgorithm = "ns3::QuicCongestionControl"; // Default to BBR
+  std::string ccAlgorithm = "ns3::QuicBbr";
   cmd.AddValue("ccAlgorithm", "QUIC Congestion Control Algorithm (ns3::QuicBbr or ns3::QuicCongestionControl)", ccAlgorithm);
   cmd.Parse(argc, argv);
 
   // Set the socket type based on the command line argument
   Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(TypeId::LookupByName(ccAlgorithm)));
+
+  // QUIC BBR parameters - match TCP BBR for fair comparison
+  if (ccAlgorithm.find("Bbr") != std::string::npos)
+    {
+      Config::SetDefault("ns3::QuicBbr::HighGain", DoubleValue(2.89));  // Match TcpBbr default
+      Config::SetDefault("ns3::QuicBbr::BwWindowLength", UintegerValue(10));  // Match TcpBbr default
+      Config::SetDefault("ns3::QuicBbr::RttWindowLength", TimeValue(Seconds(10)));  // Match TcpBbr default
+      Config::SetDefault("ns3::QuicBbr::ProbeRttDuration", TimeValue(MilliSeconds(200)));  // Match TcpBbr default
+    }
   // Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
   // Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(QuicBbr::GetTypeId())); // Use BBR
   Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(true));
@@ -892,7 +938,7 @@ main (int argc, char *argv[])
   // double minSimulationDuration = desiredVideoDuration*1.15;
   
   // Get current stopTime (line 1024)
-  double desiredVideoDuration = 60.0;
+  double desiredVideoDuration = 90.0;
   double stopTime = desiredVideoDuration;  // Minimal time for testing
   
   // // Check if current stopTime is less than minimum, and adjust if needed
@@ -1248,12 +1294,10 @@ main (int argc, char *argv[])
     serverApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
   
-  // Clients start after servers with stagger delay for QUIC handshake
-  // Stagger delay of 0.1s between clients to prevent handshake interference
-  // Client 0 starts at 0.1s, client 1 at 0.2s, client 2 at 0.3s, etc.
+  // Clients start after servers (no stagger - all start at same time)
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
-    double clientStartTime = 0.1 + (i * 0.1);  // Stagger each client by 0.1s
+    double clientStartTime = 0.1;  // All clients start at 0.1s
     clientApps.Get(i)->SetStartTime(Seconds(clientStartTime));
     // Stop apps 1 second before simulation stops to allow cleanup
     clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
@@ -1279,6 +1323,14 @@ main (int argc, char *argv[])
   Time serverTraceTimeSched = Seconds(0.1 + 0.05);  // After server starts + buffer for handshake
   Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt", 0);
   NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
+
+  // Schedule BBR stats trace connection for CSV logging
+  Simulator::Schedule(Seconds(0.15), []() {
+    Config::MatchContainer bbrMatches = Config::LookupMatches("/NodeList/*/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/CongestionOps/$ns3::QuicBbr");
+    bbrMatches.ConnectFailSafe("BbrStatsTrace", MakeCallback(&QuicBbrStatsCsvCallback));
+    if (bbrMatches.GetN() > 0)
+      NS_LOG_UNCOND("  Connected BBR stats trace to " << bbrMatches.GetN() << " QuicBbr instance(s)");
+  });
   
   // Add QUIC socket callback connections for debugging
   NS_LOG_UNCOND("\n=== Adding QUIC Socket Callback Connections ===");
@@ -1350,20 +1402,21 @@ main (int argc, char *argv[])
     Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
     if (dashClient)
     {
-      NS_LOG_UNCOND("\nUE " << u << " (VideoId=" << (u+1) << ", DASH Client):");
+      uint32_t nodeId = ueNodes.Get(u)->GetId();
+      NS_LOG_UNCOND("\nUE " << u << " (NodeId=" << nodeId << ", VideoId=" << (u+1) << ", DASH Client):");
       dashClient->GetStats();
       
-      // Print DASH trace statistics
-      if (g_dashClientTxPackets.find(u) != g_dashClientTxPackets.end())
+      // DASH trace maps are keyed by nodeId (see DashClientTxTrace/DashClientRxTrace), not loop index u
+      if (g_dashClientTxPackets.find(nodeId) != g_dashClientTxPackets.end())
       {
-        NS_LOG_UNCOND("  DASH Requests sent: " << g_dashClientTxPackets[u] 
-                     << " packets (" << g_dashClientTxBytes[u] << " bytes)");
+        NS_LOG_UNCOND("  DASH Requests sent: " << g_dashClientTxPackets[nodeId] 
+                     << " packets (" << g_dashClientTxBytes[nodeId] << " bytes)");
       }
-      if (g_dashClientRxPackets.find(u) != g_dashClientRxPackets.end())
+      if (g_dashClientRxPackets.find(nodeId) != g_dashClientRxPackets.end())
       {
-        NS_LOG_UNCOND("  DASH Video received: " << g_dashClientRxPackets[u] 
-                     << " packets (" << g_dashClientRxBytes[u] << " bytes)");
-        double avgThroughput = (g_dashClientRxBytes[u] * 8.0) / (stopTime * 1000000.0);
+        NS_LOG_UNCOND("  DASH Video received: " << g_dashClientRxPackets[nodeId] 
+                     << " packets (" << g_dashClientRxBytes[nodeId] << " bytes)");
+        double avgThroughput = (g_dashClientRxBytes[nodeId] * 8.0) / (stopTime * 1000000.0);
         NS_LOG_UNCOND("  Average throughput: " << avgThroughput << " Mbps");
       }
     }
@@ -1408,6 +1461,10 @@ main (int argc, char *argv[])
   if (g_dashServerRxFile.is_open())
   {
     g_dashServerRxFile.close();
+  }
+  if (g_bbrStatsCsvFile.is_open())
+  {
+    g_bbrStatsCsvFile.close();
   }
     
   return 0;

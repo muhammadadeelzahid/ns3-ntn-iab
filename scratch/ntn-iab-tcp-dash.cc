@@ -31,6 +31,7 @@
  *                  
  */
 #include <cstdint>
+#include <vector>
 #include <ns3/buildings-module.h>
 #include "ns3/log.h"
 #include "ns3/mmwave-helper.h"
@@ -49,8 +50,13 @@
 #include "ns3/tcp-socket-base.h"
 #include "ns3/tcp-header.h"
 #include "ns3/tcp-congestion-ops.h"
+#include "ns3/tcp-bbr.h"
 #include "ns3/dash-module.h"
 #include <iomanip>
+#include <fstream>
+#include <sstream>
+#include <mutex>
+#include <regex>
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabTcpDash");
@@ -64,6 +70,10 @@ std::ofstream tcpTxFile, tcpRxFile;
 std::ofstream udpL4TxFile, udpL4RxFile;
 std::ofstream ipv4L3TxFile, ipv4L3RxFile;
 std::ofstream p2pTxFile, p2pRxFile;
+
+// BBR CSV log file (shared across connections)
+std::ofstream g_bbrStatsCsvFile;
+std::mutex g_bbrStatsCsvMutex;
 
 // DASH trace files (similar to QuicServerRx.txt)
 std::map<uint32_t, std::ofstream*> g_dashClientTxFiles;  // DASH client requests (Tx)
@@ -251,6 +261,34 @@ static void
 Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const TcpHeader& t, Ptr<const TcpSocketBase> tsb)
 {
   *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() << std::endl;
+}
+
+// Parse node_id and conn_id (socket index) from Config path
+static void ParseNodeAndConnFromContext(const std::string& context, uint32_t& nodeId, uint32_t& connId)
+{
+  nodeId = 0;
+  connId = 0;
+  std::regex nodeRegex("/NodeList/(\\d+)/");
+  std::regex socketRegex("/SocketList/(\\d+)/");
+  std::smatch m;
+  if (std::regex_search(context, m, nodeRegex) && m.size() > 1)
+    nodeId = static_cast<uint32_t>(std::stoul(m[1].str()));
+  if (std::regex_search(context, m, socketRegex) && m.size() > 1)
+    connId = static_cast<uint32_t>(std::stoul(m[1].str()));
+}
+
+// BBR stats trace callback - logs to CSV with node_id and conn_id (csvLine: time,btlBw,...,state)
+static void TcpBbrStatsCsvCallback(std::string context, std::string csvLine)
+{
+  std::lock_guard<std::mutex> lock(g_bbrStatsCsvMutex);
+  if (!g_bbrStatsCsvFile.is_open())
+    {
+      g_bbrStatsCsvFile.open("bbr_stats_TCP.csv");
+      g_bbrStatsCsvFile << "protocol,node_id,conn_id,time_s,btlBw_bps,rtProp_s,pacingGain,cwndGain,pacingRate_bps,targetCwnd,cwnd,bytesInFlight,state" << std::endl;
+    }
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  g_bbrStatsCsvFile << "TCP," << nodeId << "," << connId << "," << csvLine << std::endl;
 }
 
 static void
@@ -590,7 +628,7 @@ main (int argc, char *argv[])
   unsigned run = 0;
   bool rlcAm = false;
   uint32_t numRelays = 1;
-  uint32_t numUes = 5;  // Number of UE nodes/users
+  uint32_t numUes = 10;  // Number of UE nodes/users
   uint32_t rlcBufSize = 50;  // Increased from 10 to 50 MB to prevent RLC buffer overflows and packet drops (matches QUIC)
   uint32_t interPacketInterval = 10000; 
   uint32_t packetSize = 1400; //bytes // Decreased from 1500 to 1400 to avoid IP fragmentation (MSS < MTU - Headers)
@@ -629,11 +667,9 @@ main (int argc, char *argv[])
   
   Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
 
-  // Set center frequency to 6 GHz for RMa scenario compatibility
-  Config::SetDefault ("ns3::MmWavePhyMacCommon::CenterFreq", DoubleValue (6.0e9)); 
   // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
 
-	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
+	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (4));
 // 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
 // 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
 // //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
@@ -812,7 +848,7 @@ main (int argc, char *argv[])
   Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
   remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
 
-  double xMax = 200.0;
+  double xMax = 1000.0;
   double yMax = xMax;
 
   // Altitudes
@@ -820,8 +856,8 @@ main (int argc, char *argv[])
   double iabHeight = 10.0;
 
   // Offsets as fractions of total area (adjust as needed)
-  double xOffset = xMax*0.36;  // ~30% from center to left/right
-  double yOffset = yMax*0.40;  // ~30% from center to top/bottom
+  double xOffset = 200;//xMax*0.36;  // ~30% from center to left/right
+  double yOffset = 200;//yMax*0.40;  // ~30% from center to top/bottom
   //double gnbX = xMax/2.0;
   //double gnbY = yMax/2.0;
   // Center Donor Node
@@ -829,11 +865,11 @@ main (int argc, char *argv[])
 
   // Symmetric IAB positions
   Vector posIab1 = Vector(xMax / 2.0 , yMax / 2.0, iabHeight);        // Mid
-  Vector posIab3 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 + yOffset, iabHeight);        // Top-left
-  Vector posIab4 = Vector(xMax / 2.0 - xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-left
-  Vector posIab2 = Vector(xMax / 2.0 + xOffset, yMax / 2.0 - yOffset, iabHeight);        // Bottom-right
-  Vector posIab5 = Vector(xMax / 2.0 + xOffset, yMax / 2.0, iabHeight);                  // Mid-right
-  Vector posIab6 = Vector(xMax / 2.0 - xOffset, yMax / 2.0, iabHeight);                  // Mid-left
+  Vector posIab2 = Vector((xMax / 2.0) + xOffset, (yMax / 2.0) - yOffset, iabHeight);        // Bottom-right
+  Vector posIab3 = Vector((xMax / 2.0) - xOffset, (yMax / 2.0) + yOffset, iabHeight);        // Top-left
+  Vector posIab4 = Vector((xMax / 2.0) - xOffset, (yMax / 2.0) - yOffset, iabHeight);        // Bottom-left
+  Vector posIab5 = Vector((xMax / 2.0) + xOffset, (yMax / 2.0) + yOffset, iabHeight);                  // Top-right
+  Vector posIab6 = Vector((xMax / 2.0) + xOffset, (yMax / 2.0) + yOffset, iabHeight);                  // Top-right (alt)
 
   NS_LOG_UNCOND("wired " << posWired << 
               " iab1 " << posIab1 <<
@@ -862,8 +898,8 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("================================\n");
   
   // Get current stopTime (line 1024)
-  double desiredVideoDuration = 60.0;
-  double stopTime = desiredVideoDuration+3;  // Minimal time for testing
+  double desiredVideoDuration = 90.0;
+  double stopTime = desiredVideoDuration;  // Minimal time for testing
   
   // // Check if current stopTime is less than minimum, and adjust if needed
   // if (stopTime < minSimulationDuration)
@@ -926,68 +962,52 @@ main (int argc, char *argv[])
   MobilityHelper uemobility;
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
-  // // Random user generation code
-  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
-  radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  angleRand->SetAttribute("Min", DoubleValue(0));
-  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
+  // Place UEs evenly across IAB clusters, random within a circle around each IAB
+  std::vector<Vector> allIabCenters = { posIab1, posIab2, posIab3, posIab4, posIab5, posIab6 };
+  std::vector<Vector> clusterCenters;
+  uint32_t iabCentersToUse = std::min(numRelays, static_cast<uint32_t>(allIabCenters.size()));
+  for (uint32_t i = 0; i < iabCentersToUse; ++i)
   {
-      double radius = radiusRand->GetValue();
-      double angle = angleRand->GetValue();
-  
-      double x = xMax/2 + radius * std::cos(angle);
-      double y = yMax/2 + radius * std::sin(angle);
-      double z = 1.7; // typical UE height
-  
-      // Ensure within boundaries
-      x = std::min(std::max(x, 0.0), xMax);
-      y = std::min(std::max(y, 0.0), yMax);
-  
-      uePosAlloc->Add(Vector(x, y, z));
+    clusterCenters.push_back(allIabCenters[i]);
+  }
+  if (clusterCenters.empty())
+  {
+    clusterCenters.push_back(posWired); // fallback when no IABs are created
   }
 
-  // Create one user at fixed position 100 meters away from eNB
-  // double ueX = xMax/2.0+1000;  // Same X coordinate as eNB
-  // double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
-  // double ueZ = 1.7;  // Typical UE height
-  
-  // uePosAlloc->Add(Vector(ueX, ueY, ueZ));
-  
+  uint32_t totalUes = ueNodes.GetN();
+  uint32_t clusterCount = clusterCenters.size();
+  uint32_t baseUesPerCluster = totalUes / clusterCount;
+  uint32_t extraUes = totalUes % clusterCount;
 
-// Additional user positioning code (no longer needed)
-// uint32_t totalUes = ueNodes.GetN();        // e.g., 20
-// uint32_t clusterCount = clusterCenters.size(); // 7 clusters
-// uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
-// uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
+  double min_distance = 1.0;
+  double max_distance = 100.0;
+  NS_LOG_UNCOND("UE cluster radius range: [" << min_distance << ", " << max_distance << "] meters");
 
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
-  
-  //     double x = xMax/2 + radius * std::cos(angle);
-  //     double y = yMax/2 + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
-  
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
-  
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
+  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+  radiusRand->SetAttribute("Min", DoubleValue(min_distance));
+  radiusRand->SetAttribute("Max", DoubleValue(max_distance));
+  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+  angleRand->SetAttribute("Min", DoubleValue(0.0));
+  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+
+  double zHeight = 1.7;
+  for (uint32_t c = 0; c < clusterCenters.size(); ++c)
+  {
+    uint32_t uesInCluster = baseUesPerCluster + (c < extraUes ? 1 : 0);
+    const Vector& center = clusterCenters[c];
+    for (uint32_t u = 0; u < uesInCluster; ++u)
+    {
+      double r = radiusRand->GetValue();
+      double theta = angleRand->GetValue();
+      double x = center.x + r * std::cos(theta);
+      double y = center.y + r * std::sin(theta);
+      // Clamp to simulation area
+      x = std::min(std::max(x, 0.0), xMax);
+      y = std::min(std::max(y, 0.0), yMax);
+      uePosAlloc->Add(Vector(x, y, zHeight));
+    }
+  }
 
   uemobility.SetPositionAllocator (uePosAlloc);
   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -1037,7 +1057,7 @@ main (int argc, char *argv[])
   // Increased target buffering time for more aggressive buffering to prevent rebuffering
   // For NTN scenarios with high latency and variable throughput, 45-60s is realistic
   // 60s provides good balance: prevents interruptions while remaining realistic for real-world scenarios
-  double target_dt = 15.0;  // Target buffering time (increased from 30.0s to 60.0s - realistic for NTN while preventing interruptions, matches QUIC)
+  double target_dt = 30.0;  // Target buffering time (realistic for NTN while preventing interruptions, matches QUIC)
   // DASH bufferSpace: should hold multiple segments for smooth playback
   // For 66 Mbps: ~6 segments in 100 MB, increase to 512 MB for 30+ segments
   // Larger buffer provides more headroom to prevent interruptions during network fluctuations (matches QUIC)
@@ -1141,19 +1161,22 @@ main (int argc, char *argv[])
     
   mmwaveHelper->EnableTraces ();  // Enables RLC/MAC/PHY traces (DlRlcStats.txt, RxPacketTrace.txt, etc.)
   
+  // Server starts early to ensure it's ready before clients connect
   for (uint32_t i = 0; i < serverApps.GetN(); ++i)
   {
-    serverApps.Get(i)->SetStartTime(Seconds(0.1 + i * 0.1));
+    serverApps.Get(i)->SetStartTime(Seconds(0.1));
     // Stop apps 1 second before simulation stops to allow cleanup
     serverApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
   
-  // Clients start after servers with additional delay for TCP handshake
+  // Clients start after servers (all start at same time, matching QUIC for fair comparison)
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
-    clientApps.Get(i)->SetStartTime(Seconds(0.15 + i * 0.1));
+    double clientStartTime = 0.1;  // All clients start at 0.1s
+    clientApps.Get(i)->SetStartTime(Seconds(clientStartTime));
     // Stop apps 1 second before simulation stops to allow cleanup
     clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
+    NS_LOG_UNCOND("DASH Client " << i << " scheduled to start at t=" << clientStartTime << "s");
   }
   
   Simulator::Stop (Seconds (stopTime + 2.0));
@@ -1162,23 +1185,33 @@ main (int argc, char *argv[])
   
   // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
   // Connect traces for each UE node (TCP clients) - schedule after apps start and TCP sockets are created
-  // Schedule after all clients have started (last client starts at 0.15 + (numUes-1)*0.1)
-  // Add extra delay (0.5s) to ensure TCP handshake completes and sockets are ready
-  double lastClientStartTime = 0.15 + (ueNodes.GetN() - 1) * 0.1;
-  Time clientTraceTimeSched = Seconds(lastClientStartTime + 0.5);  // After last client starts + buffer for handshake
+  // Matching QUIC: clientStartTime=0.1, add 0.05s buffer for handshake
+  double clientStartTime = 0.1;
+  Time clientConnectionTime = Seconds(clientStartTime + 0.05);
   for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
   {
     uint32_t nodeId = ueNodes.Get(u)->GetId();
-    Simulator::Schedule(clientTraceTimeSched + Seconds(u * 0.05), &Traces, nodeId, "./client", ".txt");
-    NS_LOG_UNCOND("  Scheduled TCP traces for UE Node " << nodeId << " (UE " << u << ", DASH client) at t=" << (clientTraceTimeSched + Seconds(u * 0.05)).GetSeconds() << "s");
+    Simulator::Schedule(clientConnectionTime, &Traces, nodeId, "./client", ".txt");
+    NS_LOG_UNCOND("  Scheduled TCP traces for UE Node " << nodeId << " (UE " << u 
+                  << ", DASH client) at t=" << clientConnectionTime.GetSeconds() 
+                  << "s (client starts at t=" << clientStartTime << "s)");
   }
   
   // Connect traces for remoteHost (TCP server) - schedule after server starts and TCP sockets are created
-  // Server starts at 0.1, add extra delay (0.5s) to ensure TCP sockets are ready
+  // Matching QUIC: Server starts at 0.1, add 0.05s buffer for handshake
   uint32_t serverNodeId = remoteHost->GetId();
-  Time serverTraceTimeSched = Seconds(0.1 + 0.5);  // After server starts + buffer
+  Time serverTraceTimeSched = Seconds(0.1 + 0.05);
   Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt");
   NS_LOG_UNCOND("  Scheduled TCP traces for Server Node " << serverNodeId << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
+
+  // Schedule BBR stats trace connection (sockets created when connections establish)
+  // Commented out: BBR stats CSV output (bbr_stats_TCP.csv)
+  // Simulator::Schedule(clientConnectionTime, []() {
+  //   Config::MatchContainer bbrMatches = Config::LookupMatches("/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/CongestionOps/$ns3::TcpBbr");
+  //   bbrMatches.ConnectFailSafe("BbrStatsTrace", MakeCallback(&TcpBbrStatsCsvCallback));
+  //   if (bbrMatches.GetN() > 0)
+  //     NS_LOG_UNCOND("  Connected BBR stats trace to " << bbrMatches.GetN() << " TcpBbr instance(s)");
+  // });
   
   // Add TCP socket callback connections for debugging
   NS_LOG_UNCOND("\n=== Adding TCP Socket Callback Connections ===");
@@ -1307,6 +1340,10 @@ main (int argc, char *argv[])
   if (g_dashServerRxFile.is_open())
   {
     g_dashServerRxFile.close();
+  }
+  if (g_bbrStatsCsvFile.is_open())
+  {
+    g_bbrStatsCsvFile.close();
   }
     
   return 0;

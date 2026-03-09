@@ -43,6 +43,8 @@
 #include <cmath>
 #include <sstream>      // std::stringstream
 #include <algorithm>
+#include <map>
+#include <ns3/simulator.h>
 
 namespace ns3 {
 
@@ -228,7 +230,7 @@ MmWavePaddedHbfMacScheduler::GetTypeId (void)
                    MakeUintegerChecker<uint32_t> ())
     .AddAttribute ("HarqEnabled",
                    "Activate/Deactivate the HARQ [by default is active].",
-                   BooleanValue (false),
+                   BooleanValue (true),
                    MakeBooleanAccessor (&MmWavePaddedHbfMacScheduler::m_harqOn),
                    MakeBooleanChecker ())
     .AddAttribute ("FixedMcsDl",
@@ -844,8 +846,22 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
               DciInfoElementTdma dciInfoReTx = itHarq->second.at (harqId);
               NS_LOG_DEBUG ("UE" << rnti << " DL harqId " << (unsigned)harqId << " HARQ-NACK received, rv " << (unsigned)dciInfoReTx.m_rv);
               NS_ASSERT (harqId == dciInfoReTx.m_harqProcess);
-              //NS_ASSERT(itStat->second.at (harqId) > 0);
-              NS_ASSERT (itStat->second.at (harqId) - 1 == dciInfoReTx.m_rv);
+              // Guard against HARQ state mismatches to avoid hard asserts.
+              if (itStat->second.at (harqId) == 0 ||
+                  (itStat->second.at (harqId) - 1 != dciInfoReTx.m_rv))
+                {
+                  NS_LOG_WARN ("HARQ state mismatch for RNTI " << rnti
+                               << " harqId " << (unsigned)harqId
+                               << " stat " << (unsigned)itStat->second.at (harqId)
+                               << " rv " << (unsigned)dciInfoReTx.m_rv
+                               << " -> resetting process");
+                  itStat->second.at (harqId) = 0;
+                  for (uint16_t k = 0; k < (*itRlcPdu).second.size (); k++)
+                    {
+                      itRlcPdu->second.at (harqId).clear ();
+                    }
+                  continue;
+                }
               if (dciInfoReTx.m_rv == 3)                   // maximum number of retx reached -> drop process
                 {
                   NS_LOG_INFO ("Max number of retransmissions reached -> drop process");
@@ -859,62 +875,42 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
               else
                 {
                   // (1) Check if the CQI has decreased. If no updated value available, use the same MCS minus 1.
-                  //                        If CQI is below min threshold, drop process.
+                  //     If CQI is below min threshold, drop process.
                   // (2) Calculate new number of symbols it will take to encode at lower MCS.
-                  //			If this exceeds the total number of symbols, reTX with original parameters.
-                  //                        If exceeds remaining symbols available in this subframe (but not total symbols in SF),
-                  //			update DCI info and try scheduling in next SF.
+                  //     If it fits in the subframe, use the lower MCS for this reTX.
 
-                  /*std::map <uint16_t,uint8_t>::iterator itCqi = m_wbCqiRxed.find (itRlcBuf->m_rnti);
-                  int cqi;
-                  int mcsNew;
+                  std::map <uint16_t,uint8_t>::iterator itCqi = m_wbCqiRxed.find (rnti);
+                  int mcsNew = dciInfoReTx.m_mcs;
                   if (itCqi != m_wbCqiRxed.end ())
                   {
-                          cqi = itCqi->second;
-                          if (cqi == 0)
-                          {
-                                  NS_LOG_INFO ("CQI for reTX is below threshhold. Drop process");
-                                  itStat->second.at (harqId) = 0;
-                                  for (uint16_t k = 0; k < (*itRlcPdu).second.size (); k++)
-                                  {
-                                          itRlcPdu->second.at (harqId).clear ();
-                                  }
-                                  continue;
-                          }
-                          else
-                          {
-                                  mcsNew = m_amc->GetMcsFromCqi (cqi);  // get MCS
-                          }
-                  }
-                  else
-                  {
-                          if(dciInfoReTx.m_mcs > 0)
-                          {
-                                  mcsNew = dciInfoReTx.m_mcs - 1;
-                          }
-                          else
-                          {
-                                  mcsNew = dciInfoReTx.m_mcs;
-                          }
-                  }
-                  // compute number of symbols required
-                  unsigned numSymReq;
-                  if (mcsNew < dciInfoReTx.m_mcs)
-                  {
-                          numSymReq = m_amc->GetNumSymbolsFromTbsMcs (dciInfoReTx.m_tbSize, mcsNew);
-                          while (numSymReq < symAvail && mcsNew < dciInfoReTx.m_mcs);
-                          {
-                                  mcsNew++;
-                                  numSymReq = m_amc->GetNumSymbolsFromTbsMcs (dciInfoReTx.m_tbSize, mcsNew);
-                          }
-                          mcsNew--;
-                          numSymReq = m_amc->GetNumSymbolsFromTbsMcs (dciInfoReTx.m_tbSize, mcsNew);
-                  }
-                  if (numSymReq <= (m_phyMacConfig->GetSymbolsPerSubframe () - resvCtrl))
-                  {	// not enough symbols to encode TB at required MCS, attempt in later SF
-                          dlInfoListUntxed.push_back (m_dlHarqInfoList.at (i));
+                      int cqi = itCqi->second;
+                      if (cqi == 0)
+                        {
+                          NS_LOG_INFO ("CQI for reTX is below threshold. Drop process");
+                          itStat->second.at (harqId) = 0;
+                          for (uint16_t k = 0; k < (*itRlcPdu).second.size (); k++)
+                            {
+                              itRlcPdu->second.at (harqId).clear ();
+                            }
                           continue;
-                  }*/
+                        }
+                      mcsNew = m_amc->GetMcsFromCqi (cqi);  // get MCS
+                    }
+                  else if (dciInfoReTx.m_mcs > 0)
+                    {
+                      mcsNew = dciInfoReTx.m_mcs - 1;
+                    }
+
+                  if (mcsNew < dciInfoReTx.m_mcs)
+                    {
+                      unsigned numSymReq = m_amc->GetNumSymbolsFromTbsMcs (dciInfoReTx.m_tbSize, mcsNew);
+                      if (numSymReq <= (m_phyMacConfig->GetSymbolsPerSubframe () - resvCtrl))
+                        {
+                          dciInfoReTx.m_mcs = mcsNew;
+                          dciInfoReTx.m_numSym = numSymReq;
+                          itHarq->second.at (harqId) = dciInfoReTx;
+                        }
+                    }
 
                   // add a reference to this harq process to the list in increasing order of TB size in symbols
                   std::pair <uint8_t,uint32_t> cqiInfoToSort (dciInfoReTx.m_numSym , i); // i is used to access m_dlHarqInfoList.at(i)

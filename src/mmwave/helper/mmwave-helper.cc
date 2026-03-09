@@ -236,7 +236,7 @@ MmWaveHelper::DoInitialize()
 	m_Satellitechannel = m_channelFactory.Create<SpectrumChannel> ();
 
 	m_phyMacCommon = CreateObject <MmWavePhyMacCommon> () ;
-	m_phyMacCommon->SetNumEnbLayers(4);
+	m_phyMacCommon->SetNumEnbLayers(2);
 	if (!m_pathlossModelType.empty ())
 	{
 		m_pathlossModel = m_pathlossModelFactory.Create ();

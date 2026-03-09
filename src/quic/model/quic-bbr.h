@@ -35,6 +35,11 @@ class QuicBbrCheckGainValuesTest;
 
 namespace ns3 {
 
+/**
+ * \brief TracedCallback signature for BBR stats logging (csvLine format)
+ */
+typedef void (* QuicBbrStatsTraceCallback)(std::string csvLine);
+
 class QuicBbr : public QuicCongestionOps
 {
 public:
@@ -79,6 +84,11 @@ public:
                          uint32_t,
                          uint32_t>
     MaxBandwidthFilter_t;
+
+  /**
+   * \brief Trace source for BBR stats logging (pre-formatted CSV line)
+   */
+  TracedCallback<std::string> m_bbrStatsTrace;
 
   /**
    * Assign a fixed random variable stream number to the random variables

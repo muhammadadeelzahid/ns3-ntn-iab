@@ -33,6 +33,11 @@ class TcpBbrCheckGainValuesTest;
 
 namespace ns3 {
 
+/**
+ * \brief TracedCallback signature for BBR stats logging (csvLine format: "time,btlBw,...").
+ */
+typedef void (* BbrStatsTraceCallback)(std::string csvLine);
+
 class TcpBbr : public TcpCongestionOps
 {
 public:
@@ -325,6 +330,11 @@ protected:
    * \param state BBR state.
    */
   void SetBbrState (BbrMode_t state);
+
+  /**
+   * \brief Trace source for BBR stats logging (pre-formatted CSV line).
+   */
+  TracedCallback<std::string> m_bbrStatsTrace;
 
   /**
   * \brief Find Cwnd increment based on ack aggregation.

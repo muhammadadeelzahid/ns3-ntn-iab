@@ -267,6 +267,10 @@ QuicSocketBase::GetTypeId (void)
                    ObjectVectorValue (),
                    MakeObjectVectorAccessor (&QuicSocketBase::m_subflows),
                    MakeObjectVectorChecker<MpQuicSubFlow> ())
+    .AddAttribute ("CongestionOps", "Pointer to congestion control algorithm",
+                   PointerValue (),
+                   MakePointerAccessor (&QuicSocketBase::m_congestionControl),
+                   MakePointerChecker<TcpCongestionOps> ())
     // .AddTraceSource ("RTO", "Retransmission timeout",
     //                  MakeTraceSourceAccessor (&QuicSocketBase::m_rto),
     //                  "ns3::Time::TracedValueCallback").AddTraceSource (

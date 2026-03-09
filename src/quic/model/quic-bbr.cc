@@ -27,6 +27,8 @@
 #include "ns3/quic-socket-base.h"
 #include "ns3/quic-socket-tx-buffer.h"
 #include "ns3/simulator.h"
+#include <sstream>
+#include <iomanip>
 
 namespace ns3 {
 
@@ -65,6 +67,10 @@ QuicBbr::GetTypeId (void)
     .AddTraceSource ("BbrState", "Current state of the BBR state machine",
                      MakeTraceSourceAccessor (&QuicBbr::m_state),
                      "ns3::QuicBbr::BbrStatesTracedValueCallback")
+    .AddTraceSource ("BbrStatsTrace",
+                     "BBR stats for CSV logging (csvLine: time,btlBw_bps,rtProp_s,pacingGain,cwndGain,pacingRate_bps,targetCwnd,cwnd,bytesInFlight,state)",
+                     MakeTraceSourceAccessor (&QuicBbr::m_bbrStatsTrace),
+                     "ns3::QuicBbr::BbrStatsTraceCallback")
   ;
   return tid;
 }
@@ -546,6 +552,18 @@ QuicBbr::UpdateControlParameters (Ptr<QuicSocketState> tcb, const struct RateSam
   SetPacingRate (tcb, m_pacingGain);
   SetSendQuantum (tcb);
   SetCwnd (tcb, rs);
+
+  {
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(6) << Simulator::Now ().GetSeconds () << ","
+       << m_maxBwFilter.GetBest ().GetBitRate () << ","
+       << ((m_rtProp == Time::Max ()) ? 0.0 : m_rtProp.GetSeconds ()) << ","
+       << m_pacingGain << "," << m_cWndGain << ","
+       << tcb->m_pacingRate.Get ().GetBitRate () << ","
+       << m_targetCWnd << "," << tcb->m_cWnd.Get () << "," << tcb->m_bytesInFlight.Get ()
+       << "," << WhichState (m_state.Get ());
+    m_bbrStatsTrace (os.str ());
+  }
 }
 
 std::string

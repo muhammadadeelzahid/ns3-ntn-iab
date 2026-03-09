@@ -24,6 +24,8 @@
 
 #include "ns3/log.h"
 #include "ns3/simulator.h"
+#include <sstream>
+#include <iomanip>
 
 namespace ns3 {
 
@@ -74,6 +76,10 @@ TcpBbr::GetTypeId (void)
                    UintegerValue (1 << 12),
                    MakeUintegerAccessor (&TcpBbr::m_ackEpochAckedResetThresh),
                    MakeUintegerChecker<uint32_t> ())
+    .AddTraceSource ("BbrStatsTrace",
+                     "BBR stats for CSV logging (csvLine: time,btlBw_bps,rtProp_s,pacingGain,cwndGain,pacingRate_bps,targetCwnd,cwnd,bytesInFlight,state)",
+                     MakeTraceSourceAccessor (&TcpBbr::m_bbrStatsTrace),
+                     "ns3::TcpBbr::BbrStatsTraceCallback")
   ;
   return tid;
 }
@@ -641,6 +647,18 @@ TcpBbr::UpdateControlParameters (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpR
   SetPacingRate (tcb, m_pacingGain);
   SetSendQuantum (tcb);
   SetCwnd (tcb, rs);
+
+  {
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(6) << Simulator::Now ().GetSeconds () << ","
+       << m_maxBwFilter.GetBest ().GetBitRate () << ","
+       << ((m_rtProp == Time::Max ()) ? 0.0 : m_rtProp.GetSeconds ()) << ","
+       << m_pacingGain << "," << m_cWndGain << ","
+       << tcb->m_pacingRate.Get ().GetBitRate () << ","
+       << m_targetCWnd << "," << tcb->m_cWnd.Get () << "," << tcb->m_bytesInFlight.Get ()
+       << "," << BbrModeName[m_state];
+    m_bbrStatsTrace (os.str ());
+  }
 }
 
 void

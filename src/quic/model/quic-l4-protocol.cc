@@ -454,8 +454,20 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
 
   while ((packet = sock->RecvFrom (from)))
     {
+      uint32_t rawSize = packet->GetSize ();
+      // Guard: truncated UDP payload causes QuicHeader::Deserialize to over-read
+      static const uint32_t QUIC_HEADER_MIN_BYTES = 4;  // min: 1 type + 1 pktnum + 1 pathId
+      if (rawSize < QUIC_HEADER_MIN_BYTES)
+        {
+          NS_LOG_WARN ("ForwardUp: dropping truncated packet (size=" << rawSize << " < " << QUIC_HEADER_MIN_BYTES << ")");
+          continue;
+        }
       QuicHeader header;
       packet->RemoveHeader (header);
+      uint32_t payloadSize = packet->GetSize ();
+      NS_LOG_DEBUG ("ForwardUp: rawUdpSize=" << rawSize
+                    << " headerSize=" << (rawSize - payloadSize)
+                    << " payloadSize=" << payloadSize);
 
       uint64_t connectionId;
       if (header.HasConnectionId ())
@@ -497,7 +509,7 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
             }
         }
 
-      NS_LOG_LOGIC ((socket == nullptr));
+      NS_LOG_LOGIC ("ForwardUp: found socket ptr=" << socket);
       /*NS_LOG_INFO ("Initial " << header.IsInitial ());
       NS_LOG_INFO ("Handshake " << header.IsHandshake ());
       NS_LOG_INFO ("Short " << header.IsShort ());
@@ -566,15 +578,29 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
             }
         }
 
-      // Handle callback for the correct socket
-      if (!m_socketHandlers[socket].IsNull ())
+      // If we still do not have a QUIC socket (e.g., late packet for a closed
+      // connection, or connectionId never bound), drop the packet gracefully.
+      if (socket == 0)
+        {
+          NS_LOG_WARN (this << " ForwardUp: no QuicSocketBase found for connectionId "
+                            << connectionId << " from "
+                            << InetSocketAddress::ConvertFrom (from).GetIpv4 ()
+                            << ":" << InetSocketAddress::ConvertFrom (from).GetPort ()
+                            << " — dropping packet");
+          continue;
+        }
+
+      // Handle callback for the correct socket. Use an explicit lookup instead
+      // of operator[] to avoid creating a default null entry for unknown keys.
+      auto handlerIt = m_socketHandlers.find (socket);
+      if (handlerIt != m_socketHandlers.end () && !handlerIt->second.IsNull ())
         {
           NS_LOG_LOGIC (this << " waking up handler of socket " << socket);
-          m_socketHandlers[socket] (packet, header, from);
+          handlerIt->second (packet, header, from);
         }
       else
         {
-          NS_FATAL_ERROR ( this << " no handler for socket " << socket);
+          NS_FATAL_ERROR ( this << " no handler registered for socket " << socket);
         }
     }
 }

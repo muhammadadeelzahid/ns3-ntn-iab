@@ -2720,8 +2720,12 @@ int
 QuicSocketBase::DoFastConnect (void)
 {
   NS_LOG_FUNCTION (this);
-  NS_ABORT_MSG_IF (!IsVersionSupported (m_vers),
-                   "0RTT Handshake requested with wrong Initial Version");
+  if (!IsVersionSupported (m_vers))
+    {
+      NS_LOG_WARN ("0RTT Handshake requested with wrong Initial Version "
+                   << (uint32_t) m_vers << " — falling back to full handshake");
+      return DoConnect ();
+    }
 
   if (m_socketState != IDLE)
     {

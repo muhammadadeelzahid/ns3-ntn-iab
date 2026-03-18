@@ -491,6 +491,13 @@ DashClient::MessageReceived(Packet message)
         AddBitRate(Simulator::Now(), 8 * m_segment_bytes / m_segmentFetchTime.GetSeconds());
 
         Time currDt = m_player.GetRealPlayTime(mpegHeader.GetPlaybackTime());
+        // Sanitize: absurd currDt (e.g. from reordering/corruption) corrupts m_lastDt and state
+        if (currDt.GetSeconds() > 120.0 || currDt.GetSeconds() < -10.0)
+          {
+            NS_LOG_WARN("DASH client " << GetNode()->GetId() << " currDt=" << currDt.GetSeconds()
+                        << "s out of range, clamping to last valid or 0");
+            currDt = (m_lastDt >= Time("0s")) ? m_lastDt : Seconds(0);
+          }
         // And tell the player to monitor the buffer level
         LogBufferLevel(currDt);
 

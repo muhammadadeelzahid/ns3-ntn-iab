@@ -643,7 +643,7 @@ main (int argc, char *argv[])
   // Set center frequency to 6 GHz for RMa scenario compatibility
   // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
 
-	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (4));
+	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
 // 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
 // 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
 // //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
@@ -781,7 +781,7 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(true));
   
   // Set initial slow start threshold (ssthresh) to 200KB
-  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(50 * 1024));
+  Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(UINT32_MAX));
 
   // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
@@ -1297,7 +1297,7 @@ main (int argc, char *argv[])
   // Clients start after servers (no stagger - all start at same time)
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
-    double clientStartTime = 0.1;  // All clients start at 0.1s
+    double clientStartTime = 0.1 + (i * 0.1);
     clientApps.Get(i)->SetStartTime(Seconds(clientStartTime));
     // Stop apps 1 second before simulation stops to allow cleanup
     clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));

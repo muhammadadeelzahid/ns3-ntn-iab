@@ -774,8 +774,8 @@ main (int argc, char *argv[])
   // QUIC: SocketSndBufSize = SocketRcvBufSize = 256 MB
   // For 66 Mbps: average segment ~15.74 MB, max segment ~31.47 MB
   // Increased to 256 MB to hold 8+ full segments and prevent blocking during network fluctuations (matches QUIC)
-  Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(256*1024*1024));  // 256 MB (8x max segment) - increased for better QoE (matches QUIC)
-  Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(256*1024*1024));  // 256 MB (8x max segment) - increased for better QoE (matches QUIC)
+  Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(512*1024*1024));  // 256 MB (8x max segment) - increased for better QoE (matches QUIC)
+  Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(512*1024*1024));  // 256 MB (8x max segment) - increased for better QoE (matches QUIC)
   
   // Enable Pacing for TCP (to match QUIC)
   Config::SetDefault("ns3::TcpSocketState::EnablePacing", BooleanValue(true));

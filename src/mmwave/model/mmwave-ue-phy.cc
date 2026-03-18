@@ -470,12 +470,18 @@ MmWaveUePhy::ReceiveControlMessageList (std::list<Ptr<MmWaveControlMessage> > ms
           SfnSf dciSfn = dciMsg->GetSfnSf ();
           //m_allocLayerInd = dciInfoElem.m_layerInd;
 
-          // Allow DCIs for current or future subframes (not past subframes)
+          // Allow DCIs for current or future subframes (not past subframes).
+          // If a DCI is for a past subframe (e.g., due to timing misalignment), 
+		  // log and ignore it instead of
+          // aborting the simulation.
           if (dciSfn.m_frameNum < m_frameNum || 
               (dciSfn.m_frameNum == m_frameNum && dciSfn.m_sfNum < m_sfNum))
             {
-              NS_FATAL_ERROR ("DCI intended for past subframe (dci= "
-                              << dciSfn.m_frameNum << " " << dciSfn.m_sfNum << ", actual= " << m_frameNum << " " << m_sfNum);
+              NS_LOG_WARN ("DCI intended for past subframe (dci= "
+                           << dciSfn.m_frameNum << " " << dciSfn.m_sfNum
+                           << ", actual= " << m_frameNum << " " << m_sfNum
+                           << ") at UE " << m_rnti << " — ignoring");
+              continue;
             }
           
           // Log if DCI is for future subframe

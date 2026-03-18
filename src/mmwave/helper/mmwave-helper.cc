@@ -3152,7 +3152,7 @@ MmWaveHelper::SetPhyMacConfigurationParameters (std::string paramName, std::stri
 		uint32_t ref;
 		ss >> ref;
 		NS_LOG_DEBUG("Setting NumEnbLayers to " << ref);
-		m_phyMacCommon->SetNumEnbLayers(4);
+		m_phyMacCommon->SetNumEnbLayers(ref);
 	}
 	else
 	{
@@ -3215,6 +3215,12 @@ MmWaveDrbActivator::ActivateDrb (uint64_t imsi, uint16_t cellId, uint16_t rnti)
       Ptr<LteEnbRrc> enbRrc = enbLteDevice->GetObject<MmWaveEnbNetDevice> ()->GetRrc ();
       NS_ASSERT (ueRrc->GetCellId () == enbLteDevice->GetCellId ());
       Ptr<UeManager> ueManager = enbRrc->GetUeManager (rnti);
+      if (ueManager == 0)
+        {
+          NS_LOG_WARN ("MmWaveDrbActivator: UE manager not found for RNTI "
+                       << rnti << " on cell " << enbRrc->GetCellId () << ", skipping DRB activation");
+          return;
+        }
       NS_ASSERT (ueManager->GetState () == UeManager::CONNECTED_NORMALLY ||
                  ueManager->GetState () == UeManager::CONNECTION_RECONFIGURATION);
       EpcEnbS1SapUser::DataRadioBearerSetupRequestParameters params;

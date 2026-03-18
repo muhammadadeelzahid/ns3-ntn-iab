@@ -164,7 +164,8 @@ EpcMmeApplication::DoInitialUeMessage (uint64_t mmeUeS1Id, uint16_t enbUeS1Id, u
 
   NS_ASSERT_MSG (it != m_ueInfoMap.end (), "could not find any UE with IMSI " << imsi);
 
-  it->second->cellId = gci; // if this is an IAB node, then this represents the cellId of the donor 
+  it->second->cellId = gci; // if this is an IAB node, then this represents the cellId of the donor
+  it->second->enbUeS1Id = enbUeS1Id; // RNTI in the cell; required for InitialContextSetupRequest in DoCreateSessionResponse
 
   auto gnbIt = m_enbInfoMap.find(gci);
   NS_ASSERT(gnbIt != m_enbInfoMap.end());

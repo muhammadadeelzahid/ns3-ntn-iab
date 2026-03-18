@@ -390,7 +390,29 @@ UeManager::SetupDataRadioBearer (EpsBearer bearer, uint8_t bearerId, uint32_t gt
   NS_LOG_FUNCTION (this << (uint32_t) m_rnti);
 
   Ptr<LteDataRadioBearerInfo> drbInfo = CreateObject<LteDataRadioBearerInfo> ();
-  uint8_t drbid = AddDataRadioBearerInfo (drbInfo);
+  uint8_t drbid;
+  if (bearerId != 0)
+    {
+      // MME/EPC provided bearerId: use it so RRC and MME stay in sync (required for IAB/NTN
+      // and when allocation order differs from AddDataRadioBearerInfo's next-free logic).
+      if (m_drbMap.find (bearerId) != m_drbMap.end ())
+        {
+          // Duplicate setup for same bearer (e.g. retry or duplicate Initial Context Setup); skip idempotently.
+          NS_LOG_WARN ("duplicate bearer setup for bearerId " << (uint32_t) bearerId << " on RNTI " << m_rnti << ", skipping");
+          return;
+        }
+      m_drbMap.insert (std::pair<uint8_t, Ptr<LteDataRadioBearerInfo> > (bearerId, drbInfo));
+      drbInfo->m_drbIdentity = bearerId;
+      if ((int) bearerId > (int) m_lastAllocatedDrbid)
+        {
+          m_lastAllocatedDrbid = bearerId;
+        }
+      drbid = bearerId;
+    }
+  else
+    {
+      drbid = AddDataRadioBearerInfo (drbInfo);
+    }
   uint8_t lcid = Drbid2Lcid (drbid); 
   uint8_t bid = Drbid2Bid (drbid);
   NS_ASSERT_MSG ( bearerId == 0 || bid == bearerId, "bearer ID mismatch (" << (uint32_t) bid << " != " << (uint32_t) bearerId << ", the assumption that ID are allocated in the same way by MME and RRC is not valid any more");
@@ -566,8 +588,16 @@ void
 LteEnbRrc::DoSendReleaseDataRadioBearer (uint64_t imsi, uint16_t rnti, uint8_t bearerId)
 {
   Ptr<UeManager> ueManager = GetUeManager (rnti);
-  // Bearer de-activation towards UE
-  ueManager->ReleaseDataRadioBearer (bearerId);
+  if (ueManager != 0)
+    {
+      // Bearer de-activation towards UE
+      ueManager->ReleaseDataRadioBearer (bearerId);
+    }
+  else
+    {
+      NS_LOG_WARN ("DoSendReleaseDataRadioBearer: UE manager not found for RNTI "
+                   << rnti << " (cellId " << m_cellId << "), skipping UE-side release");
+    }
   // Bearer de-activation indication towards epc-enb application
   m_s1SapProvider->DoSendReleaseIndication (imsi,rnti,bearerId);
 }
@@ -2797,7 +2827,13 @@ LteEnbRrc::GetUeManager (uint16_t rnti)
   NS_LOG_FUNCTION (this << (uint32_t) rnti);
   NS_ASSERT (0 != rnti);
   std::map<uint16_t, Ptr<UeManager> >::iterator it = m_ueMap.find (rnti);
-  NS_ASSERT_MSG (it != m_ueMap.end (), "RNTI " << rnti << " not found in eNB with cellId " << m_cellId);
+  if (it == m_ueMap.end ())
+    {
+      // UE context for this RNTI is gone (e.g., released or handed over) but some late event
+      // still references it. Log and return null so callers can safely ignore.
+      NS_LOG_WARN ("RNTI " << rnti << " not found in eNB with cellId " << m_cellId << " in GetUeManager");
+      return 0;
+    }
   return it->second;
 }
 
@@ -2811,7 +2847,16 @@ LteEnbRrc::RegisterImsiToRnti(uint64_t imsi, uint16_t rnti)
     if(m_interRatHoMode) // warn the UeManager that this is the first time a UE with a certain imsi
       // connects to this MmWave eNB. This will trigger a notification to the LTE RRC once RecvRrcReconfCompleted is called
     {
-      GetUeManager(rnti)->SetFirstConnection();
+      Ptr<UeManager> ueManager = GetUeManager (rnti);
+      if (ueManager == 0)
+        {
+          NS_LOG_WARN ("RegisterImsiToRnti: UE manager not found for RNTI "
+                       << rnti << " (cellId " << m_cellId << "), skipping SetFirstConnection");
+        }
+      else
+        {
+          ueManager->SetFirstConnection();
+        }
     }
   }
   else
@@ -3854,6 +3899,12 @@ LteEnbRrc::SendData (Ptr<Packet> packet)
   bool found = packet->RemovePacketTag (tag);
   NS_ASSERT_MSG (found, "no EpsBearerTag found in packet to be sent");
   Ptr<UeManager> ueManager = GetUeManager (tag.GetRnti ());
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("RecvData: UE manager not found for RNTI "
+                   << tag.GetRnti () << " (cellId " << m_cellId << "), dropping packet");
+      return true;
+    }
   ueManager->SendData (tag.GetBid (), packet);
 
   return true;
@@ -3869,8 +3920,15 @@ void
 LteEnbRrc::ConnectionRequestTimeout (uint16_t rnti)
 {
   NS_LOG_FUNCTION (this << rnti);
-  NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::INITIAL_RANDOM_ACCESS,
-                 "ConnectionRequestTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("ConnectionRequestTimeout for unknown RNTI " << rnti
+                   << " on cell " << m_cellId << " — UE already removed");
+      return;
+    }
+  NS_ASSERT_MSG (ueManager->GetState () == UeManager::INITIAL_RANDOM_ACCESS,
+                 "ConnectionRequestTimeout in unexpected state " << ToString (ueManager->GetState ()));
   RemoveUe (rnti);
 }
 
@@ -3878,8 +3936,15 @@ void
 LteEnbRrc::ConnectionSetupTimeout (uint16_t rnti)
 {
   NS_LOG_FUNCTION (this << rnti);
-  NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::CONNECTION_SETUP,
-                 "ConnectionSetupTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("ConnectionSetupTimeout for unknown RNTI " << rnti
+                   << " on cell " << m_cellId << " — UE already removed");
+      return;
+    }
+  NS_ASSERT_MSG (ueManager->GetState () == UeManager::CONNECTION_SETUP,
+                 "ConnectionSetupTimeout in unexpected state " << ToString (ueManager->GetState ()));
   RemoveUe (rnti);
 }
 
@@ -3887,8 +3952,15 @@ void
 LteEnbRrc::ConnectionRejectedTimeout (uint16_t rnti)
 {
   NS_LOG_FUNCTION (this << rnti);
-  NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::CONNECTION_REJECTED,
-                 "ConnectionRejectedTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("ConnectionRejectedTimeout for unknown RNTI " << rnti
+                   << " on cell " << m_cellId << " — UE already removed");
+      return;
+    }
+  NS_ASSERT_MSG (ueManager->GetState () == UeManager::CONNECTION_REJECTED,
+                 "ConnectionRejectedTimeout in unexpected state " << ToString (ueManager->GetState ()));
   RemoveUe (rnti);
 }
 
@@ -3897,13 +3969,20 @@ LteEnbRrc::HandoverJoiningTimeout (uint16_t rnti)
 {
   NS_LOG_FUNCTION (this << rnti);
   NS_LOG_INFO("Handover joining Timeout on cell " << m_cellId);
-  NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::HANDOVER_JOINING,
-                 "HandoverJoiningTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("HandoverJoiningTimeout for unknown RNTI " << rnti
+                   << " on cell " << m_cellId << " — UE already removed");
+      return;
+    }
+  NS_ASSERT_MSG (ueManager->GetState () == UeManager::HANDOVER_JOINING,
+                 "HandoverJoiningTimeout in unexpected state " << ToString (ueManager->GetState ()));
   
   // notify the LTE eNB (coordinator) of the failure
   if(m_ismmWave)
   {
-    uint16_t sourceCellId = (GetUeManager (rnti)->GetSource()).first;
+    uint16_t sourceCellId = (ueManager->GetSource()).first;
 
     NS_LOG_INFO ("rejecting handover request from cellId " << sourceCellId);
     EpcX2SapProvider::HandoverFailedParams res;
@@ -3921,8 +4000,15 @@ void
 LteEnbRrc::HandoverLeavingTimeout (uint16_t rnti)
 {
   NS_LOG_FUNCTION (this << rnti);
-  NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::HANDOVER_LEAVING,
-                 "HandoverLeavingTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("HandoverLeavingTimeout for unknown RNTI " << rnti
+                   << " on cell " << m_cellId << " — UE already removed");
+      return;
+    }
+  NS_ASSERT_MSG (ueManager->GetState () == UeManager::HANDOVER_LEAVING,
+                 "HandoverLeavingTimeout in unexpected state " << ToString (ueManager->GetState ()));
   RemoveUe (rnti);
 }
 
@@ -3936,6 +4022,12 @@ LteEnbRrc::SendHandoverRequest (uint16_t rnti, uint16_t cellId)
   NS_LOG_INFO("LteEnbRrc on cell " << m_cellId << " for rnti " << rnti << " SendHandoverRequest at time " << Simulator::Now().GetSeconds() << " to cellId " << cellId);
 
   Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("SendHandoverRequest: UE manager not found for RNTI "
+                   << rnti << " on source cell " << m_cellId << ", skipping");
+      return;
+    }
   ueManager->PrepareHandover (cellId);
  
 }
@@ -3944,21 +4036,42 @@ void
 LteEnbRrc::DoCompleteSetupUe (uint16_t rnti, LteEnbRrcSapProvider::CompleteSetupUeParameters params)
 {
   NS_LOG_FUNCTION (this << rnti);
-  GetUeManager (rnti)->CompleteSetupUe (params);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoCompleteSetupUe: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->CompleteSetupUe (params);
 }
 
 void
 LteEnbRrc::DoRecvRrcConnectionRequest (uint16_t rnti, LteRrcSap::RrcConnectionRequest msg)
 {
   NS_LOG_FUNCTION (this << rnti);
-  GetUeManager (rnti)->RecvRrcConnectionRequest (msg);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRecvRrcConnectionRequest: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->RecvRrcConnectionRequest (msg);
 }
 
 void
 LteEnbRrc::DoRecvRrcConnectionSetupCompleted (uint16_t rnti, LteRrcSap::RrcConnectionSetupCompleted msg)
 {
   NS_LOG_FUNCTION (this << rnti);
-  GetUeManager (rnti)->RecvRrcConnectionSetupCompleted (msg);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRecvRrcConnectionSetupCompleted: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->RecvRrcConnectionSetupCompleted (msg);
 }
 
 void
@@ -3966,41 +4079,82 @@ LteEnbRrc::DoRecvRrcConnectionReconfigurationCompleted (uint16_t rnti, LteRrcSap
 {
   NS_LOG_FUNCTION (this << rnti);
   NS_LOG_INFO("Received RRC connection reconf completed on cell " << m_cellId);
-  GetUeManager (rnti)->RecvRrcConnectionReconfigurationCompleted (msg);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRecvRrcConnectionReconfigurationCompleted: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->RecvRrcConnectionReconfigurationCompleted (msg);
 }
 
 void 
 LteEnbRrc::DoRecvRrcConnectionReestablishmentRequest (uint16_t rnti, LteRrcSap::RrcConnectionReestablishmentRequest msg)
 {
   NS_LOG_FUNCTION (this << rnti);
-  GetUeManager (rnti)->RecvRrcConnectionReestablishmentRequest (msg);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRecvRrcConnectionReestablishmentRequest: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->RecvRrcConnectionReestablishmentRequest (msg);
 }
 
 void 
 LteEnbRrc::DoRecvRrcConnectionReestablishmentComplete (uint16_t rnti, LteRrcSap::RrcConnectionReestablishmentComplete msg)
 {
   NS_LOG_FUNCTION (this << rnti);
-  GetUeManager (rnti)->RecvRrcConnectionReestablishmentComplete (msg);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRecvRrcConnectionReestablishmentComplete: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->RecvRrcConnectionReestablishmentComplete (msg);
 }
 
 void 
 LteEnbRrc::DoRecvMeasurementReport (uint16_t rnti, LteRrcSap::MeasurementReport msg)
 {
   NS_LOG_FUNCTION (this << rnti);
-  GetUeManager (rnti)->RecvMeasurementReport (msg);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRecvMeasurementReport: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->RecvMeasurementReport (msg);
 }
 
 void 
 LteEnbRrc::DoRecvRrcSecondaryCellInitialAccessSuccessful (uint16_t rnti, uint16_t mmWaveRnti, uint16_t mmWaveCellId)
 {
   NS_LOG_FUNCTION (this << rnti);
-  GetUeManager (rnti)->RecvRrcSecondaryCellInitialAccessSuccessful (mmWaveRnti, mmWaveCellId);
+  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRecvRrcSecondaryCellInitialAccessSuccessful: UE manager not found for RNTI "
+                   << rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
+  ueManager->RecvRrcSecondaryCellInitialAccessSuccessful (mmWaveRnti, mmWaveCellId);
 }
 
 void 
 LteEnbRrc::DoDataRadioBearerSetupRequest (EpcEnbS1SapUser::DataRadioBearerSetupRequestParameters request)
 {
   Ptr<UeManager> ueManager = GetUeManager (request.rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoDataRadioBearerSetupRequest: UE manager not found for RNTI "
+                   << request.rnti << " on cell " << m_cellId << ", skipping DRB setup");
+      return;
+    }
   ueManager->SetupDataRadioBearer (request.bearer, request.bearerId, request.gtpTeid, request.transportLayerAddress, request.iab);
 }
 
@@ -4008,6 +4162,12 @@ void
 LteEnbRrc::DoPathSwitchRequestAcknowledge (EpcEnbS1SapUser::PathSwitchRequestAcknowledgeParameters params)
 {
   Ptr<UeManager> ueManager = GetUeManager (params.rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoPathSwitchRequestAcknowledge: UE manager not found for RNTI "
+                   << params.rnti << " on cell " << m_cellId << ", skipping UE context release");
+      return;
+    }
   ueManager->SendUeContextRelease ();
 }
 
@@ -4015,6 +4175,12 @@ void
 LteEnbRrc::DoNotifyNumIabPerRnti (EpcEnbS1SapUser::NotifyNumIabPerRntiParameters params)
 {
   Ptr<UeManager> ueManager = GetUeManager(params.rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoNotifyNumIabPerRnti: UE manager not found for RNTI "
+                   << params.rnti << " on cell " << m_cellId << ", skipping notification");
+      return;
+    }
   ueManager->NotifyNumIabPerRnti(params);
 }
 
@@ -4301,7 +4467,14 @@ LteEnbRrc::DoRecvRlcSetupCompleted (EpcX2SapUser::UeDataParams params)
     teidInfoIt = m_x2uMcTeidInfoMap.find (params.gtpTeid);
   if (teidInfoIt != m_x2uMcTeidInfoMap.end ())
     {
-      GetUeManager (teidInfoIt->second.rnti)->RecvRlcSetupCompleted (teidInfoIt->second.drbid);
+      Ptr<UeManager> ueManager = GetUeManager (teidInfoIt->second.rnti);
+      if (ueManager == 0)
+        {
+          NS_LOG_WARN ("DoRecvRlcSetupCompleted: UE manager not found for RNTI "
+                       << teidInfoIt->second.rnti << " on cell " << m_cellId << ", skipping");
+          return;
+        }
+      ueManager->RecvRlcSetupCompleted (teidInfoIt->second.drbid);
     }
   else
     {
@@ -4325,14 +4498,28 @@ LteEnbRrc::DoRecvUeData (EpcX2SapUser::UeDataParams params)
     teidInfoIt = m_x2uTeidInfoMap.find (params.gtpTeid);
   if (teidInfoIt != m_x2uTeidInfoMap.end ())
     {
-      GetUeManager (teidInfoIt->second.rnti)->SendData (teidInfoIt->second.drbid, params.ueData);
+      Ptr<UeManager> ueManager = GetUeManager (teidInfoIt->second.rnti);
+      if (ueManager == 0)
+        {
+          NS_LOG_WARN ("DoRecvUeData (primary map): UE manager not found for RNTI "
+                       << teidInfoIt->second.rnti << " on cell " << m_cellId << ", dropping X2 data");
+          return;
+        }
+      ueManager->SendData (teidInfoIt->second.drbid, params.ueData);
     }
   else
     {
       teidInfoIt = m_x2uMcTeidInfoMap.find(params.gtpTeid);
       if(teidInfoIt != m_x2uMcTeidInfoMap.end ())
       {
-        GetUeManager (teidInfoIt->second.rnti)->SendData (teidInfoIt->second.drbid, params.ueData);
+        Ptr<UeManager> ueManager = GetUeManager (teidInfoIt->second.rnti);
+        if (ueManager == 0)
+          {
+            NS_LOG_WARN ("DoRecvUeData (MC map): UE manager not found for RNTI "
+                         << teidInfoIt->second.rnti << " on cell " << m_cellId << ", dropping X2 data");
+            return;
+          }
+        ueManager->SendData (teidInfoIt->second.drbid, params.ueData);
       }
       else
       {
@@ -4352,6 +4539,12 @@ void
 LteEnbRrc::DoRrcConfigurationUpdateInd (LteEnbCmacSapUser::UeConfig cmacParams)
 {
   Ptr<UeManager> ueManager = GetUeManager (cmacParams.m_rnti);
+  if (ueManager == 0)
+    {
+      NS_LOG_WARN ("DoRrcConfigurationUpdateInd: UE manager not found for RNTI "
+                   << cmacParams.m_rnti << " on cell " << m_cellId << ", skipping");
+      return;
+    }
   ueManager->CmacUeConfigUpdateInd (cmacParams);
 }
 

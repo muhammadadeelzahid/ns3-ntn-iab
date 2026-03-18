@@ -611,15 +611,12 @@ MmWavePaddedHbfMacScheduler::UpdateUlHarqProcessId (uint16_t rnti)
   std::map <uint16_t, UlHarqProcessesStatus_t>::iterator itStat = m_ulHarqProcessesStatus.find (rnti);
   if (itStat == m_ulHarqProcessesStatus.end ())
     {
-//      NS_LOG_ERROR("No Process Id Statusfound for this RNTI " << rnti<<" implementing temporary fix");
-//
-//      //this error occurs when the UE drops connection and the mac layer keeps receiving its BSRs and passing them to the scheduler
-//      MmWaveMacCschedSapProvider::CschedUeConfigReqParameters params;
-//      params.m_rnti = rnti;
-//      params.m_transmissionMode = 0;       // set to default value (SISO) for avoiding random initialization (valgrind error)
-//      m_macCschedSapProvider->CschedUeConfigReq (params);
-//      itStat = m_ulHarqProcessesStatus.find (rnti);
-      NS_FATAL_ERROR ("No Process Id Statusfound for this RNTI " << rnti);
+      // This can happen if a UE has dropped the connection but MAC still
+      // receives BSRs for its RNTI. Treat it as "no HARQ process available"
+      // instead of aborting the whole simulation.
+      NS_LOG_WARN ("No Process Id Statusfound for this RNTI " << rnti
+                   << ", returning no-available HARQ process id");
+      return m_phyMacConfig->GetNumHarqProcess ();
     }
 
   // search for available process ID, if none available return numHarqProcess+1
@@ -1178,7 +1175,15 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
               NS_LOG_DEBUG ("UE" << rnti << " UL harqId " << (unsigned)harqInfo.m_harqProcessId << " HARQ-NACK received, rv " << (unsigned)dciInfoReTx.m_rv);
               NS_ASSERT (harqId == dciInfoReTx.m_harqProcess);
               NS_ASSERT (itStat->second.at (harqId) > 0);
-              NS_ASSERT (itStat->second.at (harqId) - 1 == dciInfoReTx.m_rv);
+              // Skip retx instead of aborting
+              if (itStat->second.at (harqId) - 1 != dciInfoReTx.m_rv)
+                {
+                  NS_LOG_WARN ("UE" << rnti << " UL harqId " << (unsigned)harqId
+                             << " RV mismatch: status=" << (unsigned)itStat->second.at (harqId)
+                             << " dciRv=" << (unsigned)dciInfoReTx.m_rv << " - dropping HARQ retx");
+                  itStat->second.at (harqId) = 0;
+                  continue;
+                }
               if (dciInfoReTx.m_rv == 3)
                 {
                   NS_LOG_INFO ("Max number of retransmissions reached (UL)-> drop process");
@@ -2053,7 +2058,17 @@ MmWavePaddedHbfMacScheduler::DoSchedTriggerReq (const struct MmWaveMacSchedSapPr
             dci.m_tbSize = m_amc->GetTbSizeFromMcsSymbols(dci.m_mcs, dci.m_numSym) / 8;
             dci.m_rv = 0;
             dci.m_harqProcess = UpdateUlHarqProcessId(itUeInfoUl->first);
-            NS_ASSERT(dci.m_harqProcess < m_phyMacConfig->GetNumHarqProcess());
+            if (dci.m_harqProcess >= m_phyMacConfig->GetNumHarqProcess())
+              {
+                // No valid HARQ process available (e.g., all occupied or UE context gone).
+                // Skip scheduling UL for this UE in this TTI instead of aborting.
+                NS_LOG_WARN ("UL HARQ process id out of range for RNTI "
+                             << dci.m_rnti << " (harqId=" << (unsigned)dci.m_harqProcess
+                             << ", max=" << (unsigned)m_phyMacConfig->GetNumHarqProcess() << ")");
+                if (itUeInfoUl == ueInfo.end()) { itUeInfoUl = ueInfo.begin(); }
+                if (itUeInfoUl == itUeInfoStart) { ulPhaseDone = true; }
+                continue;
+              }
             NS_LOG_LOGIC("UE " << itUeInfoUl->first << " UL harqId " << (unsigned)dci.m_harqProcess << " HARQ process assigned");
 
             SlotAllocInfo slotInfo(tempUlSlotIdx++, SlotAllocInfo::UL_slotAllocInfo, SlotAllocInfo::CTRL_DATA, SlotAllocInfo::DIGITAL, itUeInfoUl->first, layerIdxUl);

@@ -937,6 +937,12 @@ DrbActivator::ActivateDrb (uint64_t imsi, uint16_t cellId, uint16_t rnti)
       Ptr<LteEnbRrc> enbRrc = enbLteDevice->GetObject<LteEnbNetDevice> ()->GetRrc ();
       NS_ASSERT (ueRrc->GetCellId () == enbLteDevice->GetCellId ());
       Ptr<UeManager> ueManager = enbRrc->GetUeManager (rnti);
+      if (ueManager == 0)
+        {
+          NS_LOG_WARN ("DrbActivator: UE manager not found for RNTI "
+                       << rnti << " on cell " << enbRrc->GetCellId () << ", skipping DRB activation");
+          return;
+        }
       NS_ASSERT (ueManager->GetState () == UeManager::CONNECTED_NORMALLY
                  || ueManager->GetState () == UeManager::CONNECTION_RECONFIGURATION);
       EpcEnbS1SapUser::DataRadioBearerSetupRequestParameters params;

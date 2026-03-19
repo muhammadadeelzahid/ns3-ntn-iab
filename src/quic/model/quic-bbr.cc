@@ -537,6 +537,7 @@ void
 QuicBbr::UpdateModelAndState (Ptr<QuicSocketState> tcb, const struct RateSample * rs)
 {
   NS_LOG_FUNCTION (this << tcb << rs);
+  HandleRestartFromIdle (tcb, rs);
   UpdateBtlBw (tcb, rs);
   CheckCyclePhase (tcb, rs);
   CheckFullPipe (rs);

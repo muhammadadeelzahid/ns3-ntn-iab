@@ -606,7 +606,19 @@ QuicStreamBase::SetMaxStreamData (uint32_t maxStreamData)
 {
   NS_LOG_FUNCTION (this << maxStreamData);
   NS_LOG_DEBUG ("Update max stream data from " << m_maxStreamData << " to " << maxStreamData);
+  uint32_t oldMaxStreamData = m_maxStreamData;
   m_maxStreamData = maxStreamData;
+  if (m_streamId != 0
+      && m_maxStreamData > oldMaxStreamData
+      && m_txBuffer
+      && m_txBuffer->AppSize () > 0
+      && AvailableWindow () > 0
+      && !m_streamSendPendingDataEvent.IsRunning ())
+    {
+      NS_LOG_INFO ("Flow-control window opened on stream " << m_streamId
+                   << ", scheduling SendPendingData");
+      m_streamSendPendingDataEvent = Simulator::ScheduleNow (&QuicStreamBase::SendPendingData, this);
+    }
 }
 
 uint32_t

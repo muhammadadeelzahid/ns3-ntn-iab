@@ -140,11 +140,19 @@ QuicCongestionOps::UpdateRtt (Ptr<TcpSocketState> tcb, Time latestRtt,
   Ptr<QuicSocketState> tcbd = dynamic_cast<QuicSocketState*> (&(*tcb));
   NS_ASSERT_MSG (tcbd != 0, "tcb is not a QuicSocketState");
 
-  // m_minRtt ignores ack delay.
-  tcbd->m_minRtt = std::min (tcbd->m_minRtt, latestRtt);
+  // m_minRtt ignores ACK delay and must be initialized from first valid sample.
+  if (tcbd->m_minRtt == Seconds (0))
+    {
+      tcbd->m_minRtt = latestRtt;
+    }
+  else
+    {
+      tcbd->m_minRtt = std::min (tcbd->m_minRtt, latestRtt);
+    }
 
   NS_LOG_LOGIC ("Correct for ACK delay");
   // Adjust for ack delay if it's plausible.
+  ackDelay = std::min (ackDelay, tcbd->m_maxAckDelay);
   if (latestRtt - tcbd->m_minRtt > ackDelay)
     {
       latestRtt -= ackDelay;
@@ -167,8 +175,8 @@ QuicCongestionOps::UpdateRtt (Ptr<TcpSocketState> tcb, Time latestRtt,
     {
       Time rttVarSample = Time (
         std::abs ((tcbd->m_smoothedRtt - latestRtt).GetDouble ()));
-      tcbd->m_rttVar = 3 / 4 * tcbd->m_rttVar + 1 / 4 * rttVarSample;
-      tcbd->m_smoothedRtt = 7 / 8 * tcbd->m_smoothedRtt + 1 / 8 * latestRtt;
+      tcbd->m_rttVar = (3.0 / 4.0) * tcbd->m_rttVar + (1.0 / 4.0) * rttVarSample;
+      tcbd->m_smoothedRtt = (7.0 / 8.0) * tcbd->m_smoothedRtt + (1.0 / 8.0) * latestRtt;
     }
 
 }

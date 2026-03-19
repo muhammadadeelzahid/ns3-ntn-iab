@@ -100,7 +100,9 @@ class DashServer : public Application
     // A structure that contains the generated MPEG frames, for each client.
     std::map<Ptr<Socket>, std::deque<Packet>> m_queues;
 
-    Ptr<Packet> m_pending_packet = nullptr;
+    // Pending request bytes are tracked per accepted socket to avoid
+    // cross-connection request reassembly corruption under concurrency.
+    std::map<Ptr<Socket>, Ptr<Packet>> m_pendingPackets;
     
     EventId m_periodicSendEvent;  // Periodic event to ensure fair sending to all connections
     void PeriodicSendCheck();     // Periodically check all sockets and try to send

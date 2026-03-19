@@ -102,6 +102,8 @@ DashServer::DoDispose(void)
     NS_LOG_FUNCTION(this);
     m_socket = 0;
     m_socketList.clear();
+    m_pendingPackets.clear();
+    m_queues.clear();
 
     // chain up
     Application::DoDispose();
@@ -157,6 +159,8 @@ DashServer::StopApplication() // Called at time specified by Stop
         m_socket->Close();
         m_socket->SetRecvCallback(MakeNullCallback<void, Ptr<Socket>>());
     }
+    m_pendingPackets.clear();
+    m_queues.clear();
 }
 
 void
@@ -171,30 +175,32 @@ DashServer::HandleRead(Ptr<Socket> socket)
     {
         m_totalRx += packet->GetSize();
 
-        if (!m_pending_packet)
+        Ptr<Packet>& pendingPacket = m_pendingPackets[socket];
+
+        if (!pendingPacket)
         {
-            m_pending_packet = packet;
+            pendingPacket = packet;
         }
         else
         {
-            m_pending_packet->AddAtEnd(packet);
+            pendingPacket->AddAtEnd(packet);
         }
 
         HTTPHeader header;
         uint32_t httpHeaderSize = header.GetSerializedSize();
 
-        while (m_pending_packet->GetSize() >= httpHeaderSize)
+        while (pendingPacket->GetSize() >= httpHeaderSize)
         {
             // Validate packet has enough data before removing header
-            if (m_pending_packet->GetSize() < httpHeaderSize)
+            if (pendingPacket->GetSize() < httpHeaderSize)
             {
-                NS_LOG_ERROR("Packet size (" << m_pending_packet->GetSize() 
+                NS_LOG_ERROR("Packet size (" << pendingPacket->GetSize()
                              << ") is smaller than HTTP header size (" << httpHeaderSize 
                              << "). Dropping corrupted packet.");
                 break;
             }
             
-            m_pending_packet->RemoveHeader(header);
+            pendingPacket->RemoveHeader(header);
             
             if (header.GetMessageType() == HTTP_REQUEST)
             {
@@ -203,6 +209,11 @@ DashServer::HandleRead(Ptr<Socket> socket)
                             header.GetSegmentId(),
                             socket);
             }
+        }
+
+        if (pendingPacket && pendingPacket->GetSize() == 0)
+        {
+            pendingPacket = nullptr;
         }
 
         if (InetSocketAddress::IsMatchingType(from))
@@ -229,12 +240,18 @@ void
 DashServer::HandlePeerClose(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
+    m_pendingPackets.erase(socket);
+    m_queues.erase(socket);
+    m_socketList.remove(socket);
 }
 
 void
 DashServer::HandlePeerError(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
+    m_pendingPackets.erase(socket);
+    m_queues.erase(socket);
+    m_socketList.remove(socket);
 }
 
 void

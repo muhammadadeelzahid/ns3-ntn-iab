@@ -111,6 +111,8 @@ DashClient::DashClient()
       m_window(Seconds(10)),
       m_segmentFetchTime(Seconds(0)),
       m_keepAliveTimer(),
+      m_connectWatchdogTimer(),
+      m_segmentWatchdogTimer(),
       m_periodicBufferCheckTimer(),
       m_maxVideoDuration(Seconds(0)),
       m_maxSegments(0)
@@ -138,6 +140,8 @@ DashClient::DoDispose(void)
 
     m_socket = 0;
     m_keepAliveTimer.Cancel();
+    m_connectWatchdogTimer.Cancel();
+    m_segmentWatchdogTimer.Cancel();
     // chain up
     Application::DoDispose();
 }
@@ -206,13 +210,17 @@ DashClient::StartApplication(void) // Called at time specified by Start
         }
         
 
-        m_socket->Connect(m_peer);
         m_socket->SetRecvCallback(MakeCallback(&DashClient::HandleRead, this));
         m_socket->SetConnectCallback(MakeCallback(&DashClient::ConnectionSucceeded, this),
                                      MakeCallback(&DashClient::ConnectionFailed, this));
         m_socket->SetSendCallback(MakeCallback(&DashClient::DataSend, this));
         m_socket->SetCloseCallbacks(MakeCallback(&DashClient::ConnectionNormalClosed, this),
                                     MakeCallback(&DashClient::ConnectionErrorClosed, this));
+        m_socket->Connect(m_peer);
+        m_connectWatchdogTimer.Cancel();
+        m_connectWatchdogTimer = Simulator::Schedule(MilliSeconds(200),
+                                                     &DashClient::ConnectWatchdog,
+                                                     this);
 
         NS_LOG_INFO("Connected callbacks");
     }
@@ -230,6 +238,8 @@ DashClient::StopApplication(void) // Called at time specified by Stop
         m_connected = false;
         m_player.m_state = MPEG_PLAYER_DONE;
         m_periodicBufferCheckTimer.Cancel();
+        m_connectWatchdogTimer.Cancel();
+        m_segmentWatchdogTimer.Cancel();
     }
     else
     {
@@ -252,6 +262,7 @@ DashClient::RequestSegment()
 
     if (m_connected == false)
     {
+        m_RequestPending = false;
         return;
     }
     
@@ -259,39 +270,66 @@ DashClient::RequestSegment()
     {
         if (m_segmentId >= m_maxSegments)
         {
+            m_RequestPending = false;
             return;
         }
     }
+    uint32_t requestSegmentId = m_segmentId++;
+    m_pendingSegmentId = requestSegmentId;
+    m_pendingBitRate = m_bitRate;
+    m_pendingRetryUsed = false;
+    SendSegmentRequest(requestSegmentId, m_bitRate, false);
+    m_requestTime = Simulator::Now();
+    m_segment_bytes = 0;
 
+    m_segmentWatchdogTimer.Cancel();
+    m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
+                                                 &DashClient::SegmentRequestWatchdog,
+                                                 this);
+}
+
+int
+DashClient::SendSegmentRequest(uint32_t segmentId, uint32_t bitrate, bool isRetry)
+{
+    (void)isRetry;
     Ptr<Packet> packet = Create<Packet>(0);
 
     HTTPHeader httpHeader;
     httpHeader.SetSeq(1);
     httpHeader.SetMessageType(HTTP_REQUEST);
     httpHeader.SetVideoId(m_videoId);
-    httpHeader.SetResolution(m_bitRate);
-    httpHeader.SetSegmentId(m_segmentId++);
+    httpHeader.SetResolution(bitrate);
+    httpHeader.SetSegmentId(segmentId);
     packet->AddHeader(httpHeader);
 
-    int res = 0;
-    res = m_socket->Send(packet);
+    int res = m_socket->Send(packet);
     if (res < 0)
     {
         NS_FATAL_ERROR("Oh oh. Couldn't send packet! res=" << res << " size=" << packet->GetSize());
     }
-    else if ((unsigned)res != packet->GetSize())
-    {
-        // QUIC socket sent partial data, acceptable.
-    }
-    else
-    {
-    }
 
-    // Fire Tx trace for logging
     m_txTrace(packet);
+    return res;
+}
 
-    m_requestTime = Simulator::Now();
-    m_segment_bytes = 0;
+void
+DashClient::SegmentRequestWatchdog()
+{
+    if (!m_connected || !m_socket || !m_RequestPending)
+    {
+        return;
+    }
+
+    if (!m_pendingRetryUsed)
+    {
+        m_pendingRetryUsed = true;
+        SendSegmentRequest(m_pendingSegmentId, m_pendingBitRate, true);
+        // single-shot retry with one extra safety window
+        m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
+                                                     &DashClient::SegmentRequestWatchdog,
+                                                     this);
+        return;
+    }
 }
 
 void
@@ -388,6 +426,7 @@ DashClient::ConnectionSucceeded(Ptr<Socket> socket)
     NS_LOG_FUNCTION(this << socket);
     NS_LOG_UNCOND("DashClient " << m_id << " (VideoId=" << m_videoId << ") - Connection SUCCEEDED at time " << Simulator::Now().GetSeconds() << "s");
     m_connected = true;
+    m_connectWatchdogTimer.Cancel();
     socket->SetCloseCallbacks(MakeCallback(&DashClient::ConnectionNormalClosed, this),
                               MakeCallback(&DashClient::ConnectionErrorClosed, this));
 
@@ -399,8 +438,12 @@ DashClient::ConnectionFailed(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
     NS_LOG_UNCOND("DashClient " << m_id << " (VideoId=" << m_videoId << ") - Connection FAILED at time " << Simulator::Now().GetSeconds() << "s - Retrying...");
+    m_connectWatchdogTimer.Cancel();
+    m_segmentWatchdogTimer.Cancel();
     m_socket = 0;
     m_connected = false;
+    m_RequestPending = false;
+    m_pendingRetryUsed = false;
     StartApplication();
 }
 
@@ -416,9 +459,36 @@ DashClient::ConnectionErrorClosed(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
     NS_LOG_INFO("DashClient " << m_id << ", Connection closed due to error, retrying...");
+    m_connectWatchdogTimer.Cancel();
+    m_segmentWatchdogTimer.Cancel();
     m_socket = 0;
     m_connected = false;
+    m_RequestPending = false;
+    m_pendingRetryUsed = false;
     StartApplication();
+}
+
+void
+DashClient::ConnectWatchdog()
+{
+    if (m_connected || !m_socket)
+    {
+        return;
+    }
+
+    NS_LOG_UNCOND("DashClient " << m_id << " (VideoId=" << m_videoId
+                   << ") - connect watchdog fired at time "
+                   << Simulator::Now().GetSeconds()
+                   << "s, retrying connection setup");
+
+    Ptr<Socket> oldSocket = m_socket;
+    m_socket = 0;
+    m_connected = false;
+    oldSocket->Close();
+    m_segmentWatchdogTimer.Cancel();
+    m_RequestPending = false;
+    m_pendingRetryUsed = false;
+    Simulator::Schedule(MilliSeconds(1), &DashClient::StartApplication, this);
 }
 
 void
@@ -485,6 +555,8 @@ DashClient::MessageReceived(Packet message)
     if (mpegHeader.GetFrameId() == MPEG_FRAMES_PER_SEGMENT - 1)
     {
         m_RequestPending = false;
+        m_segmentWatchdogTimer.Cancel();
+        m_pendingRetryUsed = false;
         m_segmentFetchTime = Simulator::Now() - m_requestTime;
 
         // Feed the bitrate info to the player

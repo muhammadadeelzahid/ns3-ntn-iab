@@ -133,6 +133,8 @@ class DashClient : public Application
      * \param The bitrate of the next segment.
      */
     void RequestSegment();
+    void SegmentRequestWatchdog();
+    int SendSegmentRequest(uint32_t segmentId, uint32_t bitrate, bool isRetry);
 
     void SendBlank();
 
@@ -164,6 +166,7 @@ class DashClient : public Application
     }
 
     void KeepAliveTimeout();
+    void ConnectWatchdog();
 
     HttpParser m_parser;  // An HttpParser object for parsing the incoming stream into http messages
     Ptr<Socket> m_socket; // Associated socket
@@ -186,8 +189,13 @@ class DashClient : public Application
     Time m_window;
     Time m_segmentFetchTime;
     bool m_RequestPending = false; // So that we don't request the same segment repeatedly
+    uint32_t m_pendingSegmentId = 0;
+    uint32_t m_pendingBitRate = 0;
+    bool m_pendingRetryUsed = false;
 
     EventId m_keepAliveTimer;
+    EventId m_connectWatchdogTimer;
+    EventId m_segmentWatchdogTimer;
     EventId m_periodicBufferCheckTimer; // Timer for periodic buffer check when player is paused
     Time m_maxVideoDuration;  // Maximum video duration - stops requesting segments after this time
     uint32_t m_maxSegments;   // Maximum number of segments to request (calculated from m_maxVideoDuration using frame duration)

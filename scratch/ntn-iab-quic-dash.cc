@@ -55,6 +55,7 @@
 #include <sstream>
 #include <mutex>
 #include <regex>
+#include <limits>
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuicDash");
@@ -85,6 +86,15 @@ std::map<uint64_t, uint32_t> g_imsiToNodeId;
 // BBR CSV log file (shared across connections)
 std::ofstream g_bbrStatsCsvFile;
 std::mutex g_bbrStatsCsvMutex;
+
+// Robust QUIC layer trace hookup (context-based, resilient to late socket creation)
+uint32_t g_quicServerNodeId = std::numeric_limits<uint32_t>::max();
+bool g_quicRxTraceHooked = false;
+bool g_quicCwndTraceHooked = false;
+bool g_quicRttTraceHooked = false;
+std::map<uint32_t, Ptr<OutputStreamWrapper>> g_quicRxStreams;
+std::map<uint32_t, Ptr<OutputStreamWrapper>> g_quicCwndStreams;
+std::map<uint32_t, Ptr<OutputStreamWrapper>> g_quicRttStreams;
 
 // Helper function to dump full packet in hex
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -259,6 +269,31 @@ Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, P
   *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() << std::endl;
 }
 
+static std::string
+GetQuicTracePathPrefix(uint32_t nodeId)
+{
+  return (nodeId == g_quicServerNodeId) ? "./server" : "./client";
+}
+
+static Ptr<OutputStreamWrapper>
+GetOrCreateQuicTraceStream(std::map<uint32_t, Ptr<OutputStreamWrapper>>& streamMap,
+                           const std::string& metricName,
+                           uint32_t nodeId)
+{
+  auto it = streamMap.find(nodeId);
+  if (it != streamMap.end())
+    {
+      return it->second;
+    }
+
+  AsciiTraceHelper asciiTraceHelper;
+  std::ostringstream fileName;
+  fileName << GetQuicTracePathPrefix(nodeId) << "QUIC-" << metricName << nodeId << ".txt";
+  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream(fileName.str().c_str());
+  streamMap[nodeId] = stream;
+  return stream;
+}
+
 static void
 Traces(uint32_t serverId, std::string pathVersion, std::string finalPart, uint32_t retryCount)
 {
@@ -351,6 +386,85 @@ static void ParseNodeAndConnFromContext(const std::string& context, uint32_t& no
     nodeId = static_cast<uint32_t>(std::stoul(m[1].str()));
   if (std::regex_search(context, m, socketRegex) && m.size() > 1)
     connId = static_cast<uint32_t>(std::stoul(m[1].str()));
+}
+
+static void
+QuicRxTraceWithContext(std::string context, Ptr<const Packet> p, const QuicHeader& q, Ptr<const QuicSocketBase> qsb)
+{
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  (void)connId;
+  (void)q;
+  (void)qsb;
+  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicRxStreams, "rx-data", nodeId);
+  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << p->GetSize() << std::endl;
+}
+
+static void
+QuicCwndTraceWithContext(std::string context, uint32_t oldCwnd, uint32_t newCwnd)
+{
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  (void)connId;
+  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicCwndStreams, "cwnd-change", nodeId);
+  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
+}
+
+static void
+QuicRttTraceWithContext(std::string context, Time oldRtt, Time newRtt)
+{
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  (void)connId;
+  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicRttStreams, "rtt", nodeId);
+  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldRtt.GetSeconds() << "\t" << newRtt.GetSeconds() << std::endl;
+}
+
+static void
+ConnectQuicLayerTracesWithRetry(uint32_t retryCount)
+{
+  const uint32_t MAX_RETRIES = 20;
+  const Time RETRY_INTERVAL = MilliSeconds(100);
+
+  if (!g_quicRxTraceHooked)
+    {
+      g_quicRxTraceHooked = Config::ConnectFailSafe(
+        "/NodeList/*/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx",
+        MakeCallback(&QuicRxTraceWithContext));
+    }
+  if (!g_quicCwndTraceHooked)
+    {
+      g_quicCwndTraceHooked = Config::ConnectFailSafe(
+        "/NodeList/*/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/CongestionWindow",
+        MakeCallback(&QuicCwndTraceWithContext));
+    }
+  if (!g_quicRttTraceHooked)
+    {
+      g_quicRttTraceHooked = Config::ConnectFailSafe(
+        "/NodeList/*/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/RTT",
+        MakeCallback(&QuicRttTraceWithContext));
+    }
+
+  if (!g_quicRxTraceHooked || !g_quicCwndTraceHooked || !g_quicRttTraceHooked)
+    {
+      if (retryCount < MAX_RETRIES)
+        {
+          Simulator::Schedule(RETRY_INTERVAL, &ConnectQuicLayerTracesWithRetry, retryCount + 1);
+        }
+      else
+        {
+          NS_LOG_WARN("QUIC layer traces: retries exhausted. "
+                      << "Rx=" << g_quicRxTraceHooked
+                      << " Cwnd=" << g_quicCwndTraceHooked
+                      << " Rtt=" << g_quicRttTraceHooked);
+        }
+      return;
+    }
+
+  NS_LOG_UNCOND("QUIC layer traces connected (context-based): "
+                << "Rx=" << g_quicRxTraceHooked
+                << " Cwnd=" << g_quicCwndTraceHooked
+                << " Rtt=" << g_quicRttTraceHooked);
 }
 
 // BBR stats trace callback - logs to CSV with node_id and conn_id (csvLine: time,btlBw,...,state)
@@ -1297,7 +1411,7 @@ main (int argc, char *argv[])
   // Clients start after servers (no stagger - all start at same time)
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
-    double clientStartTime = 0.1 + (i * 0.1);
+    double clientStartTime = 0.1;
     clientApps.Get(i)->SetStartTime(Seconds(clientStartTime));
     // Stop apps 1 second before simulation stops to allow cleanup
     clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
@@ -1307,22 +1421,10 @@ main (int argc, char *argv[])
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections (DOWNLINK) ===");
-  
-  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
-  {
-    uint32_t nodeId = ueNodes.Get(u)->GetId();
-    double clientStartTime = 0.1;
-    Time clientConnectionTime = Seconds(clientStartTime + 0.05);  // Add buffer for handshake
-    Simulator::Schedule(clientConnectionTime, &Traces, nodeId, "./client", ".txt", 0);
-    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (UE " << u 
-                  << ", DASH client) at t=" << clientConnectionTime.GetSeconds() 
-                  << "s (client starts at t=" << clientStartTime << "s)");
-  }
-  
   uint32_t serverNodeId = remoteHost->GetId();
-  Time serverTraceTimeSched = Seconds(0.1 + 0.05);  // After server starts + buffer for handshake
-  Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt", 0);
-  NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
+  g_quicServerNodeId = serverNodeId;
+  Simulator::Schedule(Seconds(0.15), &ConnectQuicLayerTracesWithRetry, 0);
+  NS_LOG_UNCOND("  Scheduled global QUIC layer trace hookup (context-based) at t=0.15s");
 
   // Schedule BBR stats trace connection for CSV logging
   Simulator::Schedule(Seconds(0.15), []() {

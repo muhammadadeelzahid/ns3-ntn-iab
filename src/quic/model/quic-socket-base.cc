@@ -2954,7 +2954,7 @@ QuicSocketBase::ReceivedData (Ptr<Packet> p, const QuicHeader& quicHeader,
       return;
     }
   else if (quicHeader.IsShort () and (m_socketState == OPEN || m_socketState == CONNECTING_SVR))
-    {
+    { 
       // TODOACK here?
       // we need to check if the packet contains only an ACK frame
       // in this case we cannot explicitely ACK it!
@@ -2962,7 +2962,7 @@ QuicSocketBase::ReceivedData (Ptr<Packet> p, const QuicHeader& quicHeader,
       if (m_socketState == CONNECTING_SVR)
         {
           // A valid short-header packet implies keys/connection are established.
-          CreateNewSubflows ();
+          CreateNewSubflows (); 
           SetState (OPEN);
           Simulator::ScheduleNow (&QuicSocketBase::ConnectionSucceeded, this);
           m_congestionControl->CongestionStateSet (m_subflows[pathId]->m_tcb,

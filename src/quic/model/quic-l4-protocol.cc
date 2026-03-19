@@ -564,16 +564,19 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
         }
       else if (header.IsShort ())
         {
-          auto result = std::find (m_authAddresses.begin (), m_authAddresses.end (), InetSocketAddress::ConvertFrom (from).GetIpv4 ());
+          // RFC-aligned behavior: short packets are routed by connection context (CID -> socket),
+          // not by a global source-IP authentication list.
+          bool isAuthenticated = (socket != nullptr);
 
-          if (result == m_authAddresses.end () && m_0RTTHandshakeStart)
+          if (!isAuthenticated && m_0RTTHandshakeStart)
             {
-              m_authAddresses.push_back (InetSocketAddress::ConvertFrom (from).GetIpv4 ()); //add to the list of authenticated sockets
+              // Keep behavior permissive when 0-RTT policy is enabled and connection
+              // state has not been established yet.
             }
-          else if (result == m_authAddresses.end () && !m_0RTTHandshakeStart)
+          else if (!isAuthenticated && !m_0RTTHandshakeStart)
             {
-              NS_LOG_WARN ( this << " CONNECTION ABORTED: Short Packet from unauthenticated address " << InetSocketAddress::ConvertFrom (from).GetIpv4 () << " port " <<
-                            InetSocketAddress::ConvertFrom (from).GetPort ());
+              NS_LOG_WARN ( this << " CONNECTION ABORTED: Short Packet without connection context " << InetSocketAddress::ConvertFrom (from).GetIpv4 () << " port " <<
+                            InetSocketAddress::ConvertFrom (from).GetPort () << " connId=" << connectionId);
               continue;
             }
         }

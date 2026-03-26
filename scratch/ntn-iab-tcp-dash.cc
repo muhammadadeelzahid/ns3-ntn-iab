@@ -87,13 +87,6 @@ std::map<uint32_t, uint32_t> g_dashClientRxPackets;
 std::map<uint32_t, uint64_t> g_dashClientRxBytes;
 uint32_t g_dashServerRxPackets = 0;
 uint64_t g_dashServerRxBytes = 0;
-uint32_t g_tcpServerNodeId = 0;
-bool g_tcpRxTraceHooked = false;
-bool g_tcpCwndTraceHooked = false;
-bool g_tcpRttTraceHooked = false;
-std::map<uint32_t, Ptr<OutputStreamWrapper>> g_tcpRxStreams;
-std::map<uint32_t, Ptr<OutputStreamWrapper>> g_tcpCwndStreams;
-std::map<uint32_t, Ptr<OutputStreamWrapper>> g_tcpRttStreams;
 
 // Helper function to dump full packet in hex
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -284,110 +277,6 @@ static void ParseNodeAndConnFromContext(const std::string& context, uint32_t& no
     nodeId = static_cast<uint32_t>(std::stoul(m[1].str()));
   if (std::regex_search(context, m, socketRegex) && m.size() > 1)
     connId = static_cast<uint32_t>(std::stoul(m[1].str()));
-}
-
-static std::string
-GetTcpTracePathPrefix(uint32_t nodeId)
-{
-  return (nodeId == g_tcpServerNodeId) ? "./server" : "./client";
-}
-
-static Ptr<OutputStreamWrapper>
-GetOrCreateTcpTraceStream(std::map<uint32_t, Ptr<OutputStreamWrapper>>& streamMap,
-                          const std::string& metricName,
-                          uint32_t nodeId)
-{
-  auto it = streamMap.find(nodeId);
-  if (it != streamMap.end() && it->second)
-    {
-      return it->second;
-    }
-
-  AsciiTraceHelper asciiTraceHelper;
-  std::ostringstream fileName;
-  fileName << GetTcpTracePathPrefix(nodeId) << "TCP-" << metricName << nodeId << ".txt";
-  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream(fileName.str().c_str());
-  streamMap[nodeId] = stream;
-  return stream;
-}
-
-static void
-TcpRxTraceWithContext(std::string context, Ptr<const Packet> p, const TcpHeader& t, Ptr<const TcpSocketBase> tsb)
-{
-  uint32_t nodeId, connId;
-  ParseNodeAndConnFromContext(context, nodeId, connId);
-  (void)connId;
-  (void)t;
-  (void)tsb;
-  Ptr<OutputStreamWrapper> stream = GetOrCreateTcpTraceStream(g_tcpRxStreams, "rx-data", nodeId);
-  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << p->GetSize() << std::endl;
-}
-
-static void
-TcpCwndTraceWithContext(std::string context, uint32_t oldCwnd, uint32_t newCwnd)
-{
-  uint32_t nodeId, connId;
-  ParseNodeAndConnFromContext(context, nodeId, connId);
-  (void)connId;
-  Ptr<OutputStreamWrapper> stream = GetOrCreateTcpTraceStream(g_tcpCwndStreams, "cwnd-change", nodeId);
-  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
-}
-
-static void
-TcpRttTraceWithContext(std::string context, Time oldRtt, Time newRtt)
-{
-  uint32_t nodeId, connId;
-  ParseNodeAndConnFromContext(context, nodeId, connId);
-  (void)connId;
-  Ptr<OutputStreamWrapper> stream = GetOrCreateTcpTraceStream(g_tcpRttStreams, "rtt", nodeId);
-  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldRtt.GetSeconds() << "\t" << newRtt.GetSeconds() << std::endl;
-}
-
-static void
-ConnectTcpLayerTracesWithRetry(uint32_t retryCount)
-{
-  const uint32_t MAX_RETRIES = 20;
-  const Time RETRY_INTERVAL = MilliSeconds(100);
-
-  if (!g_tcpRxTraceHooked)
-    {
-      g_tcpRxTraceHooked = Config::ConnectFailSafe(
-        "/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/Rx",
-        MakeCallback(&TcpRxTraceWithContext));
-    }
-  if (!g_tcpCwndTraceHooked)
-    {
-      g_tcpCwndTraceHooked = Config::ConnectFailSafe(
-        "/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/CongestionWindow",
-        MakeCallback(&TcpCwndTraceWithContext));
-    }
-  if (!g_tcpRttTraceHooked)
-    {
-      g_tcpRttTraceHooked = Config::ConnectFailSafe(
-        "/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/RTT",
-        MakeCallback(&TcpRttTraceWithContext));
-    }
-
-  if (!g_tcpRxTraceHooked || !g_tcpCwndTraceHooked || !g_tcpRttTraceHooked)
-    {
-      if (retryCount < MAX_RETRIES)
-        {
-          Simulator::Schedule(RETRY_INTERVAL, &ConnectTcpLayerTracesWithRetry, retryCount + 1);
-        }
-      else
-        {
-          NS_LOG_WARN("TCP layer traces: retries exhausted. "
-                      << "Rx=" << g_tcpRxTraceHooked
-                      << " Cwnd=" << g_tcpCwndTraceHooked
-                      << " Rtt=" << g_tcpRttTraceHooked);
-        }
-      return;
-    }
-
-  NS_LOG_UNCOND("TCP layer traces connected (context-based): "
-                << "Rx=" << g_tcpRxTraceHooked
-                << " Cwnd=" << g_tcpCwndTraceHooked
-                << " Rtt=" << g_tcpRttTraceHooked);
 }
 
 // BBR stats trace callback - logs to CSV with node_id and conn_id (csvLine: time,btlBw,...,state)
@@ -1296,10 +1185,27 @@ main (int argc, char *argv[])
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling TCP Trace Connections (DOWNLINK) ===");
+  
+  // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
+  // Connect traces for each UE node (TCP clients) - schedule after apps start and TCP sockets are created
+  // Matching QUIC: clientStartTime=0.1, add 0.05s buffer for handshake
+  double clientStartTime = 0.1;
+  Time clientConnectionTime = Seconds(clientStartTime + 0.05);
+  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
+  {
+    uint32_t nodeId = ueNodes.Get(u)->GetId();
+    Simulator::Schedule(clientConnectionTime, &Traces, nodeId, "./client", ".txt");
+    NS_LOG_UNCOND("  Scheduled TCP traces for UE Node " << nodeId << " (UE " << u 
+                  << ", DASH client) at t=" << clientConnectionTime.GetSeconds() 
+                  << "s (client starts at t=" << clientStartTime << "s)");
+  }
+  
+  // Connect traces for remoteHost (TCP server) - schedule after server starts and TCP sockets are created
+  // Matching QUIC: Server starts at 0.1, add 0.05s buffer for handshake
   uint32_t serverNodeId = remoteHost->GetId();
-  g_tcpServerNodeId = serverNodeId;
-  Simulator::Schedule(Seconds(0.15), &ConnectTcpLayerTracesWithRetry, 0);
-  NS_LOG_UNCOND("  Scheduled global TCP layer trace hookup (context-based) at t=0.15s");
+  Time serverTraceTimeSched = Seconds(0.1 + 0.05);
+  Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt");
+  NS_LOG_UNCOND("  Scheduled TCP traces for Server Node " << serverNodeId << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
 
   // Schedule BBR stats trace connection (sockets created when connections establish)
   // Commented out: BBR stats CSV output (bbr_stats_TCP.csv)

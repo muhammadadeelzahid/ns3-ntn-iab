@@ -540,10 +540,10 @@ main (int argc, char *argv[])
   // LogComponentDisable("DashClient", LOG_LEVEL_ALL);
   
   // Enable DASH logging for debugging
-  LogComponentEnable("DashClient", LOG_LEVEL_ALL);
-  LogComponentEnable("DashServer", LOG_LEVEL_ALL);
-  LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
-  LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
+  LogComponentEnable("MmWaveHelper", LOG_LEVEL_INFO);
+  // LogComponentEnable("DashClient", LOG_LEVEL_INFO);
+  // LogComponentEnable("DashServer", LOG_LEVEL_INFO);
+  // LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
   // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
   
   // Enable QUIC socket logging to see connection events and data flow
@@ -584,7 +584,6 @@ main (int argc, char *argv[])
   // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
-  LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
@@ -1052,7 +1051,7 @@ main (int argc, char *argv[])
   // double minSimulationDuration = desiredVideoDuration*1.15;
   
   // Get current stopTime (line 1024)
-  double desiredVideoDuration = 90.0;
+  double desiredVideoDuration = 60.0;
   double stopTime = desiredVideoDuration;  // Minimal time for testing
   
   // // Check if current stopTime is less than minimum, and adjust if needed
@@ -1421,10 +1420,28 @@ main (int argc, char *argv[])
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections (DOWNLINK) ===");
+  
+  // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
+  // Connect traces for each UE node (QUIC clients) - schedule after apps start and QUIC sockets are created
+  // Matching TCP procedure: clientStartTime=0.1, add 0.05s buffer for handshake
+  double clientStartTime = 0.1;
+  Time clientConnectionTime = Seconds(clientStartTime + 0.05);
+  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
+  {
+    uint32_t nodeId = ueNodes.Get(u)->GetId();
+    Simulator::Schedule(clientConnectionTime, &Traces, nodeId, "./client", ".txt", 0);
+    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (UE " << u
+                  << ", DASH client) at t=" << clientConnectionTime.GetSeconds()
+                  << "s (client starts at t=" << clientStartTime << "s)");
+  }
+  
+  // Connect traces for remoteHost (QUIC server) - schedule after server starts and sockets are created
+  // Matching TCP procedure: server starts at 0.1, add 0.05s buffer for handshake
   uint32_t serverNodeId = remoteHost->GetId();
-  g_quicServerNodeId = serverNodeId;
-  Simulator::Schedule(Seconds(0.15), &ConnectQuicLayerTracesWithRetry, 0);
-  NS_LOG_UNCOND("  Scheduled global QUIC layer trace hookup (context-based) at t=0.15s");
+  Time serverTraceTimeSched = Seconds(0.1 + 0.05);
+  Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt", 0);
+  NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId
+                << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
 
   // Schedule BBR stats trace connection for CSV logging
   Simulator::Schedule(Seconds(0.15), []() {

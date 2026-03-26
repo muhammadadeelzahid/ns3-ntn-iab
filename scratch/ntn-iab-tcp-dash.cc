@@ -87,6 +87,13 @@ std::map<uint32_t, uint32_t> g_dashClientRxPackets;
 std::map<uint32_t, uint64_t> g_dashClientRxBytes;
 uint32_t g_dashServerRxPackets = 0;
 uint64_t g_dashServerRxBytes = 0;
+uint32_t g_tcpServerNodeId = 0;
+bool g_tcpRxTraceHooked = false;
+bool g_tcpCwndTraceHooked = false;
+bool g_tcpRttTraceHooked = false;
+std::map<uint32_t, Ptr<OutputStreamWrapper>> g_tcpRxStreams;
+std::map<uint32_t, Ptr<OutputStreamWrapper>> g_tcpCwndStreams;
+std::map<uint32_t, Ptr<OutputStreamWrapper>> g_tcpRttStreams;
 
 // Helper function to dump full packet in hex
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -134,47 +141,47 @@ void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::str
 }
 
 // DASH Client Tx Trace (when client sends segment request)
-void DashClientTxTrace(uint32_t ueId, Ptr<const Packet> packet)
+void DashClientTxTrace(uint32_t nodeId, Ptr<const Packet> packet)
 {
-  if (g_dashClientTxFiles.find(ueId) == g_dashClientTxFiles.end())
+  if (g_dashClientTxFiles.find(nodeId) == g_dashClientTxFiles.end())
   {
-    std::string filename = "DashClientTx_TCP_UE_" + std::to_string(ueId) + ".txt";
-    g_dashClientTxFiles[ueId] = new std::ofstream(filename.c_str());
-    *g_dashClientTxFiles[ueId] << "# DASH Client " << ueId << " - Segment Requests Transmitted" << std::endl;
-    *g_dashClientTxFiles[ueId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
-    g_dashClientTxPackets[ueId] = 0;
-    g_dashClientTxBytes[ueId] = 0;
+    std::string filename = "DashClientTx_TCP_Node_" + std::to_string(nodeId) + ".txt";
+    g_dashClientTxFiles[nodeId] = new std::ofstream(filename.c_str());
+    *g_dashClientTxFiles[nodeId] << "# DASH Client Node " << nodeId << " - Segment Requests Transmitted" << std::endl;
+    *g_dashClientTxFiles[nodeId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
+    g_dashClientTxPackets[nodeId] = 0;
+    g_dashClientTxBytes[nodeId] = 0;
   }
   
-  g_dashClientTxPackets[ueId]++;
-  g_dashClientTxBytes[ueId] += packet->GetSize();
+  g_dashClientTxPackets[nodeId]++;
+  g_dashClientTxBytes[nodeId] += packet->GetSize();
   
-  *g_dashClientTxFiles[ueId] << Simulator::Now().GetSeconds() << "\t"
+  *g_dashClientTxFiles[nodeId] << Simulator::Now().GetSeconds() << "\t"
                              << packet->GetSize() << "\t"
-                             << g_dashClientTxPackets[ueId] << "\t"
-                             << g_dashClientTxBytes[ueId] << std::endl;
+                             << g_dashClientTxPackets[nodeId] << "\t"
+                             << g_dashClientTxBytes[nodeId] << std::endl;
 }
 
 // DASH Client Rx Trace (when client receives video segments - MPEG frames)
-void DashClientRxTrace(uint32_t ueId, Ptr<const Packet> packet)
+void DashClientRxTrace(uint32_t nodeId, Ptr<const Packet> packet)
 {
-  if (g_dashClientRxFiles.find(ueId) == g_dashClientRxFiles.end())
+  if (g_dashClientRxFiles.find(nodeId) == g_dashClientRxFiles.end())
   {
-    std::string filename = "DashClientRx_TCP_UE_" + std::to_string(ueId) + ".txt";
-    g_dashClientRxFiles[ueId] = new std::ofstream(filename.c_str());
-    *g_dashClientRxFiles[ueId] << "# DASH Client " << ueId << " - Video Segments (MPEG frames) Received" << std::endl;
-    *g_dashClientRxFiles[ueId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
-    g_dashClientRxPackets[ueId] = 0;
-    g_dashClientRxBytes[ueId] = 0;
+    std::string filename = "DashClientRx_TCP_Node_" + std::to_string(nodeId) + ".txt";
+    g_dashClientRxFiles[nodeId] = new std::ofstream(filename.c_str());
+    *g_dashClientRxFiles[nodeId] << "# DASH Client Node " << nodeId << " - Video Segments (MPEG frames) Received" << std::endl;
+    *g_dashClientRxFiles[nodeId] << "# Time(s)\tPacketSize(bytes)\tTotalPackets\tTotalBytes" << std::endl;
+    g_dashClientRxPackets[nodeId] = 0;
+    g_dashClientRxBytes[nodeId] = 0;
   }
   
-  g_dashClientRxPackets[ueId]++;
-  g_dashClientRxBytes[ueId] += packet->GetSize();
+  g_dashClientRxPackets[nodeId]++;
+  g_dashClientRxBytes[nodeId] += packet->GetSize();
   
-  *g_dashClientRxFiles[ueId] << Simulator::Now().GetSeconds() << "\t"
+  *g_dashClientRxFiles[nodeId] << Simulator::Now().GetSeconds() << "\t"
                              << packet->GetSize() << "\t"
-                             << g_dashClientRxPackets[ueId] << "\t"
-                             << g_dashClientRxBytes[ueId] << std::endl;
+                             << g_dashClientRxPackets[nodeId] << "\t"
+                             << g_dashClientRxBytes[nodeId] << std::endl;
 }
 
 // DASH Server Rx Trace (when server receives segment request)
@@ -260,6 +267,8 @@ RttChange (Ptr<OutputStreamWrapper> stream, Time oldRtt, Time newRtt)
 static void
 Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const TcpHeader& t, Ptr<const TcpSocketBase> tsb)
 {
+  (void)t;
+  (void)tsb;
   *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() << std::endl;
 }
 
@@ -275,6 +284,110 @@ static void ParseNodeAndConnFromContext(const std::string& context, uint32_t& no
     nodeId = static_cast<uint32_t>(std::stoul(m[1].str()));
   if (std::regex_search(context, m, socketRegex) && m.size() > 1)
     connId = static_cast<uint32_t>(std::stoul(m[1].str()));
+}
+
+static std::string
+GetTcpTracePathPrefix(uint32_t nodeId)
+{
+  return (nodeId == g_tcpServerNodeId) ? "./server" : "./client";
+}
+
+static Ptr<OutputStreamWrapper>
+GetOrCreateTcpTraceStream(std::map<uint32_t, Ptr<OutputStreamWrapper>>& streamMap,
+                          const std::string& metricName,
+                          uint32_t nodeId)
+{
+  auto it = streamMap.find(nodeId);
+  if (it != streamMap.end() && it->second)
+    {
+      return it->second;
+    }
+
+  AsciiTraceHelper asciiTraceHelper;
+  std::ostringstream fileName;
+  fileName << GetTcpTracePathPrefix(nodeId) << "TCP-" << metricName << nodeId << ".txt";
+  Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream(fileName.str().c_str());
+  streamMap[nodeId] = stream;
+  return stream;
+}
+
+static void
+TcpRxTraceWithContext(std::string context, Ptr<const Packet> p, const TcpHeader& t, Ptr<const TcpSocketBase> tsb)
+{
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  (void)connId;
+  (void)t;
+  (void)tsb;
+  Ptr<OutputStreamWrapper> stream = GetOrCreateTcpTraceStream(g_tcpRxStreams, "rx-data", nodeId);
+  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << p->GetSize() << std::endl;
+}
+
+static void
+TcpCwndTraceWithContext(std::string context, uint32_t oldCwnd, uint32_t newCwnd)
+{
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  (void)connId;
+  Ptr<OutputStreamWrapper> stream = GetOrCreateTcpTraceStream(g_tcpCwndStreams, "cwnd-change", nodeId);
+  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
+}
+
+static void
+TcpRttTraceWithContext(std::string context, Time oldRtt, Time newRtt)
+{
+  uint32_t nodeId, connId;
+  ParseNodeAndConnFromContext(context, nodeId, connId);
+  (void)connId;
+  Ptr<OutputStreamWrapper> stream = GetOrCreateTcpTraceStream(g_tcpRttStreams, "rtt", nodeId);
+  *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldRtt.GetSeconds() << "\t" << newRtt.GetSeconds() << std::endl;
+}
+
+static void
+ConnectTcpLayerTracesWithRetry(uint32_t retryCount)
+{
+  const uint32_t MAX_RETRIES = 20;
+  const Time RETRY_INTERVAL = MilliSeconds(100);
+
+  if (!g_tcpRxTraceHooked)
+    {
+      g_tcpRxTraceHooked = Config::ConnectFailSafe(
+        "/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/Rx",
+        MakeCallback(&TcpRxTraceWithContext));
+    }
+  if (!g_tcpCwndTraceHooked)
+    {
+      g_tcpCwndTraceHooked = Config::ConnectFailSafe(
+        "/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/CongestionWindow",
+        MakeCallback(&TcpCwndTraceWithContext));
+    }
+  if (!g_tcpRttTraceHooked)
+    {
+      g_tcpRttTraceHooked = Config::ConnectFailSafe(
+        "/NodeList/*/$ns3::TcpL4Protocol/SocketList/*/RTT",
+        MakeCallback(&TcpRttTraceWithContext));
+    }
+
+  if (!g_tcpRxTraceHooked || !g_tcpCwndTraceHooked || !g_tcpRttTraceHooked)
+    {
+      if (retryCount < MAX_RETRIES)
+        {
+          Simulator::Schedule(RETRY_INTERVAL, &ConnectTcpLayerTracesWithRetry, retryCount + 1);
+        }
+      else
+        {
+          NS_LOG_WARN("TCP layer traces: retries exhausted. "
+                      << "Rx=" << g_tcpRxTraceHooked
+                      << " Cwnd=" << g_tcpCwndTraceHooked
+                      << " Rtt=" << g_tcpRttTraceHooked);
+        }
+      return;
+    }
+
+  NS_LOG_UNCOND("TCP layer traces connected (context-based): "
+                << "Rx=" << g_tcpRxTraceHooked
+                << " Cwnd=" << g_tcpCwndTraceHooked
+                << " Rtt=" << g_tcpRttTraceHooked);
 }
 
 // BBR stats trace callback - logs to CSV with node_id and conn_id (csvLine: time,btlBw,...,state)
@@ -465,7 +578,7 @@ main (int argc, char *argv[])
   // LogComponentEnable("DashClient", LOG_LEVEL_ALL);  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
   // LogComponentEnable("DashServer", LOG_LEVEL_ALL);
   // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
-  LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
+  // LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
   
   // Enable TCP socket logging to see connection events and data flow
   // LogComponentEnable("TcpSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
@@ -898,7 +1011,7 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("================================\n");
   
   // Get current stopTime (line 1024)
-  double desiredVideoDuration = 90.0;
+  double desiredVideoDuration = 60.0;
   double stopTime = desiredVideoDuration;  // Minimal time for testing
   
   // // Check if current stopTime is less than minimum, and adjust if needed
@@ -1099,9 +1212,10 @@ main (int argc, char *argv[])
     Ptr<DashClient> dashClient = DynamicCast<DashClient>(clientApps.Get(u));
     if (dashClient)
     {
-      dashClient->TraceConnectWithoutContext("Tx", MakeBoundCallback(&DashClientTxTrace, u));
-      dashClient->TraceConnectWithoutContext("Rx", MakeBoundCallback(&DashClientRxTrace, u));
-      NS_LOG_UNCOND("Connected DASH Client Tx and Rx traces for UE " << u);
+      uint32_t nodeId = ueNodes.Get(u)->GetId();
+      dashClient->TraceConnectWithoutContext("Tx", MakeBoundCallback(&DashClientTxTrace, nodeId));
+      dashClient->TraceConnectWithoutContext("Rx", MakeBoundCallback(&DashClientRxTrace, nodeId));
+      NS_LOG_UNCOND("Connected DASH Client Tx and Rx traces for UE " << u << " (Node " << nodeId << ")");
     }
   }
   
@@ -1182,27 +1296,10 @@ main (int argc, char *argv[])
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling TCP Trace Connections (DOWNLINK) ===");
-  
-  // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
-  // Connect traces for each UE node (TCP clients) - schedule after apps start and TCP sockets are created
-  // Matching QUIC: clientStartTime=0.1, add 0.05s buffer for handshake
-  double clientStartTime = 0.1;
-  Time clientConnectionTime = Seconds(clientStartTime + 0.05);
-  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
-  {
-    uint32_t nodeId = ueNodes.Get(u)->GetId();
-    Simulator::Schedule(clientConnectionTime, &Traces, nodeId, "./client", ".txt");
-    NS_LOG_UNCOND("  Scheduled TCP traces for UE Node " << nodeId << " (UE " << u 
-                  << ", DASH client) at t=" << clientConnectionTime.GetSeconds() 
-                  << "s (client starts at t=" << clientStartTime << "s)");
-  }
-  
-  // Connect traces for remoteHost (TCP server) - schedule after server starts and TCP sockets are created
-  // Matching QUIC: Server starts at 0.1, add 0.05s buffer for handshake
   uint32_t serverNodeId = remoteHost->GetId();
-  Time serverTraceTimeSched = Seconds(0.1 + 0.05);
-  Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt");
-  NS_LOG_UNCOND("  Scheduled TCP traces for Server Node " << serverNodeId << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
+  g_tcpServerNodeId = serverNodeId;
+  Simulator::Schedule(Seconds(0.15), &ConnectTcpLayerTracesWithRetry, 0);
+  NS_LOG_UNCOND("  Scheduled global TCP layer trace hookup (context-based) at t=0.15s");
 
   // Schedule BBR stats trace connection (sockets created when connections establish)
   // Commented out: BBR stats CSV output (bbr_stats_TCP.csv)
@@ -1286,16 +1383,17 @@ main (int argc, char *argv[])
       dashClient->GetStats();
       
       // Print DASH trace statistics
-      if (g_dashClientTxPackets.find(u) != g_dashClientTxPackets.end())
+      uint32_t nodeId = ueNodes.Get(u)->GetId();
+      if (g_dashClientTxPackets.find(nodeId) != g_dashClientTxPackets.end())
       {
-        NS_LOG_UNCOND("  DASH Requests sent: " << g_dashClientTxPackets[u] 
-                     << " packets (" << g_dashClientTxBytes[u] << " bytes)");
+        NS_LOG_UNCOND("  DASH Requests sent: " << g_dashClientTxPackets[nodeId] 
+                     << " packets (" << g_dashClientTxBytes[nodeId] << " bytes)");
       }
-      if (g_dashClientRxPackets.find(u) != g_dashClientRxPackets.end())
+      if (g_dashClientRxPackets.find(nodeId) != g_dashClientRxPackets.end())
       {
-        NS_LOG_UNCOND("  DASH Video received: " << g_dashClientRxPackets[u] 
-                     << " packets (" << g_dashClientRxBytes[u] << " bytes)");
-        double avgThroughput = (g_dashClientRxBytes[u] * 8.0) / (stopTime * 1000000.0);
+        NS_LOG_UNCOND("  DASH Video received: " << g_dashClientRxPackets[nodeId] 
+                     << " packets (" << g_dashClientRxBytes[nodeId] << " bytes)");
+        double avgThroughput = (g_dashClientRxBytes[nodeId] * 8.0) / (stopTime * 1000000.0);
         NS_LOG_UNCOND("  Average throughput: " << avgThroughput << " Mbps");
       }
     }

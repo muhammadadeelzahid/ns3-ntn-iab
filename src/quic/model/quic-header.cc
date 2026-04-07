@@ -215,6 +215,11 @@ QuicHeader::Deserialize (Buffer::Iterator start)
   NS_LOG_FUNCTION (this);
 
   Buffer::Iterator i = start;
+  if (i.GetRemainingSize () < 1)
+    {
+      NS_LOG_DEBUG ("QuicHeader::Deserialize called with empty buffer");
+      return 0;
+    }
 
   uint8_t t = i.ReadU8 ();
 
@@ -230,18 +235,37 @@ QuicHeader::Deserialize (Buffer::Iterator start)
     {
       SetTypeByte (t & 0x7F);
     }
-  NS_ASSERT (m_type != NONE or m_form == SHORT);
+  if (!(m_type != NONE || m_form == SHORT))
+    {
+      NS_LOG_DEBUG ("QuicHeader::Deserialize invalid type/form combination");
+      return 0;
+    }
 
   if (HasConnectionId ())
     {
+      if (i.GetRemainingSize () < 8)
+        {
+          NS_LOG_DEBUG ("QuicHeader::Deserialize truncated connection ID");
+          return 0;
+        }
       SetConnectionID (i.ReadNtohU64 ());
     }
 
   if (IsLong ())
     {
+      if (i.GetRemainingSize () < 4)
+        {
+          NS_LOG_DEBUG ("QuicHeader::Deserialize truncated version field");
+          return 0;
+        }
       SetVersion (i.ReadNtohU32 ());
       if (!IsVersionNegotiation ())
         {
+          if (i.GetRemainingSize () < 4)
+            {
+              NS_LOG_DEBUG ("QuicHeader::Deserialize truncated long-header packet number");
+              return 0;
+            }
           SetPacketNumber (SequenceNumber32 (i.ReadNtohU32 ()));
         }
       
@@ -251,17 +275,40 @@ QuicHeader::Deserialize (Buffer::Iterator start)
       switch (m_type)
         {
         case ONE_OCTECT:
+          if (i.GetRemainingSize () < 1)
+            {
+              NS_LOG_DEBUG ("QuicHeader::Deserialize truncated short header (1-octet PN)");
+              return 0;
+            }
           SetPacketNumber (SequenceNumber32 (i.ReadU8 ()));
           break;
         case TWO_OCTECTS:
+          if (i.GetRemainingSize () < 2)
+            {
+              NS_LOG_DEBUG ("QuicHeader::Deserialize truncated short header (2-octet PN)");
+              return 0;
+            }
           SetPacketNumber (SequenceNumber32 (i.ReadNtohU16 ()));
           break;
         case FOUR_OCTECTS:
+          if (i.GetRemainingSize () < 4)
+            {
+              NS_LOG_DEBUG ("QuicHeader::Deserialize truncated short header (4-octet PN)");
+              return 0;
+            }
           SetPacketNumber (SequenceNumber32 (i.ReadNtohU32 ()));
           break;
+        default:
+        NS_LOG_DEBUG ("QuicHeader::Deserialize unknown short packet-number type");
+          return 0;
         }
     }
 
+  if (i.GetRemainingSize () < 1)
+    {
+      NS_LOG_DEBUG ("QuicHeader::Deserialize truncated pathId");
+      return 0;
+    }
   SetPathId(i.ReadU8 ());
   // SetSeq(SequenceNumber32 (i.ReadNtohU32 ()));
 

@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <vector>
 #include <ostream>
+#include <iostream>
 #include "ns3/assert.h"
 
 #define BUFFER_FREE_LIST 1
@@ -997,6 +998,21 @@ Buffer::Iterator::ReadNtohU32 (void)
 uint8_t
 Buffer::Iterator::PeekU8 (void)
 {
+  if (!(m_current >= m_dataStart && m_current < m_dataEnd))
+    {
+      std::cerr << "BUFFER_READ_OOB: iter=" << this
+                << " current=" << m_current
+                << " dataStart=" << m_dataStart
+                << " dataEnd=" << m_dataEnd
+                << " zeroStart=" << m_zeroStart
+                << " zeroEnd=" << m_zeroEnd
+                << " remaining="
+                << (m_current < m_dataEnd ? (m_dataEnd - m_current) : 0)
+#if defined(__GNUC__) || defined(__clang__)
+                << " caller0=" << __builtin_return_address (0)
+#endif
+                << std::endl;
+    }
   NS_ASSERT_MSG (m_current >= m_dataStart &&
                  m_current < m_dataEnd,
                  GetReadErrorMessage ());

@@ -431,10 +431,19 @@ QuicL5Protocol::DisgregateRecv (Ptr<Packet> data)
   // the packet could contain multiple frames
   // each of them starts with a subheader
   // cycle through the data packet and extract the frames
-  for (uint32_t start = 0; start < dataSizeByte; )
+  for (uint32_t start = 0; start < dataSizeByte && data->GetSize () > 0; )
     {
       QuicSubheader sub;
-      data->RemoveHeader (sub);
+      uint32_t removedSubheader = data->RemoveHeader (sub);
+      if (removedSubheader == 0)
+        {
+          NS_LOG_DEBUG ("DisgregateRecv failed to remove subheader, aborting parse");
+          disgregated.clear ();
+          return disgregated;
+        }
+
+      uint32_t remaining = data->GetSize ();
+      uint64_t frameLength = sub.GetLength ();
       NS_LOG_INFO ("subheader " << sub << " dataSizeByte " << dataSizeByte
                                 << " remaining " << data->GetSize () << " frame size " << sub.GetLength ());
       if (sub.IsStream ())
@@ -444,15 +453,27 @@ QuicL5Protocol::DisgregateRecv (Ptr<Packet> data)
                             || frameType == QuicSubheader::STREAM011
                             || frameType == QuicSubheader::STREAM110
                             || frameType == QuicSubheader::STREAM111);
-          uint64_t lengthField = sub.GetLength ();
-          uint64_t derivedLength = lengthBit ? lengthField : data->GetSize ();
+          // For STREAM frames without LEN bit, payload extends to end of packet.
+          if (!lengthBit)
+            {
+              frameLength = remaining;
+            }
         }
-      Ptr<Packet> remainingfragment = data->CreateFragment (0, sub.GetLength ());
+
+      if (frameLength > remaining)
+        {
+          NS_LOG_DEBUG ("DisgregateRecv frame length exceeds remaining payload: frameLength="
+                       << frameLength << " remaining=" << remaining
+                       << " frameType=" << static_cast<uint32_t> (sub.GetFrameType ()));
+          frameLength = remaining;
+        }
+
+      Ptr<Packet> remainingfragment = data->CreateFragment (0, static_cast<uint32_t> (frameLength));
       NS_LOG_INFO ("fragment size " << remainingfragment->GetSize ());
 
       // remove the first portion of the packet
-      data->RemoveAtStart (sub.GetLength ());
-      start += sub.GetSerializedSize () + sub.GetLength ();
+      data->RemoveAtStart (static_cast<uint32_t> (frameLength));
+      start += removedSubheader + static_cast<uint32_t> (frameLength);
       disgregated.push_back (std::make_pair (remainingfragment, sub));
     }
 

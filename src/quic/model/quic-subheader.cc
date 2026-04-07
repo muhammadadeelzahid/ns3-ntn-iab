@@ -556,6 +556,15 @@ uint32_t
 QuicSubheader::Deserialize (Buffer::Iterator start)
 {
   Buffer::Iterator i = start;
+  m_reasonPhrase.clear ();
+  m_gaps.clear ();
+  m_additionalAckBlocks.clear ();
+  if (i.GetRemainingSize () < 1)
+    {
+      NS_LOG_DEBUG ("QuicSubheader::Deserialize called with empty buffer");
+      m_frameType = PADDING;
+      return 0;
+    }
   m_frameType = i.ReadU8 ();
 
   NS_LOG_FUNCTION (this << (uint64_t)m_frameType);
@@ -566,9 +575,7 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
   {
     NS_LOG_ERROR ("Invalid frame type " << (uint64_t)m_frameType 
                   << " detected during deserialization. Treating as PADDING frame.");
-    m_frameType = PADDING;
-    // Return serialized size for PADDING frame (1 byte) since we've already read the frame type
-    return GetSerializedSize ();
+    return 0;
   }
 
   switch (m_frameType)
@@ -581,26 +588,51 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
       case RST_STREAM:
 
         m_streamId = ReadVarInt64 (i);
+        if (i.GetRemainingSize () < 2)
+          {
+            NS_LOG_DEBUG ("Truncated RST_STREAM frame: missing error code");
+            return 0;
+          }
         m_errorCode = i.ReadU16 ();
         m_offset = ReadVarInt64 (i);
         break;
 
       case CONNECTION_CLOSE:
 
+        if (i.GetRemainingSize () < 2)
+          {
+            NS_LOG_DEBUG ("Truncated CONNECTION_CLOSE frame: missing error code");
+            return 0;
+          }
         m_errorCode = i.ReadU16 ();
         m_reasonPhraseLength = ReadVarInt64 (i);
         for (uint64_t j = 0; j < m_reasonPhraseLength; j++)
           {
+            if (i.GetRemainingSize () < 1)
+              {
+                NS_LOG_DEBUG ("Truncated CONNECTION_CLOSE frame: incomplete reason phrase");
+                break;
+              }
             m_reasonPhrase.push_back (i.ReadU8 ());
           }
         break;
 
       case APPLICATION_CLOSE:
 
+        if (i.GetRemainingSize () < 2)
+          {
+            NS_LOG_DEBUG ("Truncated APPLICATION_CLOSE frame: missing error code");
+            return 0;
+          }
         m_errorCode = i.ReadU16 ();
         m_reasonPhraseLength = ReadVarInt64 (i);
         for (uint64_t j = 0; j < m_reasonPhraseLength; j++)
           {
+            if (i.GetRemainingSize () < 1)
+              {
+                NS_LOG_DEBUG ("Truncated APPLICATION_CLOSE frame: incomplete reason phrase");
+                break;
+              }
             m_reasonPhrase.push_back (i.ReadU8 ());
           }
         break;
@@ -644,6 +676,11 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
       case NEW_CONNECTION_ID:
 
         m_sequence = ReadVarInt64 (i);
+        if (i.GetRemainingSize () < 8)
+          {
+            NS_LOG_DEBUG ("Truncated NEW_CONNECTION_ID frame: missing connection ID");
+            return 0;
+          }
         m_connectionId = i.ReadNtohU64 ();
         //m_statelessResetToken = i.ReadNtohU128();
         break;
@@ -651,6 +688,11 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
       case STOP_SENDING:
 
         m_streamId = ReadVarInt64 (i);
+        if (i.GetRemainingSize () < 2)
+          {
+            NS_LOG_DEBUG ("Truncated STOP_SENDING frame: missing error code");
+            return 0;
+          }
         m_errorCode = i.ReadU16 ();
         break;
 
@@ -660,6 +702,11 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
         m_ackDelay = ReadVarInt64 (i);
         m_ackBlockCount = ReadVarInt64 (i);
         m_firstAckBlock = ReadVarInt64 (i);
+        if (i.GetRemainingSize () < (2 * m_ackBlockCount))
+          {
+            NS_LOG_DEBUG ("Truncated ACK frame: insufficient bytes for ack blocks");
+            return 0;
+          }
         for (uint64_t j = 0; j < m_ackBlockCount; j++)
           {
             m_gaps.push_back (ReadVarInt64 (i));
@@ -669,11 +716,21 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
 
       case PATH_CHALLENGE:
 
+        if (i.GetRemainingSize () < 1)
+          {
+            NS_LOG_DEBUG ("Truncated PATH_CHALLENGE frame");
+            return 0;
+          }
         m_data = i.ReadU8 ();
         break;
 
       case PATH_RESPONSE:
 
+        if (i.GetRemainingSize () < 1)
+          {
+            NS_LOG_DEBUG ("Truncated PATH_RESPONSE frame");
+            return 0;
+          }
         m_data = i.ReadU8 ();
         break;
 
@@ -747,6 +804,11 @@ QuicSubheader::Deserialize (Buffer::Iterator start)
         m_ackDelay = ReadVarInt64 (i);
         m_ackBlockCount = ReadVarInt64 (i);
         m_firstAckBlock = ReadVarInt64 (i);
+        if (i.GetRemainingSize () < (2 * m_ackBlockCount))
+          {
+            NS_LOG_DEBUG ("Truncated MP_ACK frame: insufficient bytes for ack blocks");
+            return 0;
+          }
         for (uint64_t j = 0; j < m_ackBlockCount; j++)
           {
             m_gaps.push_back (ReadVarInt64 (i));
@@ -1050,6 +1112,16 @@ QuicSubheader::ReadVarInt64 (Buffer::Iterator& i)
 {
   //NS_LOG_FUNCTION(this);
 
+  if (i.GetRemainingSize () < 1)
+    {
+      static uint64_t warnCount = 0;
+      ++warnCount;
+      if (warnCount <= 10 || (warnCount % 10000) == 0)
+        {
+          NS_LOG_DEBUG ("ReadVarInt64: insufficient bytes for first octet (count=" << warnCount << ")");
+        }
+      return 0;
+    }
   uint8_t bytestream8 = i.ReadU8 ();
   uint8_t mask = bytestream8 & 0b11000000;
   bytestream8 &= 0b00111111;
@@ -1062,14 +1134,29 @@ QuicSubheader::ReadVarInt64 (Buffer::Iterator& i)
     }
   else if (mask == 0x40)
     {
+      if (i.GetRemainingSize () < 1)
+        {
+          NS_LOG_DEBUG ("ReadVarInt64: truncated 2-byte varint");
+          return 0;
+        }
       bytestream64 = ((uint64_t)bytestream8 << 8) | (uint64_t)i.ReadU8 ();
     }
   else if (mask == 0x80)
     {
+      if (i.GetRemainingSize () < 3)
+        {
+          NS_LOG_DEBUG ("ReadVarInt64: truncated 4-byte varint");
+          return 0;
+        }
       bytestream64 = ((uint64_t)bytestream8 << 24) | ((uint64_t)i.ReadU8 () << 16) | ((uint64_t)i.ReadU8 () << 8) | (uint64_t)i.ReadU8 ();
     }
   else if (mask == 0xC0)
     {
+      if (i.GetRemainingSize () < 7)
+        {
+          NS_LOG_DEBUG ("ReadVarInt64: truncated 8-byte varint");
+          return 0;
+        }
       bytestream64 = ((uint64_t)bytestream8 << 56) | ((uint64_t)i.ReadU8 () << 48) | ((uint64_t)i.ReadU8 () << 40) | ((uint64_t)i.ReadU8 () << 32) | ((uint64_t)i.ReadU8 () << 24) | ((uint64_t)i.ReadU8 () << 16) | ((uint64_t)i.ReadU8 () << 8) | (uint64_t)i.ReadU8 ();
     }
 

@@ -20,6 +20,10 @@
 #include "buffer.h"
 #include "ns3/assert.h"
 #include "ns3/log.h"
+#include <sstream>
+#if defined(__linux__)
+#include <execinfo.h>
+#endif
 
 #define LOG_INTERNAL_STATE(y)                                                                    \
   NS_LOG_LOGIC (y << "start="<<m_start<<", end="<<m_end<<", zero start="<<m_zeroAreaStart<<              \
@@ -48,6 +52,42 @@ static struct Zeroes
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("Buffer");
+
+namespace
+{
+
+std::string
+GetStackTraceString ()
+{
+#if defined(__linux__)
+  static const int kMaxFrames = 32;
+  void* frames[kMaxFrames];
+  int frameCount = backtrace (frames, kMaxFrames);
+  if (frameCount <= 0)
+    {
+      return "stacktrace=unavailable";
+    }
+
+  char** symbols = backtrace_symbols (frames, frameCount);
+  if (symbols == nullptr)
+    {
+      return "stacktrace=symbols-unavailable";
+    }
+
+  std::ostringstream oss;
+  oss << "stacktrace_frames=" << frameCount;
+  for (int i = 0; i < frameCount; ++i)
+    {
+      oss << "\n  [" << i << "] " << symbols[i];
+    }
+  free (symbols);
+  return oss.str ();
+#else
+  return "stacktrace=unsupported-platform";
+#endif
+}
+
+} // namespace
 
 
 uint32_t Buffer::g_recommendedStart = 0;
@@ -1173,13 +1213,24 @@ std::string
 Buffer::Iterator::GetReadErrorMessage (void) const
 {
   NS_LOG_FUNCTION (this);
-  std::string str = "You have attempted to read beyond the bounds of the "
-    "available buffer space. This usually indicates that a "
-    "Header::Deserialize or Trailer::Deserialize method "
-    "is trying to read data which was not written by "
-    "a Header::Serialize or Trailer::Serialize method. "
-    "In short: check the code of your Serialize and Deserialize "
-    "methods.";
+  std::ostringstream oss;
+  oss << "You have attempted to read beyond the bounds of the "
+      << "available buffer space. This usually indicates that a "
+      << "Header::Deserialize or Trailer::Deserialize method "
+      << "is trying to read data which was not written by "
+      << "a Header::Serialize or Trailer::Serialize method. "
+      << "In short: check the code of your Serialize and Deserialize "
+      << "methods."
+      << " [iter=" << this
+      << " current=" << m_current
+      << " dataStart=" << m_dataStart
+      << " dataEnd=" << m_dataEnd
+      << " zeroStart=" << m_zeroStart
+      << " zeroEnd=" << m_zeroEnd
+      << " remaining=" << (m_current < m_dataEnd ? (m_dataEnd - m_current) : 0)
+      << "]\n"
+      << GetStackTraceString ();
+  std::string str = oss.str ();
   return str;
 }
 std::string 

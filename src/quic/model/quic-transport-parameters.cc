@@ -114,6 +114,12 @@ QuicTransportParameters::Deserialize (Buffer::Iterator start)
   NS_LOG_FUNCTION (this);
 
   Buffer::Iterator i = start;
+  if (i.GetRemainingSize () < GetSerializedSize ())
+    {
+      NS_LOG_WARN ("QuicTransportParameters::Deserialize truncated buffer: remaining="
+                   << i.GetRemainingSize () << " required=" << GetSerializedSize ());
+      return 0;
+    }
 
   m_initial_max_stream_data = i.ReadNtohU32 ();
   m_initial_max_data = i.ReadNtohU32 ();

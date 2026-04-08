@@ -208,8 +208,17 @@ MpegPlayer::PlayFrame(void)
         return;
     }
 
-    message->RemoveHeader(http_header);
-    message->RemoveHeader(mpeg_header);
+    uint32_t removedHttp = message->RemoveHeader(http_header);
+    uint32_t removedMpeg = message->RemoveHeader(mpeg_header);
+    if (removedHttp != http_header.GetSerializedSize() ||
+        removedMpeg != mpeg_header.GetSerializedSize())
+    {
+        NS_LOG_DEBUG("Dropping corrupted frame in player: removedHttp=" << removedHttp
+                    << " removedMpeg=" << removedMpeg
+                    << " size=" << message->GetSize());
+        Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
+        return;
+    }
 
     m_totalRate += http_header.GetResolution();
     if (http_header.GetSegmentId() > 0) // Discard the first segment for the minRate
@@ -234,7 +243,7 @@ MpegPlayer::PlayFrame(void)
     //     // m_dashClient = NULL;
     //   }
 
-    NS_LOG_INFO(this << " " << Simulator::Now().GetSeconds()
+    NS_LOG_UNCOND(this << " " << Simulator::Now().GetSeconds()
                 << " PLAYING FRAME: "
                 << " PlayerId: " << m_dashClient->m_id << " VidId: " << http_header.GetVideoId()
                 << " SegId: " << http_header.GetSegmentId() << " Res: "

@@ -103,7 +103,21 @@ EpcTftClassifier::Classify (Ptr<Packet> p, EpcTft::Direction direction)
   if (protocol == UdpL4Protocol::PROT_NUMBER)
     {
       UdpHeader udpHeader;
-      pCopy->RemoveHeader (udpHeader);
+      if (pCopy->GetSize () < udpHeader.GetSerializedSize ())
+        {
+          NS_LOG_DEBUG ("Classify: truncated UDP header payload (remaining="
+                       << pCopy->GetSize () << " required="
+                       << udpHeader.GetSerializedSize () << "), dropping packet");
+          return 0;
+        }
+      uint32_t removedUdp = pCopy->RemoveHeader (udpHeader);
+      if (removedUdp != udpHeader.GetSerializedSize ())
+        {
+          NS_LOG_DEBUG ("Classify: failed to parse UDP header (removed="
+                       << removedUdp << " required="
+                       << udpHeader.GetSerializedSize () << "), dropping packet");
+          return 0;
+        }
 
       if (direction ==  EpcTft::UPLINK)
 	{
@@ -119,7 +133,19 @@ EpcTftClassifier::Classify (Ptr<Packet> p, EpcTft::Direction direction)
   else if (protocol == TcpL4Protocol::PROT_NUMBER)
     {
       TcpHeader tcpHeader;
-      pCopy->RemoveHeader (tcpHeader);
+      if (pCopy->GetSize () < tcpHeader.GetSerializedSize ())
+        {
+          NS_LOG_DEBUG ("Classify: truncated TCP header payload (remaining="
+                       << pCopy->GetSize () << " required="
+                       << tcpHeader.GetSerializedSize () << "), dropping packet");
+          return 0;
+        }
+      uint32_t removedTcp = pCopy->RemoveHeader (tcpHeader);
+      if (removedTcp == 0)
+        {
+          NS_LOG_DEBUG ("Classify: failed to parse TCP header, dropping packet");
+          return 0;
+        }
       if (direction ==  EpcTft::UPLINK)
 	{
 	  localPort = tcpHeader.GetSourcePort ();

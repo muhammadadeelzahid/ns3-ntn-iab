@@ -104,6 +104,7 @@ void
 HttpParser::TryToPushToPlayer()
 {
     NS_LOG_FUNCTION(this);
+    static const uint32_t MAX_REASONABLE_FRAME_PAYLOAD = 2 * 1024 * 1024; // 2 MiB safety cap
 
     while (true)
     {
@@ -118,10 +119,45 @@ HttpParser::TryToPushToPlayer()
         }
 
         Ptr<Packet> headerPacket = m_pending_packet->Copy();
-        headerPacket->RemoveHeader(http_header);
-        headerPacket->RemoveHeader(mpeg_header);
+        uint32_t removedHttp = headerPacket->RemoveHeader(http_header);
+        uint32_t removedMpeg = headerPacket->RemoveHeader(mpeg_header);
+        if (removedHttp != http_header.GetSerializedSize() ||
+            removedMpeg != mpeg_header.GetSerializedSize())
+        {
+            NS_LOG_UNCOND("Dropping corrupted pending packet in HttpParser: removedHttp="
+                        << removedHttp << " removedMpeg=" << removedMpeg
+                        << " pendingSize=" << m_pending_packet->GetSize());
+            m_pending_packet = nullptr;
+            m_pending_message_size = 0;
+            return;
+        }
+
+        // Sanity guards: if header fields are nonsensical, drop buffered bytes and resync.
+        if (http_header.GetMessageType() != HTTP_RESPONSE ||
+            mpeg_header.GetFrameId() >= MPEG_FRAMES_PER_SEGMENT ||
+            mpeg_header.GetSize() > MAX_REASONABLE_FRAME_PAYLOAD)
+        {
+            NS_LOG_DEBUG("Dropping invalid header tuple in HttpParser: msgType="
+                        << http_header.GetMessageType()
+                        << " frameId=" << mpeg_header.GetFrameId()
+                        << " frameSize=" << mpeg_header.GetSize()
+                        << " pendingSize=" << m_pending_packet->GetSize());
+            m_pending_packet = nullptr;
+            m_pending_message_size = 0;
+            return;
+        }
 
         m_pending_message_size = headersize + mpeg_header.GetSize();
+        if (m_pending_message_size < headersize ||
+            m_pending_message_size > headersize + MAX_REASONABLE_FRAME_PAYLOAD)
+        {
+            NS_LOG_DEBUG("Dropping invalid pending message size in HttpParser: pendingMessageSize="
+                        << m_pending_message_size << " frameSize=" << mpeg_header.GetSize()
+                        << " pendingBytes=" << m_pending_packet->GetSize());
+            m_pending_packet = nullptr;
+            m_pending_message_size = 0;
+            return;
+        }
 
         NS_LOG_INFO("Total size is " << m_pending_packet->GetSize() << " pending message is "
                                      << m_pending_message_size);

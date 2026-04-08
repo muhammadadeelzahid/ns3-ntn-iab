@@ -351,6 +351,11 @@ void
 DashClient::CheckBuffer()
 {
     NS_LOG_FUNCTION(this);
+    if (!m_socket)
+    {
+        NS_LOG_DEBUG("CheckBuffer called with null socket");
+        return;
+    }
     m_parser.ReadSocket(m_socket);
 }
 
@@ -524,8 +529,26 @@ DashClient::MessageReceived(Packet message)
     }
 
     Ptr<Packet> tempPacket = message.Copy();
-    tempPacket->RemoveHeader(httpHeader);
-    tempPacket->RemoveHeader(mpegHeader);
+    uint32_t removedHttp = tempPacket->RemoveHeader(httpHeader);
+    uint32_t removedMpeg = tempPacket->RemoveHeader(mpegHeader);
+    if (removedHttp != httpHeader.GetSerializedSize() ||
+        removedMpeg != mpegHeader.GetSerializedSize())
+    {
+        NS_LOG_UNCOND("Dropping corrupted DASH message: removedHttp=" << removedHttp
+                    << " removedMpeg=" << removedMpeg
+                    << " size=" << message.GetSize());
+        return true;
+    }
+    if (httpHeader.GetMessageType() != HTTP_RESPONSE ||
+        mpegHeader.GetFrameId() >= MPEG_FRAMES_PER_SEGMENT ||
+        mpegHeader.GetSize() + headerSize != message.GetSize())
+    {
+        NS_LOG_UNCOND("Dropping invalid DASH message fields: msgType=" << httpHeader.GetMessageType()
+                    << " frameId=" << mpegHeader.GetFrameId()
+                    << " frameSize=" << mpegHeader.GetSize()
+                    << " total=" << message.GetSize());
+        return true;
+    }
 
     // Send the frame to the player (with headers intact - PlayFrame will remove them)
     // If it doesn't fit in the buffer, don't continue

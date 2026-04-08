@@ -20,8 +20,11 @@
 
 #include "udp-header.h"
 #include "ns3/address-utils.h"
+#include "ns3/log.h"
 
 namespace ns3 {
+
+NS_LOG_COMPONENT_DEFINE ("UdpHeader");
 
 NS_OBJECT_ENSURE_REGISTERED (UdpHeader);
 
@@ -220,6 +223,17 @@ uint32_t
 UdpHeader::Deserialize (Buffer::Iterator start)
 {
   Buffer::Iterator i = start;
+  if (i.GetRemainingSize () < GetSerializedSize ())
+    {
+      NS_LOG_DEBUG ("UdpHeader::Deserialize truncated buffer: remaining="
+                   << i.GetRemainingSize () << " required=" << GetSerializedSize ());
+      m_sourcePort = 0;
+      m_destinationPort = 0;
+      m_payloadSize = 0;
+      m_checksum = 0;
+      m_goodChecksum = false;
+      return 0;
+    }
   m_sourcePort = i.ReadNtohU16 ();
   m_destinationPort = i.ReadNtohU16 ();
   m_payloadSize = i.ReadNtohU16 () - GetSerializedSize ();

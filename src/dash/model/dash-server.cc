@@ -200,7 +200,15 @@ DashServer::HandleRead(Ptr<Socket> socket)
                 break;
             }
             
-            pendingPacket->RemoveHeader(header);
+            uint32_t removed = pendingPacket->RemoveHeader(header);
+            if (removed != httpHeaderSize)
+            {
+                NS_LOG_DEBUG("Dropping corrupted server pending request: removed="
+                            << removed << " expected=" << httpHeaderSize
+                            << " pendingSize=" << pendingPacket->GetSize());
+                pendingPacket = nullptr;
+                break;
+            }
             
             if (header.GetMessageType() == HTTP_REQUEST)
             {

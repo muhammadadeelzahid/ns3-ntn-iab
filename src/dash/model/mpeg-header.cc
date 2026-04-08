@@ -165,6 +165,12 @@ MPEGHeader::Deserialize(Buffer::Iterator start)
 {
     NS_LOG_FUNCTION(this << &start);
     Buffer::Iterator i = start;
+    if (i.GetRemainingSize() < GetSerializedSize())
+    {
+        NS_LOG_DEBUG("MPEGHeader::Deserialize truncated buffer: remaining="
+                    << i.GetRemainingSize() << " required=" << GetSerializedSize());
+        return 0;
+    }
     m_seq = i.ReadNtohU32();
     m_ts = i.ReadNtohU64();
     m_frame_id = i.ReadNtohU32();

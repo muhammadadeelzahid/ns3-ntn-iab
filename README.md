@@ -1,21 +1,57 @@
-# Non-Terrestrial Network Enabled Integrated Access and Backhaul for ns-3 mmWave Module
+# Adaptive Video Streaming for Satellite backhauled 5G IAB Network
 
-Integrated Access and Backhaul (IAB) is a 3GPP study item on the possibility of using the same network equipment and resources for both access and backhaul.
+This repository is an **ns-3 codebase** that combines **Non-Terrestrial Networks (NTN)** and **Integrated Access and Backhaul (IAB)** on top of the ns-3 **mmWave** module, and includes end-to-end application experiments with **MPEG-DASH video streaming** over **TCP** and **QUIC**.
 
-This project extends the [ns-3 mmWave module](https://github.com/nyuwireless-unipd/ns3-mmwave) by integrating several advanced features:
+Developed at the **University of Manitoba**. 
 
-- **Integrated Access and Backhaul (IAB):** From [ns3-mmwave-iab](https://github.com/nyuwireless-unipd/ns3-mmwave).  
-- **Non-Terrestrial Networks (NTN):** From [ns-3-ntn](https://gitlab.com/mattiasandri/ns-3-ntn).  
-- **Multilayer Base Stations with Hybrid Beamforming:** From [ns3-mmwave-hbf](https://github.com/signetlabdei/ns3-mmwave-hbf).  
-- **Traffic Generators:** From [5G-LENA](https://cttc-lena.gitlab.io/nr/html/).  
+## Modules and upstream code integrated
 
-This framework has been developed by the **University of Manitoba** and is still a _work in progress_.  
+This codebase extends the ns-3 **mmWave** stack by integrating functionality from the following upstream modules:
 
----
+- **Integrated Access and Backhaul (IAB)**: based on `ns3-mmwave-iab` from the [ns3-mmwave](https://github.com/nyuwireless-unipd/ns3-mmwave)
+- **Non-Terrestrial Networks (NTN)**: from [ns-3-ntn](https://gitlab.com/mattiasandri/ns-3-ntn)
+- **Multilayer base stations and Hybrid Beamforming (HBF)**: from [ns3-mmwave-hbf](https://github.com/signetlabdei/ns3-mmwave-hbf)
+- **Traffic generators (NR/5G-LENA)**: from [5G-LENA](https://cttc-lena.gitlab.io/nr/html/)
+- **QUIC**: the ns-3 QUIC implementation in this tree is derived from the `quic-ns-3` lineage (see `src/quic/`)
+- **MPEG-DASH (HTTP Adaptive Streaming)**: the `dash` module integrated in this tree (`src/dash/`) is based on [djvergad/dash](https://github.com/djvergad/dash)
+
+## Build
+
+This repository uses the **waf** build system (the classic ns-3 workflow).
+
+Configure and build:
+
+```bash
+./waf configure --enable-examples
+./waf build
+```
+
+## Run
+
+Run any of the `scratch/` programs using `--run` (examples below):
+
+```bash
+./waf --run "ntn-iab"
+```
+
+MPEG-DASH video streaming experiments:
+
+```bash
+./waf --run "ntn-iab-tcp-dash"
+./waf --run "ntn-iab-quic-dash"
+```
+
+You can pass program arguments after `--run`, for example:
+
+```bash
+./waf --run "ntn-iab-quic-dash --numUes=10 --numRelay=1 --run=1"
+```
+## Maintainers
+
+- **Muhammad Adeel Zahid** (`adeel.m.zahid@gmail.com`)
+- **WiCoNS Research Group** (University of Manitoba): [website](https://home.cc.umanitoba.ca/~hossaina/wicons/index.html)
+- **Advancing LEO Satellite Networks and Systems Group** (University of Manitoba): [website](https://home.cc.umanitoba.ca/~hup2/ntn/)
 
 ## License
 
-This software is licensed under the terms of the **GNU GPLv2**, consistent with ns-3.  
-See the [LICENSE](LICENSE) file for more details.
-
----
+This software is licensed under the terms of the **GNU GPLv2**, consistent with ns-3. See the [`LICENSE`](LICENSE) file for details.

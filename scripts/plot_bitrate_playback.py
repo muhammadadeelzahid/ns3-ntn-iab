@@ -3,6 +3,14 @@
 Script to plot bitrate over time and video playback/interruption status
 from QUIC and TCP job output files.
 Supports averaging across multiple runs from Slurm job arrays.
+
+Units (internal consistency):
+- DASH newBitRate / Res in logs: bps
+- parse_bitrate_log: returns bps; aggregate_bitrate -> bitrate_mean in bps
+- parse_bitrate_log_per_user: returns Kbps; aggregate_bitrate_percentiles -> bitrate_p50 in Kbps
+- PLAYING FRAME Res: bps; per-user bitrate_series uses /1e3 -> Kbps
+- calculate_data_rate_kbps: returns Kbps (bytes*8 / interval / 1e3)
+- Plots: Bitrate and throughput displayed in Mbps (Kbps/1e3 or bps/1e6)
 """
 
 import re
@@ -16,6 +24,30 @@ import numpy as np
 from collections import defaultdict
 import csv
 from collections import Counter
+import sys
+
+# Algorithms to include in CDF and users_summary plots (set to None for all)
+ALLOWED_ALGOS = {"QUIC NewReno", "QUIC BBR", "TCP BBR", "TCP NewReno", "TCP Cubic"}
+
+# Relay-summary throughput/bitrate CDFs and the matching playback-duration pooled boxplot:
+# same figsize + explicit font sizes so tiled figures are not scaled unevenly in papers.
+RELAY_CDF_FIGSIZE = (8, 5)
+RELAY_CDF_TITLE_FONTSIZE = 11
+RELAY_CDF_LABEL_FONTSIZE = 10
+RELAY_CDF_TICK_FONTSIZE = 10
+RELAY_CDF_LEGEND_FONTSIZE = 9
+
+# Plot smoothing controls (visual-only).
+TIME_SERIES_BIN_S = 0.2
+AGGREGATED_CURVE_SMOOTH_WINDOW = 5
+
+
+def log_missing_file_error(file_type, expected_path, context):
+    """Emit a single-line error for a missing expected log file."""
+    print(
+        f"ERROR: Missing expected {file_type} file at {expected_path} ({context})",
+        file=sys.stderr,
+    )
 
 def get_base_dir():
     """
@@ -33,40 +65,61 @@ def get_base_dir():
     
     return cwd
 
+def _extract_relay_from_path(run_dir):
+    """
+    Extract relay count from run path. E.g. .../relay_2/NewReno/run_1 -> 2.
+    Returns None if no relay_N in path (legacy structure).
+    """
+    path_str = run_dir.replace("\\", "/")
+    m = re.search(r"relay_(\d+)", path_str, re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
+def _discover_runs_in_root(root, protocol_prefix, run_groups):
+    """Helper: discover runs under root, handling relay_N subdirs and legacy algo/run structure."""
+    for item in os.listdir(root):
+        item_path = os.path.join(root, item)
+        if not os.path.isdir(item_path):
+            continue
+        if item.startswith("relay_"):
+            try:
+                int(item.split("_")[1])  # validate format
+            except (IndexError, ValueError):
+                continue
+            # relay_N dir: algo dirs inside
+            for algo in os.listdir(item_path):
+                algo_path = os.path.join(item_path, algo)
+                if os.path.isdir(algo_path):
+                    runs = glob.glob(os.path.join(algo_path, "run_*"))
+                    if runs:
+                        name = f"{protocol_prefix} {algo}"
+                        run_groups[name].extend([os.path.abspath(r) for r in runs])
+        else:
+            # Legacy: item is algo name (NewReno, BBR, Cubic, etc.)
+            runs = glob.glob(os.path.join(item_path, "run_*"))
+            if runs:
+                name = f"{protocol_prefix} {item}"
+                run_groups[name].extend([os.path.abspath(r) for r in runs])
+
+
 def find_all_runs(base_dir):
     """
     Find all runs in Quic_artifacts and Tcp_artifacts.
+    Supports relay_N subdirs: Quic_artifacts/relay_N/Algo/run_X
+    and legacy: Quic_artifacts/Algo/run_X
     Returns a dict: { 'Algorithm Name': [list of run directories] }
     """
     run_groups = defaultdict(list)
     project_root = base_dir
-    
-    # Check Quic_artifacts
+
     quic_root = os.path.join(project_root, "Quic_artifacts")
     if os.path.exists(quic_root):
-        for algo in os.listdir(quic_root):
-            algo_path = os.path.join(quic_root, algo)
-            if os.path.isdir(algo_path):
-                # Find run_* directories
-                runs = glob.glob(os.path.join(algo_path, "run_*"))
-                if runs:
-                    name = f"QUIC {algo}"
-                    # Store absolute paths
-                    run_groups[name].extend([os.path.abspath(r) for r in runs])
+        _discover_runs_in_root(quic_root, "QUIC", run_groups)
 
-    # Check Tcp_artifacts
     tcp_root = os.path.join(project_root, "Tcp_artifacts")
     if os.path.exists(tcp_root):
-        for algo in os.listdir(tcp_root):
-            algo_path = os.path.join(tcp_root, algo)
-            if os.path.isdir(algo_path):
-                # Find run_* directories
-                runs = glob.glob(os.path.join(algo_path, "run_*"))
-                if runs:
-                    name = f"TCP {algo}"
-                    # Store absolute paths
-                    run_groups[name].extend([os.path.abspath(r) for r in runs])
-                    
+        _discover_runs_in_root(tcp_root, "TCP", run_groups)
+
     return run_groups
 
 def map_logs_to_runs(base_dir):
@@ -84,11 +137,14 @@ def map_logs_to_runs(base_dir):
         try:
             with open(log_file, 'r') as f:
                 first_line = f.readline()
-                # Look for: Running <Algo> Run <ID> (Task <ID>) in <Dir>
+                # Look for: Running <Algo> Run <ID> (Task <ID>) in <Dir> [optional (numRelay=N)]
                 # Example: Running ns3::TcpCubic Run 1 (Task 1) in Tcp_artifacts/Cubic/run_1
+                # Example: Running ... in Quic_artifacts/relay_1/BBR/run_20 (numRelay=1)
                 match = re.search(r"Running .* in (.*)", first_line)
                 if match:
                     run_dir_rel = match.group(1).strip()
+                    # Strip optional " (numRelay=N)" suffix - not part of filesystem path
+                    run_dir_rel = re.sub(r"\s*\(numRelay=\d+\)\s*$", "", run_dir_rel).strip()
                     run_dir_abs = os.path.abspath(os.path.join(project_root, run_dir_rel))
                     log_abs = os.path.abspath(log_file)
                     mapping[run_dir_abs] = log_abs
@@ -102,6 +158,7 @@ def map_logs_to_runs(base_dir):
 def parse_bitrate_log(filename, node_ids=None):
     """
     Parse bitrate information from a log file.
+    newBitRate in logs is in bps (from DASH client). Returns (time, bitrate_bps).
     node_ids: Optional list of node IDs to filter. If None, includes all nodes.
               If provided, aggregates bitrate across specified nodes.
     """
@@ -128,6 +185,9 @@ def parse_bitrate_log(filename, node_ids=None):
     
     # If node_ids specified and multiple nodes, aggregate across nodes
     if node_ids and len(bitrate_by_node) > 1:
+        # Sort each node's data by time (logs may be buffered/out-of-order)
+        for node_data in bitrate_by_node.values():
+            node_data.sort(key=lambda x: x[0])
         # Aggregate by time bins
         all_times = set()
         for node_data in bitrate_by_node.values():
@@ -163,6 +223,9 @@ def parse_bitrate_log(filename, node_ids=None):
         # Single node or no filtering - return the data directly
         # If multiple nodes but no filtering requested, aggregate all
         if len(bitrate_by_node) > 1:
+            # Sort each node's data by time (logs may be buffered/out-of-order)
+            for node_data in bitrate_by_node.values():
+                node_data.sort(key=lambda x: x[0])
             # Aggregate all nodes
             all_times = set()
             for node_data in bitrate_by_node.values():
@@ -220,9 +283,6 @@ def parse_playback_log(filename):
             time = float(play_match.group(1))
             resolution = float(play_match.group(2))
             current_resolution = resolution
-            if resume_pending:
-                playback_events.append(('resumed', time, current_resolution))
-                resume_pending = False
             playback_events.append(('playing', time, resolution))
         
         interrupt_match = re.search(r'No frames to play at t=([0-9.]+)s\..*Player ID=(\d+)', line)
@@ -332,7 +392,7 @@ def parse_playback_log_per_user(filename):
 def parse_bitrate_log_per_user(filename, node_ids=None):
     """
     Parse bitrate info from .out logs, grouped by node/ue-id.
-    Returns dict: { node_id: [(time, bitrate_kbps)] }
+    newBitRate in logs is in bps; we convert to Kbps. Returns dict: { node_id: [(time, bitrate_kbps)] }
     """
     bitrate_by_node = defaultdict(list)
     if not filename or not os.path.exists(filename):
@@ -356,19 +416,22 @@ def parse_bitrate_log_per_user(filename, node_ids=None):
     
     return bitrate_by_node
 
-def compute_playback_metrics(playback_events):
-    """Compute playback metrics for a single user."""
+def compute_playback_metrics(playback_events, end_time=60.0):
+    """
+    Compute playback metrics for a single user.
+    When no events: interruption_time = end_time (user never played = interrupted whole time).
+    """
     if not playback_events:
         return {
             "avg_playback_bitrate_kbps": 0.0,
             "playback_time": 0.0,
-            "interruption_time": 0.0,
+            "interruption_time": float(end_time) if end_time is not None else 0.0,
             "rebuffer_ratio": 0.0,
             "stall_count": 0,
             "bitrate_switch_count": 0
         }
     
-    playback_time, interruption_time, _, _ = calculate_playback_stats(playback_events)
+    playback_time, interruption_time, _, _ = calculate_playback_stats(playback_events, end_time=end_time)
     
     stall_count = sum(1 for evt in playback_events if evt[0] == 'interrupted')
     total_time = playback_time + interruption_time
@@ -393,22 +456,42 @@ def compute_mean_throughput_kbps(rx_data):
     return (total_bytes * 8) / (duration * 1e3)
 
 def get_user_rx_file(run_dir, protocol_name, node_id, player_id=None):
-    """Resolve rx data file for a user."""
+    """Resolve rx data file for a user.
+
+    Socket-layer traces use client{TCP|QUIC}-rx-data{nodeId}.txt (ns-3 node id).
+    DASH app-layer fallbacks: QUIC DashClientRx_Node_{nodeId}.txt; TCP DashClientRx_TCP_Node_{nodeId}.txt
+    or legacy DashClientRx_TCP_UE_{ueIndex}.txt. Prefer socket
+    traces when present; fall back to DASH files so throughput plots work when only DASH exists.
+    """
     if protocol_name == "QUIC":
         prefix = "clientQUIC-rx-data"
     else:
         prefix = "clientTCP-rx-data"
-    
+
+    candidates = []
     if node_id is not None:
-        candidate = os.path.join(run_dir, f"{prefix}{node_id}.txt")
-        if os.path.exists(candidate):
-            return candidate
-    
+        candidates.append(os.path.join(run_dir, f"{prefix}{node_id}.txt"))
     if player_id is not None:
-        candidate = os.path.join(run_dir, f"{prefix}{player_id}.txt")
+        candidates.append(os.path.join(run_dir, f"{prefix}{player_id}.txt"))
+
+    if protocol_name == "QUIC":
+        if node_id is not None:
+            candidates.append(os.path.join(run_dir, f"DashClientRx_Node_{node_id}.txt"))
+        if player_id is not None:
+            candidates.append(os.path.join(run_dir, f"DashClientRx_Node_{player_id}.txt"))
+    else:
+        # TCP DASH: scratch/ntn-iab-tcp-dash.cc writes DashClientRx_TCP_Node_{nodeId}.txt;
+        # older runs may use DashClientRx_TCP_UE_{ueIndex}.txt.
+        if node_id is not None:
+            candidates.append(os.path.join(run_dir, f"DashClientRx_TCP_Node_{node_id}.txt"))
+        if player_id is not None:
+            candidates.append(os.path.join(run_dir, f"DashClientRx_TCP_UE_{player_id}.txt"))
+        if node_id is not None:
+            candidates.append(os.path.join(run_dir, f"DashClientRx_TCP_UE_{node_id}.txt"))
+
+    for candidate in candidates:
         if os.path.exists(candidate):
             return candidate
-    
     return None
 
 def get_user_rtt_file(run_dir, protocol_name, node_id):
@@ -433,23 +516,23 @@ def generate_user_summary_plot(user_row, output_dir, title_prefix):
     axes = axes.flatten()
     
     plots = [
-        ("Bitrate over time (Kbps)", "bitrate_series", "Kbps"),
-        ("Throughput over time (Kbps)", "throughput_series", "Kbps"),
-        ("RTT over time", "rtt_series", "RTT"),
-        ("CWND over time", "cwnd_series", "CWND"),
-        ("Playback state", "playback_state_series", "State")
+        ("Bitrate over time (Mbps)", "bitrate_series", "Mbps", 1e-3),
+        ("Throughput over time (Mbps)", "throughput_series", "Mbps", 1e-3),
+        ("RTT over time", "rtt_series", "RTT", 1.0),
+        ("CWND over time", "cwnd_series", "CWND", 1.0),
+        ("Playback state", "playback_state_series", "State", 1.0),
     ]
     
-    for ax, (title, key, ylabel) in zip(axes, plots):
+    for ax, (title, key, ylabel, scale) in zip(axes, plots):
         series = user_row.get(key, [])
         if series:
             times = [t for t, _ in series]
-            values = [v for _, v in series]
+            values = [v * scale for _, v in series]
             if key == "playback_state_series":
                 ax.fill_between(times, 0, values, step="post", alpha=0.3, color="green")
                 ax.fill_between(times, values, 1, step="post", alpha=0.3, color="red")
             else:
-                ax.step(times, values, where="post", color="steelblue", linewidth=1.3)
+                ax.plot(times, values, color="steelblue", linewidth=1.3)
             ax.set_xlabel("Time (s)", fontsize=9)
             ax.set_ylabel(ylabel, fontsize=9)
         else:
@@ -477,24 +560,24 @@ def generate_all_users_summary_plot(rows, output_dir, title_prefix):
     axes = axes.flatten()
     
     plots = [
-        ("Bitrate over time (Kbps)", "bitrate_series", "Kbps"),
-        ("Throughput over time (Kbps)", "throughput_series", "Kbps"),
-        ("RTT over time", "rtt_series", "RTT"),
-        ("CWND over time", "cwnd_series", "CWND"),
-        ("Playback state (1=play, 0=stall)", "playback_state_series", "State")
+        ("Bitrate over time (Mbps)", "bitrate_series", "Mbps", 1e-3),
+        ("Throughput over time (Mbps)", "throughput_series", "Mbps", 1e-3),
+        ("RTT over time", "rtt_series", "RTT", 1.0),
+        ("CWND over time", "cwnd_series", "CWND", 1.0),
+        ("Playback state (1=play, 0=stall)", "playback_state_series", "State", 1.0),
     ]
     
-    for ax, (title, key, ylabel) in zip(axes, plots):
+    for ax, (title, key, ylabel, scale) in zip(axes, plots):
         for r in rows:
             series = r.get(key, [])
             if series:
                 times = [t for t, _ in series]
-                values = [v for _, v in series]
+                values = [v * scale for _, v in series]
                 if key == "playback_state_series":
                     ax.fill_between(times, 0, values, step="post", alpha=0.2, color="green")
                     ax.fill_between(times, values, 1, step="post", alpha=0.2, color="red")
                 else:
-                    ax.step(times, values, where="post", linewidth=1.1, label=f"P{r['player_id']} (N{r['node_id']})")
+                    ax.plot(times, values, linewidth=1.1, label=f"P{r['player_id']} (N{r['node_id']})")
         ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
         ax.set_xlabel("Time (s)", fontsize=9)
         ax.set_ylabel(ylabel, fontsize=9)
@@ -514,35 +597,77 @@ def generate_all_users_summary_plot(rows, output_dir, title_prefix):
     plt.close(fig)
 
 
-def _average_series_on_grid(series_list, grid):
-    """Interpolate each series onto grid and return mean across series."""
-    if not series_list or not grid.size:
+def _stepwise_interp(grid, times, values, fill_value=0.0):
+    """
+    Stepwise hold (previous value): at each grid point, use the last observed value
+    at or before that time. For grid points before the first sample (missing data),
+    use fill_value (default 0). Suitable for piecewise constant / event-driven metrics.
+    """
+    idx = np.searchsorted(times, grid, side='right') - 1
+    out = np.full(grid.shape[0], fill_value, dtype=np.float64)
+    valid = idx >= 0
+    out[valid] = np.asarray(values)[idx[valid]]
+    return out
+
+
+def _run_median_then_mean_across_runs(rows, key, grid):
+    """
+    Per run: resample each user's series onto grid (stepwise hold), then median across users.
+    Across runs: mean at each grid time.
+    Users with no data contribute zeros (bitrate, throughput, RTT, CWND) or interrupted
+    state (playback). Missing data at grid points before first sample uses fill_value=0.
+    Returns final curve array or None.
+    """
+    if not rows or not grid.size:
         return None
-    interp_values = []
-    for series in series_list:
-        if not series:
-            continue
-        times = np.array([t for t, _ in series])
-        values = np.array([v for _, v in series])
-        if times.size == 0:
-            continue
-        v = np.interp(grid, times, values)
-        interp_values.append(v)
-    if not interp_values:
+    # Group by (algo, run_id)
+    by_run = defaultdict(list)
+    for r in rows:
+        by_run[(r["algo"], r["run_id"])].append(r)
+
+    # fill_value=0 for metrics; playback uses 0 = interrupted when no/missing data
+    fill = 0.0
+    run_curves = []
+    for (algo, run_id), run_rows in by_run.items():
+        interp_values = []
+        for r in run_rows:
+            series = r.get(key, [])
+            if not series or len(series) == 0:
+                interp_values.append(np.zeros_like(grid, dtype=np.float64))
+                continue
+            times = np.array([t for t, _ in series])
+            values = np.array([v for _, v in series])
+            if times.size == 0:
+                interp_values.append(np.zeros_like(grid, dtype=np.float64))
+                continue
+            v = _stepwise_interp(grid, times, values, fill_value=fill)
+            interp_values.append(v)
+        if interp_values:
+            run_median = np.median(interp_values, axis=0)
+            run_curves.append(run_median)
+    if not run_curves:
         return None
-    return np.mean(interp_values, axis=0)
+    curve = np.mean(run_curves, axis=0)
+    if key != "playback_state_series" and AGGREGATED_CURVE_SMOOTH_WINDOW > 1:
+        curve = np.array(smooth_data(curve, window_size=AGGREGATED_CURVE_SMOOTH_WINDOW))
+    return curve
 
 
 def _plot_aggregated_user_summaries(rows, output_dir):
     """
-    Average time series across runs and users per algorithm.
+    Per run: median across users (after interpolating onto grid).
+    Across runs: mean at each grid time.
     Combined plot: bitrate, throughput, rtt, cwnd with both algorithms.
-    Separate plots: playback state per algorithm.
+    Separate playback state subplot per algorithm.
     """
-    grid = np.arange(0, 60.5, 0.5)
+    if ALLOWED_ALGOS is not None:
+        rows = [r for r in rows if r.get("algo") in ALLOWED_ALGOS]
+    if not rows:
+        return
+    grid = np.arange(0, 60.0 + TIME_SERIES_BIN_S, TIME_SERIES_BIN_S)
     time_grid = grid.tolist()
 
-    # Group by algo
+    # Group by algo (rows can span multiple algos; we aggregate per algo)
     by_algo = defaultdict(list)
     for r in rows:
         by_algo[r["algo"]].append(r)
@@ -550,9 +675,9 @@ def _plot_aggregated_user_summaries(rows, output_dir):
     if not by_algo:
         return
 
-    # Combined figure: 4 shared subplots (bitrate, throughput, rtt, cwnd) + 1 playback state per algorithm
+    # Combined figure: 4 shared subplots + 1 playback state per algorithm
     n_algos = len(by_algo)
-    n_axes = 4 + n_algos  # 4 metrics + playback per algo
+    n_axes = 4 + n_algos
     n_cols = 2
     n_rows = (n_axes + n_cols - 1) // n_cols
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 4 * n_rows))
@@ -560,19 +685,18 @@ def _plot_aggregated_user_summaries(rows, output_dir):
     algo_list = sorted(by_algo.keys())
     colors = {algo: f"C{i % 10}" for i, algo in enumerate(algo_list)}
 
-    # Metrics shared by both algos
     metric_plots = [
-        ("Bitrate over time (Kbps)", "bitrate_series", "Kbps"),
-        ("Throughput over time (Kbps)", "throughput_series", "Kbps"),
-        ("RTT over time", "rtt_series", "RTT"),
-        ("CWND over time", "cwnd_series", "CWND"),
+        ("Bitrate over time (Mbps)", "bitrate_series", "Mbps", 1e-3),
+        ("Throughput over time (Mbps)", "throughput_series", "Mbps", 1e-3),
+        ("RTT over time", "rtt_series", "RTT", 1.0),
+        ("CWND over time", "cwnd_series", "CWND", 1.0),
     ]
-    for ax, (title, key, ylabel) in zip(axes[:4], metric_plots):
+    for ax, (title, key, ylabel, scale) in zip(axes[:4], metric_plots):
         for algo in algo_list:
-            series_list = [r.get(key, []) for r in by_algo[algo]]
-            avg = _average_series_on_grid(series_list, grid)
-            if avg is not None:
-                ax.step(time_grid, avg, where="post", linewidth=1.5, label=algo, color=colors[algo])
+            algo_rows = by_algo[algo]
+            curve = _run_median_then_mean_across_runs(algo_rows, key, grid)
+            if curve is not None:
+                ax.plot(time_grid, curve * scale, linewidth=1.8, label=algo, color=colors[algo])
         ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
         ax.set_xlabel("Time (s)", fontsize=9)
         ax.set_ylabel(ylabel, fontsize=9)
@@ -580,14 +704,13 @@ def _plot_aggregated_user_summaries(rows, output_dir):
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
 
-    # Separate playback state subplot per algorithm
     for i, algo in enumerate(algo_list):
         ax = axes[4 + i]
-        series_list = [r.get("playback_state_series", []) for r in by_algo[algo]]
-        avg = _average_series_on_grid(series_list, grid)
-        if avg is not None:
-            ax.fill_between(time_grid, 0, avg, step="post", alpha=0.3, color="green")
-            ax.fill_between(time_grid, avg, 1, step="post", alpha=0.3, color="red")
+        algo_rows = by_algo[algo]
+        curve = _run_median_then_mean_across_runs(algo_rows, "playback_state_series", grid)
+        if curve is not None:
+            ax.fill_between(time_grid, 0, curve, step="post", alpha=0.3, color="green")
+            ax.fill_between(time_grid, curve, 1, step="post", alpha=0.3, color="red")
         ax.set_title(f"Playback state (1=play, 0=stall) – {algo}", fontsize=11, fontweight="bold", pad=6)
         ax.set_xlabel("Time (s)", fontsize=9)
         ax.set_ylabel("State")
@@ -597,17 +720,254 @@ def _plot_aggregated_user_summaries(rows, output_dir):
 
     for ax in axes[n_axes:]:
         ax.axis("off")
-    fig.suptitle("User Summary (avg across runs)", fontsize=14, fontweight="bold", y=0.98)
+    fig.suptitle("User Summary (run median → mean across runs)", fontsize=14, fontweight="bold", y=0.98)
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(os.path.join(output_dir, "users_summary_combined.png"), dpi=300, bbox_inches="tight")
     plt.close(fig)
     print("Saved users_summary_combined.png")
 
 
+def _write_median_user_by_run_csv(relay_rows, relay_output_dir, relay_key):
+    """
+    For each (algorithm, run_id), identify the median user (closest to median
+    mean_throughput_kbps among users in that run) and write median_user_by_run.csv.
+    player_id = DASH player index; node_id = ns-3 UE node id.
+    """
+    rows = list(relay_rows)
+    if ALLOWED_ALGOS is not None:
+        rows = [r for r in rows if r.get("algo") in ALLOWED_ALGOS]
+    if not rows:
+        return
+
+    by_algo_run = defaultdict(list)
+    for r in rows:
+        by_algo_run[(r["algo"], r.get("run_id"))].append(r)
+
+    out_rows = []
+    for (algo, run_id) in sorted(by_algo_run.keys(), key=lambda x: (x[0], str(x[1]))):
+        user_rows = by_algo_run[(algo, run_id)]
+        if not user_rows:
+            continue
+        tps = []
+        for r in user_rows:
+            try:
+                tps.append(float(r.get("mean_throughput_kbps", 0)))
+            except (TypeError, ValueError):
+                tps.append(0.0)
+        run_median = float(np.median(tps)) if tps else 0.0
+        selected = _select_median_user_row(user_rows)
+        if not selected:
+            continue
+        out_rows.append({
+            "relay": relay_key,
+            "algorithm": algo,
+            "run_id": run_id,
+            "player_id": selected.get("player_id"),
+            "node_id": selected.get("node_id"),
+            "mean_throughput_kbps": selected.get("mean_throughput_kbps"),
+            "run_median_throughput_kbps": run_median,
+        })
+
+    if not out_rows:
+        return
+    path = os.path.join(relay_output_dir, "median_user_by_run.csv")
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "relay",
+                "algorithm",
+                "run_id",
+                "player_id",
+                "node_id",
+                "mean_throughput_kbps",
+                "run_median_throughput_kbps",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(out_rows)
+    print(f"Saved median_user_by_run.csv ({len(out_rows)} rows)")
+
+
+def _write_median_user_for_combined_plots_csv(relay_rows, relay_output_dir, relay_key):
+    """One row per algorithm: user selected for median_user_*.png overlays (global per algo)."""
+    rows = list(relay_rows)
+    if ALLOWED_ALGOS is not None:
+        rows = [r for r in rows if r.get("algo") in ALLOWED_ALGOS]
+    if not rows:
+        return
+
+    by_algo = defaultdict(list)
+    for r in rows:
+        by_algo[r["algo"]].append(r)
+
+    out_rows = []
+    for algo in sorted(by_algo.keys()):
+        algo_rows = by_algo[algo]
+        selected = _select_median_user_row(algo_rows)
+        if not selected:
+            continue
+        out_rows.append({
+            "relay": relay_key,
+            "algorithm": algo,
+            "run_id": selected.get("run_id"),
+            "player_id": selected.get("player_id"),
+            "node_id": selected.get("node_id"),
+            "mean_throughput_kbps": selected.get("mean_throughput_kbps"),
+        })
+
+    if not out_rows:
+        return
+    path = os.path.join(relay_output_dir, "median_user_for_combined_plots.csv")
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "relay",
+                "algorithm",
+                "run_id",
+                "player_id",
+                "node_id",
+                "mean_throughput_kbps",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(out_rows)
+    print(f"Saved median_user_for_combined_plots.csv ({len(out_rows)} rows)")
+
+
+def _select_median_user_row(algo_rows):
+    """
+    Pick the user row whose mean_throughput_kbps is closest to the median
+    of mean_throughput_kbps across all users for this algorithm.
+    """
+    if not algo_rows:
+        return None
+    throughputs = []
+    for r in algo_rows:
+        try:
+            throughputs.append(float(r.get("mean_throughput_kbps", 0)))
+        except (TypeError, ValueError):
+            throughputs.append(0.0)
+    if not throughputs:
+        return algo_rows[0]
+    med = float(np.median(throughputs))
+    return min(
+        algo_rows,
+        key=lambda r: (
+            abs(float(r.get("mean_throughput_kbps", 0) or 0) - med),
+            r.get("run_id", ""),
+            r.get("player_id", 0),
+        ),
+    )
+
+
+def _plot_median_user_per_algo_series(relay_rows, relay_output_dir):
+    """
+    For each algorithm, select one "median" user (closest to median mean throughput).
+    Plot throughput, bitrate, RTT, CWND on separate figures; all algorithms on each plot.
+    """
+    rows = list(relay_rows)
+    if ALLOWED_ALGOS is not None:
+        rows = [r for r in rows if r.get("algo") in ALLOWED_ALGOS]
+    if not rows:
+        return
+
+    by_algo = defaultdict(list)
+    for r in rows:
+        by_algo[r["algo"]].append(r)
+
+    selected = {}
+    for algo, algo_rows in by_algo.items():
+        row = _select_median_user_row(algo_rows)
+        if row:
+            selected[algo] = row
+
+    if not selected:
+        return
+
+    algo_list = sorted(selected.keys())
+    colors = {a: f"C{i % 10}" for i, a in enumerate(algo_list)}
+
+    def _max_time_for_series(series):
+        if not series:
+            return 0.0
+        return max(t for t, _ in series)
+
+    def _xlim_from_plots():
+        tmax = 0.0
+        for algo, row in selected.items():
+            for key in ("throughput_series", "bitrate_series", "rtt_series", "cwnd_series"):
+                tmax = max(tmax, _max_time_for_series(row.get(key, [])))
+        return min(max(tmax * 1.02, 1.0), 120.0)
+
+    x_max = _xlim_from_plots()
+
+    plot_specs = [
+        (
+            "throughput_series",
+            "Median user: throughput over time (Mbps)",
+            "Throughput (Mbps)",
+            1e-3,
+            "median_user_throughput.png",
+        ),
+        (
+            "bitrate_series",
+            "Median user: playback bitrate over time (Mbps)",
+            "Bitrate (Mbps)",
+            1e-3,
+            "median_user_bitrate.png",
+        ),
+        (
+            "rtt_series",
+            "Median user: RTT over time",
+            "RTT (s)",
+            1.0,
+            "median_user_rtt.png",
+        ),
+        (
+            "cwnd_series",
+            "Median user: CWND over time",
+            "CWND (bytes)",
+            1.0,
+            "median_user_cwnd.png",
+        ),
+    ]
+
+    for key, title, ylabel, scale, filename in plot_specs:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        plotted = 0
+        for algo in algo_list:
+            row = selected[algo]
+            series = row.get(key, [])
+            if not series:
+                continue
+            times = [t for t, _ in series]
+            values = [v * scale for _, v in series]
+            lbl = f"{algo} (run {row.get('run_id')}, user {row.get('player_id')})"
+            ax.plot(times, values, linewidth=1.6, label=lbl, color=colors[algo])
+            plotted += 1
+        if plotted == 0:
+            plt.close(fig)
+            continue
+        ax.set_title(title, fontsize=12, fontweight="bold")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel(ylabel)
+        ax.set_xlim(0, x_max)
+        ax.legend(fontsize=8, loc="best")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        out = os.path.join(relay_output_dir, filename)
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved {filename}")
+
+
 def calculate_playback_stats(playback_events, end_time=None):
     """
-    Calculate total playback and interruption times.
-    If end_time is provided (and > last event time), extends the final state to end_time.
+    Calculate total playback and interruption times from observed events.
+    If end_time is provided and is later than the last event, extend the
+    final state segment (playing or interrupted) to end_time.
     """
     if not playback_events:
         return 0.0, 0.0, [], []
@@ -643,13 +1003,16 @@ def calculate_playback_stats(playback_events, end_time=None):
             state = 'playing'
             state_start_time = time
             
-    # Handle final segment
+    # Handle final segment.
     last_event_time = sorted_events[-1][1]
     final_time = last_event_time
-    
-    # Extend to end_time if provided and greater than last event
-    if end_time is not None and end_time > last_event_time:
-        final_time = end_time
+    if end_time is not None:
+        try:
+            end_time_f = float(end_time)
+            if end_time_f > final_time:
+                final_time = end_time_f
+        except (ValueError, TypeError):
+            pass
         
     if state == 'playing' and state_start_time is not None:
         playback_time += final_time - state_start_time
@@ -773,13 +1136,14 @@ def calculate_value_over_time(data, time_interval=0.5):
 def calculate_playback_state_over_time(playback_events, time_interval=0.5, max_time=60.0):
     """
     Build a time series of playback state (1=playing, 0=interrupted) over time bins.
+    When no events, returns all zeros (interrupted) for the full duration.
     """
+    bins = np.arange(0, max_time + time_interval, time_interval)
     if not playback_events:
-        return []
+        return [(bins[i] + time_interval / 2, 0.0) for i in range(len(bins) - 1)]
     
     # Ensure events are sorted
     events = sorted(playback_events, key=lambda x: x[1])
-    bins = np.arange(0, max_time + time_interval, time_interval)
     series = []
     
     # Track state across time
@@ -1046,59 +1410,87 @@ def aggregate_bitrate_percentiles(all_runs_bitrate_by_node, time_bin=1.0, global
     
     return bin_centers, median_p50, median_p25, median_p75
 
+def _user_state_at_time(events, t):
+    """
+    Reconstruct playback state (playing/interrupted) for a user at time t.
+    No events or no event before t => interrupted (consistent with rest of codebase).
+    """
+    if not events:
+        return "interrupted"
+    sorted_evts = sorted(events, key=lambda x: x[1])
+    last_evt = None
+    for evt in sorted_evts:
+        if evt[1] <= t:
+            last_evt = evt
+        else:
+            break
+    if last_evt is None:
+        return "interrupted"
+    if last_evt[0] == "interrupted":
+        return "interrupted"
+    if last_evt[0] in ("playing", "resumed"):
+        return "playing"
+    return "playing"
+
+
 def calculate_interruption_prob(all_runs_playback, time_bin=1.0):
-    if not all_runs_playback: return [], []
-    
-    # Find range
+    """
+    Compute probability a user is interrupted.
+    all_runs_playback: list of runs. Each run = {player_id: [events]} (per-user events).
+    Per run, per time bin: fraction of users interrupted. Across runs: mean.
+    Users with no playback events are included and treated as interrupted (consistent
+    with calculate_playback_state_over_time and per-user plots).
+    """
+    if not all_runs_playback:
+        return [], []
+
     max_time = 0
     for run in all_runs_playback:
-        if run: max_time = max(max_time, run[-1][1])
-        
+        if isinstance(run, dict):
+            for events in run.values():
+                if events:
+                    max_time = max(max_time, max(evt[1] for evt in events))
+        elif run:
+            max_time = max(max_time, run[-1][1])
+
     bins = np.arange(0, max_time + time_bin, time_bin)
-    bin_centers = bins[:-1] + time_bin/2
+    bin_centers = bins[:-1] + time_bin / 2
     probs = []
-    
+
     for i, bin_end in enumerate(bins[1:]):
-        bin_start = bins[i]
-        interrupted_count = 0
-        total_runs = 0
-        
+        bin_center = bins[i] + time_bin / 2
+        run_fracs = []
+
         for run in all_runs_playback:
-            if not run: continue
-            total_runs += 1
-            # Check if interrupted at any point in this bin
-            # Simplified: check status at bin_center
-            # Reconstruct state at bin_center
-            state = 'playing' # Default
-            # Find last event before bin_center
-            last_evt = None
-            for evt in run:
-                if evt[1] <= bin_start + time_bin/2:
-                    last_evt = evt
-                else:
-                    break
-            
-            if last_evt:
-                if last_evt[0] == 'interrupted':
-                    state = 'interrupted'
-                elif last_evt[0] == 'playing' or last_evt[0] == 'resumed':
-                    state = 'playing'
-            
-            if state == 'interrupted':
-                interrupted_count += 1
-        
-        if total_runs > 0:
-            probs.append(interrupted_count / total_runs)
-        else:
-            probs.append(0)
-            
-    return bin_centers, probs
+            if isinstance(run, dict):
+                total_users = len(run)
+                if total_users == 0:
+                    continue
+                interrupted_count = 0
+                for pid, evts in run.items():
+                    if not evts:
+                        interrupted_count += 1  # no events = interrupted (consistent with calculate_playback_state_over_time)
+                    elif _user_state_at_time(evts, bin_center) == "interrupted":
+                        interrupted_count += 1
+                run_fracs.append(interrupted_count / total_users)
+            else:
+                if not run:
+                    continue
+                state = _user_state_at_time(run, bin_center)
+                run_fracs.append(1.0 if state == "interrupted" else 0.0)
+
+        probs.append(float(np.mean(run_fracs)) if run_fracs else 0.0)
+
+    return bin_centers.tolist(), probs
 
 def smooth_data(data, window_size=5):
     """Apply moving average smoothing."""
-    if not data or len(data) < window_size:
+    if data is None:
         return data
-    return np.convolve(data, np.ones(window_size)/window_size, mode='same')
+    arr = np.asarray(data)
+    if arr.size < window_size:
+        return arr
+    return np.convolve(arr, np.ones(window_size) / window_size, mode='same')
 
 def truncate_and_pad_playback_prob(times, probs, max_time=60.0, end_time=63.0, time_bin=1.0):
     """
@@ -1164,8 +1556,8 @@ def truncate_and_pad_playback_prob(times, probs, max_time=60.0, end_time=63.0, t
     # Pad missing data between last data point and max_time with interruption=1.0 using quantized bins
     last_data_time = truncated_times[-1]
     if last_data_time < max_time:
-        # Create quantized time bins from last_data_time to max_time
-        pad_start = np.ceil(last_data_time / time_bin) * time_bin
+        # Create quantized time bins from last_data_time to max_time (strictly after last to avoid duplicates)
+        pad_start = (np.floor(last_data_time / time_bin) + 1) * time_bin
         if pad_start <= max_time:
             padding_times = np.arange(pad_start, max_time + time_bin, time_bin)
             padding_times = padding_times[padding_times <= max_time]
@@ -1244,8 +1636,8 @@ def truncate_and_pad_data(times, values, max_time=60.0, end_time=63.0, time_bin=
     # Pad missing data between last data point and max_time with zeros using quantized bins
     last_data_time = truncated_times[-1]
     if last_data_time < max_time:
-        # Create quantized time bins from last_data_time to max_time
-        pad_start = np.ceil(last_data_time / time_bin) * time_bin
+        # Create quantized time bins from last_data_time to max_time (strictly after last to avoid duplicates)
+        pad_start = (np.floor(last_data_time / time_bin) + 1) * time_bin
         if pad_start <= max_time:
             padding_times = np.arange(pad_start, max_time + time_bin, time_bin)
             padding_times = padding_times[padding_times <= max_time]
@@ -1282,14 +1674,15 @@ def plot_single_algo(stats, algo_name, output_dir):
     # Bitrate Plot
     fig, ax = plt.subplots(figsize=(10, 6))
     # Prefer percentile-based typical time series if available
+    # bitrate_p50/p25/p75 are in Kbps (from parse_bitrate_log_per_user); bitrate_mean is in bps (from parse_bitrate_log)
     if stats.get('bitrate_p50'):
         times = stats['bitrate_p_time']
-        p50 = [b/1e6 for b in stats['bitrate_p50']]
-        p25 = [b/1e6 for b in stats['bitrate_p25']]
-        p75 = [b/1e6 for b in stats['bitrate_p75']]
+        p50 = [b/1e3 for b in stats['bitrate_p50']]   # Kbps -> Mbps
+        p25 = [b/1e3 for b in stats['bitrate_p25']]
+        p75 = [b/1e3 for b in stats['bitrate_p75']]
     else:
         times = stats['bitrate_time']
-        p50 = [b/1e6 for b in stats['bitrate_mean']]
+        p50 = [b/1e6 for b in stats['bitrate_mean']]  # bps -> Mbps
         p25 = [b/1e6 for b in stats['bitrate_mean']]
         p75 = [b/1e6 for b in stats['bitrate_mean']]
     
@@ -1308,12 +1701,12 @@ def plot_single_algo(stats, algo_name, output_dir):
     
     if len(times) != len(times_p25) or not np.allclose(times, times_p25):
         if len(p25) > 0 and len(times_p25) > 0:
-            p25 = np.interp(times, times_p25, p25)
+            p25 = _stepwise_interp(np.array(times), np.array(times_p25), np.array(p25))
         else:
             p25 = np.zeros(len(times))
     if len(times) != len(times_p75) or not np.allclose(times, times_p75):
         if len(p75) > 0 and len(times_p75) > 0:
-            p75 = np.interp(times, times_p75, p75)
+            p75 = _stepwise_interp(np.array(times), np.array(times_p75), np.array(p75))
         else:
             p75 = np.zeros(len(times))
     
@@ -1376,10 +1769,10 @@ def plot_combined_bitrate(all_stats, protocol_type, output_dir):
             has_data = True
             if stats.get('bitrate_p50'):
                 times = stats['bitrate_p_time']
-                means = [b/1e6 for b in stats['bitrate_p50']]
+                means = [b/1e3 for b in stats['bitrate_p50']]   # Kbps -> Mbps
             else:
                 times = stats['bitrate_time']
-                means = [b/1e6 for b in stats['bitrate_mean']]
+                means = [b/1e6 for b in stats['bitrate_mean']]  # bps -> Mbps
             
             # Truncate at T=60 and pad missing data with zeros using quantized bins and pad missing data with interruption probability = 1.0 using quantized bins and pad missing data with zeros using quantized bins
             times, means = truncate_and_pad_data(times, means, max_time=60.0, end_time=63.0)
@@ -1531,26 +1924,6 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
     if client_nodes:
         print(f"  Multi-user mode: Aggregating across client nodes {client_nodes}")
     
-    # 1. Gather all log files we need to parse for playback
-    files_to_grep = []
-    run_to_log = {}
-    
-    for run_dir in runs:
-        log_file = log_mapping.get(run_dir)
-        if log_file:
-            # Prefer .err file
-            err_file = log_file.replace('.out', '.err')
-            if os.path.exists(err_file):
-                target_file = err_file
-            else:
-                target_file = log_file
-            
-            files_to_grep.append(target_file)
-            run_to_log[run_dir] = target_file
-            
-    # 2. Bulk parse playback logs
-    bulk_playback_data = parse_playback_logs_bulk(files_to_grep)
-    
     for run_dir in runs:
         # Use mapping to find log file
         log_file = log_mapping.get(run_dir)
@@ -1560,6 +1933,12 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
         playback = []
         
         if log_file:
+            # Prefer .err for playback (has interrupt/resume events)
+            playback_path = log_file.replace('.out', '.err')
+            if not os.path.exists(playback_path):
+                log_missing_file_error(".err", playback_path, f"run={run_dir}")
+                playback_path = log_file
+
             # Parse bitrate with optional node filtering
             bitrate = parse_bitrate_log(log_file, node_ids=client_nodes)
             bitrate_by_node = parse_bitrate_log_per_user(log_file, node_ids=client_nodes)
@@ -1570,10 +1949,10 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
                 # Note: throughput_data is in (time, throughput_mbps) format
                 # We could add this to the stats if needed
             
-            # Get playback from bulk results
-            target_file = run_to_log.get(run_dir)
-            if target_file and target_file in bulk_playback_data:
-                playback = bulk_playback_data[target_file]
+            # Get per-user playback (for correct interruption probability)
+            playback = parse_playback_log_per_user(playback_path)
+        else:
+            log_missing_file_error(".out", run_dir, f"no mapped .out log for run={run_dir}")
         
         all_bitrates.append(bitrate)
         all_bitrates_by_node.append(bitrate_by_node)
@@ -1590,18 +1969,30 @@ def process_runs(runs, protocol_name, log_mapping, client_nodes=None):
     
     for run in all_playback:
         if run:
-            global_max_time = max(global_max_time, run[-1][1])
+            if isinstance(run, dict):
+                for events in run.values():
+                    if events:
+                        global_max_time = max(global_max_time, max(evt[1] for evt in events))
+            else:
+                global_max_time = max(global_max_time, run[-1][1])
             
     # Check bitrate logs as well
     for run in all_bitrates:
         if run:
             global_max_time = max(global_max_time, run[-1][0])
             
-    # Stats
+    # Stats: sum playback/interruption time across users per run
     for playback in all_playback:
-         pt, it, _, _ = calculate_playback_stats(playback, end_time=global_max_time)
-         total_play_time.append(pt)
-         total_inter_time.append(it)
+        run_pt, run_it = 0.0, 0.0
+        if isinstance(playback, dict):
+            for events in playback.values():
+                pt, it, _, _ = calculate_playback_stats(events, end_time=global_max_time)
+                run_pt += pt
+                run_it += it
+        elif playback:
+            run_pt, run_it, _, _ = calculate_playback_stats(playback, end_time=global_max_time)
+        total_play_time.append(run_pt)
+        total_inter_time.append(run_it)
             
     # Aggregate Bitrate
     b_time, b_mean, b_std = aggregate_bitrate(all_bitrates, global_max_time=global_max_time)
@@ -1688,7 +2079,7 @@ def plot_all_combined_bitrate(run_groups, log_mapping, output_dir, client_nodes=
             
             if len(quic_time) != len(quic_time_std) or not np.allclose(quic_time, quic_time_std):
                 if len(quic_std) > 0 and len(quic_time_std) > 0:
-                    quic_std = np.interp(quic_time, quic_time_std, quic_std)
+                    quic_std = _stepwise_interp(quic_time, np.array(quic_time_std), np.array(quic_std))
                 else:
                     quic_std = np.zeros(len(quic_time))
             
@@ -1721,7 +2112,7 @@ def plot_all_combined_bitrate(run_groups, log_mapping, output_dir, client_nodes=
             
             if len(tcp_time) != len(tcp_time_std) or not np.allclose(tcp_time, tcp_time_std):
                 if len(tcp_std) > 0 and len(tcp_time_std) > 0:
-                    tcp_std = np.interp(tcp_time, tcp_time_std, tcp_std)
+                    tcp_std = _stepwise_interp(tcp_time, np.array(tcp_time_std), np.array(tcp_std))
                 else:
                     tcp_std = np.zeros(len(tcp_time))
             
@@ -1800,11 +2191,11 @@ def plot_grand_combined_bitrate(all_stats, output_dir):
         # Create common time axis up to 60
         common_times = np.arange(0, min(60.0, t_max) + 0.5, 0.5)
         
-        # Interpolate and Average QUIC
+        # Resample and Average QUIC (stepwise hold)
         quic_interp = []
         for t, m in zip(quic_times, quic_means):
             if len(t) > 0 and len(m) > 0:
-                quic_interp.append(np.interp(common_times, t, m))
+                quic_interp.append(_stepwise_interp(common_times, np.array(t), np.array(m)))
         
         if quic_interp:
             avg_quic = np.mean(quic_interp, axis=0)
@@ -1812,12 +2203,12 @@ def plot_grand_combined_bitrate(all_stats, output_dir):
             common_times, avg_quic = truncate_and_pad_data(common_times.tolist(), avg_quic.tolist(), max_time=60.0, end_time=63.0)
             ax.plot(common_times, [b/1e6 for b in avg_quic], 'r-', linewidth=3, label='QUIC (Combined)')
             
-        # Interpolate and Average TCP
+        # Resample and Average TCP (stepwise hold)
         tcp_interp = []
         common_times = np.arange(0, min(60.0, t_max) + 0.5, 0.5)
         for t, m in zip(tcp_times, tcp_means):
             if len(t) > 0 and len(m) > 0:
-                tcp_interp.append(np.interp(common_times, t, m))
+                tcp_interp.append(_stepwise_interp(common_times, np.array(t), np.array(m)))
                 
         if tcp_interp:
             avg_tcp = np.mean(tcp_interp, axis=0)
@@ -2002,6 +2393,7 @@ def plot_interruption_duration_boxplot(all_stats, output_dir):
     # Create box plot
     bp = ax.boxplot(data, labels=labels, patch_artist=True, 
                     showmeans=True, meanline=True,
+                    showfliers=False,
                     boxprops=dict(linewidth=2),
                     medianprops=dict(linewidth=2, color='red'),
                     meanprops=dict(linewidth=2, linestyle='--', color='green'),
@@ -2081,7 +2473,6 @@ def generate_per_user_stats(run_groups, log_mapping, output_dir):
     """Generate per-user statistics CSV and plots for each run."""
     rows = []
     rows_for_csv = []
-    dumped_first_user_by_algo = set()
     print("\nGenerating per-user plots...")
     for algo_name, runs in run_groups.items():
         print(f"Processing algorithm: {algo_name}")
@@ -2096,10 +2487,12 @@ def generate_per_user_stats(run_groups, log_mapping, output_dir):
             run_id = os.path.basename(run_dir)
             log_file = log_mapping.get(run_dir)
             if not log_file:
+                log_missing_file_error(".out", run_dir, f"no mapped .out log for run={run_dir}")
                 continue
             
             err_file = log_file.replace(".out", ".err")
             if not os.path.exists(err_file):
+                log_missing_file_error(".err", err_file, f"run={run_dir}")
                 err_file = log_file
             
             num_users, ue_node_ids, distances = parse_ue_nodes_and_distances(err_file)
@@ -2149,61 +2542,63 @@ def generate_per_user_stats(run_groups, log_mapping, output_dir):
                         last_val = val
                 
                 rx_file = get_user_rx_file(run_dir, protocol_name, node_id, player_id=player_id)
-                if not rx_file:
-                    raise FileNotFoundError(f"Missing client RX file for node {node_id} in {run_dir}")
-                rx_data = parse_client_rx_data(rx_file)
-                throughput_series = calculate_data_rate_kbps(rx_data, time_interval=0.5)
-                mean_throughput = sum(v for _, v in throughput_series) / len(throughput_series) if throughput_series else 0.0
+                if rx_file:
+                    rx_data = parse_client_rx_data(rx_file)
+                    throughput_series = calculate_data_rate_kbps(rx_data, time_interval=TIME_SERIES_BIN_S)
+                    mean_throughput = sum(v for _, v in throughput_series) / len(throughput_series) if throughput_series else 0.0
+                else:
+                    throughput_series = []
+                    mean_throughput = 0.0
                 
-                rtt_file = get_user_rtt_file(run_dir, protocol_name, node_id)
-                if not rtt_file:
-                    raise FileNotFoundError(f"Missing client RTT file for node {node_id} in {run_dir}")
-                rtt_data = parse_rtt_data(rtt_file)
-                rtt_series = sorted(rtt_data, key=lambda x: x[0])
-                avg_rtt = sum(v for _, v in rtt_series) / len(rtt_series) if rtt_series else 0.0
+                rtt_file = get_user_rtt_file(run_dir, protocol_name, node_id) if node_id is not None else None
+                if rtt_file:
+                    rtt_data = parse_rtt_data(rtt_file)
+                    rtt_series = sorted(rtt_data, key=lambda x: x[0])
+                    avg_rtt = sum(v for _, v in rtt_series) / len(rtt_series) if rtt_series else 0.0
+                else:
+                    rtt_series = []
+                    avg_rtt = 0.0
                 
-                cwnd_file = get_user_cwnd_file(run_dir, protocol_name, node_id)
-                if not cwnd_file:
-                    raise FileNotFoundError(f"Missing client CWND file for node {node_id} in {run_dir}")
-                cwnd_data = parse_cwnd_data(cwnd_file)
-                cwnd_series = sorted(cwnd_data, key=lambda x: x[0])
-                avg_cwnd = sum(v for _, v in cwnd_series) / len(cwnd_series) if cwnd_series else 0.0
+                cwnd_file = get_user_cwnd_file(run_dir, protocol_name, node_id) if node_id is not None else None
+                if cwnd_file:
+                    cwnd_data = parse_cwnd_data(cwnd_file)
+                    cwnd_series = sorted(cwnd_data, key=lambda x: x[0])
+                    avg_cwnd = sum(v for _, v in cwnd_series) / len(cwnd_series) if cwnd_series else 0.0
+                else:
+                    cwnd_series = []
+                    avg_cwnd = 0.0
                 
-                if algo_name not in dumped_first_user_by_algo and run_dir == runs_sorted[0] and player_id == 0:
-                    safe_algo = algo_name.replace(" ", "_")
-                    # Write separate tables per metric
-                    throughput_path = os.path.join(output_dir, f"first_user_throughput_{safe_algo}.csv")
-                    rtt_path = os.path.join(output_dir, f"first_user_rtt_{safe_algo}.csv")
-                    cwnd_path = os.path.join(output_dir, f"first_user_cwnd_{safe_algo}.csv")
-                    
-                    with open(throughput_path, "w", newline="") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(["time", "throughput_kbps"])
-                        for t, v in throughput_series:
-                            writer.writerow([f"{t:.3f}", f"{v}"])
-                    
-                    with open(rtt_path, "w", newline="") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(["time", "rtt"])
-                        for t, v in rtt_series:
-                            writer.writerow([f"{t:.3f}", f"{v}"])
-                    
-                    with open(cwnd_path, "w", newline="") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(["time", "cwnd"])
-                        for t, v in cwnd_series:
-                            writer.writerow([f"{t:.3f}", f"{v}"])
-                    
-                    dumped_first_user_by_algo.add(algo_name)
-                    print(
-                        f"Saved first user time series for {algo_name}: "
-                        f"{throughput_path}, {rtt_path}, {cwnd_path}"
-                    )
+                # Commented out: first user CSV exports
+                # if (algo_name not in dumped_first_user_by_algo and run_dir == runs_sorted[0] and
+                #     player_id == 0 and throughput_series and rtt_series and cwnd_series):
+                #     safe_algo = algo_name.replace(" ", "_")
+                #     throughput_path = os.path.join(output_dir, f"first_user_throughput_{safe_algo}.csv")
+                #     rtt_path = os.path.join(output_dir, f"first_user_rtt_{safe_algo}.csv")
+                #     cwnd_path = os.path.join(output_dir, f"first_user_cwnd_{safe_algo}.csv")
+                #     with open(throughput_path, "w", newline="") as f:
+                #         writer = csv.writer(f)
+                #         writer.writerow(["time", "throughput_kbps"])
+                #         for t, v in throughput_series:
+                #             writer.writerow([f"{t:.3f}", f"{v}"])
+                #     with open(rtt_path, "w", newline="") as f:
+                #         writer = csv.writer(f)
+                #         writer.writerow(["time", "rtt"])
+                #         for t, v in rtt_series:
+                #             writer.writerow([f"{t:.3f}", f"{v}"])
+                #     with open(cwnd_path, "w", newline="") as f:
+                #         writer = csv.writer(f)
+                #         writer.writerow(["time", "cwnd"])
+                #         for t, v in cwnd_series:
+                #             writer.writerow([f"{t:.3f}", f"{v}"])
+                #     dumped_first_user_by_algo.add(algo_name)
+                #     print(f"Saved first user time series for {algo_name}: {throughput_path}, {rtt_path}, {cwnd_path}")
 
+                relay = _extract_relay_from_path(run_dir)
                 row = {
                     "algo": algo_name,
                     "protocol": protocol_name,
                     "run_id": run_id,
+                    "relay": relay if relay is not None else "",
                     "player_id": player_id,
                     "node_id": node_id if node_id is not None else -1,
                     "closest_enb_distance": closest_distance,
@@ -2220,7 +2615,9 @@ def generate_per_user_stats(run_groups, log_mapping, output_dir):
                     "throughput_series": throughput_series,
                     "rtt_series": rtt_series,
                     "cwnd_series": cwnd_series,
-                    "playback_state_series": calculate_playback_state_over_time(events, time_interval=0.5, max_time=60.0)
+                    "playback_state_series": calculate_playback_state_over_time(
+                        events, time_interval=TIME_SERIES_BIN_S, max_time=60.0
+                    )
                 }
                 
                 rows.append(row)
@@ -2233,261 +2630,948 @@ def generate_per_user_stats(run_groups, log_mapping, output_dir):
                 rows_for_csv.append(row_csv)
                 run_rows.append(row)
     
-    # Averaged user summaries: one combined plot (both algos) for bitrate/throughput/rtt/cwnd,
-    # separate playback state plot per algorithm
-    if rows:
-        _plot_aggregated_user_summaries(rows, output_dir)
+    # Group by relay for separate relay_N output folders
+    def _relay_key(r):
+        v = r.get("relay")
+        if v is None or v == "":
+            return "legacy"
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return "legacy"
+
+    by_relay_rows = defaultdict(list)
+    by_relay_csv = defaultdict(list)
+    for r in rows:
+        by_relay_rows[_relay_key(r)].append(r)
+    for r in rows_for_csv:
+        by_relay_csv[_relay_key(r)].append(r)
+
+    relay_keys = sorted(set(by_relay_rows.keys()) | set(by_relay_csv.keys()),
+                        key=lambda x: (x == "legacy", x if x != "legacy" else 0))
+    for relay_key in relay_keys:
+        relay_rows = by_relay_rows.get(relay_key, [])
+        relay_csv = by_relay_csv.get(relay_key, [])
+        relay_dir_name = f"relay_{relay_key}"
+        relay_output_dir = os.path.join(output_dir, relay_dir_name)
+        os.makedirs(relay_output_dir, exist_ok=True)
+        print(f"\n--- Writing plots for {relay_dir_name} ---")
+
+        # Averaged user summaries
+        if relay_rows:
+            _plot_aggregated_user_summaries(relay_rows, relay_output_dir)
+            _write_median_user_by_run_csv(relay_rows, relay_output_dir, relay_key)
+            _write_median_user_for_combined_plots_csv(relay_rows, relay_output_dir, relay_key)
+            _plot_median_user_per_algo_series(relay_rows, relay_output_dir)
+
+        if relay_csv:
+            csv_path = os.path.join(relay_output_dir, "per_user_stats.csv")
+            with open(csv_path, "w", newline="") as csvfile:
+                fieldnames = [
+                    "algo", "protocol", "run_id", "relay", "player_id", "node_id",
+                    "closest_enb_distance", "mean_throughput_kbps",
+                    "avg_rtt", "avg_cwnd", "avg_playback_bitrate_kbps",
+                    "playback_duration", "interruption_duration", "rebuffer_ratio",
+                    "stall_count", "bitrate_switch_count"
+                ]
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(relay_csv)
+            print(f"Saved per-user stats CSV: {csv_path}")
+
+            # Median metrics requested for all algorithms/protocols.
+            # 1) per-run medians/counts, 2) median across runs per algorithm.
+            by_algo_run = defaultdict(list)
+            for r in relay_csv:
+                by_algo_run[(r.get("protocol", ""), r.get("algo", ""), r.get("run_id", ""))].append(r)
+
+            median_by_run_rows = []
+            for (protocol, algo, run_id), run_rows in sorted(
+                by_algo_run.items(), key=lambda x: (x[0][0], x[0][1], str(x[0][2]))
+            ):
+                playback_vals = []
+                interruption_vals = []
+                rebuffer_vals = []
+                stalled_users = 0
+                total_users = 0
+                for r in run_rows:
+                    total_users += 1
+                    try:
+                        inter = float(r.get("interruption_duration", 0) or 0)
+                    except (ValueError, TypeError):
+                        inter = 0.0
+                    try:
+                        sc = int(float(r.get("stall_count", 0) or 0))
+                    except (ValueError, TypeError):
+                        sc = 0
+                    if sc > 0 or inter > 1e-9:
+                        stalled_users += 1
+                    try:
+                        playback_vals.append(float(r["playback_duration"]))
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        interruption_vals.append(inter)
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        rebuffer_vals.append(float(r["rebuffer_ratio"]))
+                    except (ValueError, TypeError):
+                        pass
+
+                median_by_run_rows.append({
+                    "relay": relay_key,
+                    "protocol": protocol,
+                    "algorithm": algo,
+                    "run_id": run_id,
+                    "median_playback_duration": float(np.median(playback_vals)) if playback_vals else "",
+                    "median_interruption_duration": float(np.median(interruption_vals)) if interruption_vals else "",
+                    "median_rebuffer_ratio": float(np.median(rebuffer_vals)) if rebuffer_vals else "",
+                    "stalled_users_count": stalled_users,
+                    "total_users": total_users,
+                })
+
+            if median_by_run_rows:
+                by_run_path = os.path.join(relay_output_dir, "median_metrics_by_run.csv")
+                with open(by_run_path, "w", newline="") as f:
+                    writer = csv.DictWriter(
+                        f,
+                        fieldnames=[
+                            "relay",
+                            "protocol",
+                            "algorithm",
+                            "run_id",
+                            "median_playback_duration",
+                            "median_interruption_duration",
+                            "median_rebuffer_ratio",
+                            "stalled_users_count",
+                            "total_users",
+                        ],
+                    )
+                    writer.writeheader()
+                    writer.writerows(median_by_run_rows)
+                print(f"Saved median metrics by run CSV: {by_run_path}")
+
+                grouped = defaultdict(list)
+                for row in median_by_run_rows:
+                    grouped[(row["protocol"], row["algorithm"])].append(row)
+
+                summary_rows = []
+                for (protocol, algo), rows_group in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1])):
+                    playback_vals = [float(r["median_playback_duration"]) for r in rows_group if r["median_playback_duration"] != ""]
+                    interruption_vals = [float(r["median_interruption_duration"]) for r in rows_group if r["median_interruption_duration"] != ""]
+                    rebuffer_vals = [float(r["median_rebuffer_ratio"]) for r in rows_group if r["median_rebuffer_ratio"] != ""]
+                    stalled_vals = [float(r["stalled_users_count"]) for r in rows_group]
+                    users_vals = [float(r["total_users"]) for r in rows_group]
+                    summary_rows.append({
+                        "relay": relay_key,
+                        "protocol": protocol,
+                        "algorithm": algo,
+                        "num_runs": len(rows_group),
+                        "mean_playback_duration": float(np.mean(playback_vals)) if playback_vals else "",
+                        "mean_interruption_duration": float(np.mean(interruption_vals)) if interruption_vals else "",
+                        "mean_rebuffer_ratio": float(np.mean(rebuffer_vals)) if rebuffer_vals else "",
+                        "mean_stalled_users_count": float(np.mean(stalled_vals)) if stalled_vals else "",
+                        "mean_total_users": float(np.mean(users_vals)) if users_vals else "",
+                    })
+
+                summary_path = os.path.join(relay_output_dir, "mean_metrics_all_algorithms.csv")
+                with open(summary_path, "w", newline="") as f:
+                    writer = csv.DictWriter(
+                        f,
+                        fieldnames=[
+                            "relay",
+                            "protocol",
+                            "algorithm",
+                            "num_runs",
+                            "mean_playback_duration",
+                            "mean_interruption_duration",
+                            "mean_rebuffer_ratio",
+                            "mean_stalled_users_count",
+                            "mean_total_users",
+                        ],
+                    )
+                    writer.writeheader()
+                    writer.writerows(summary_rows)
+                print(f"Saved mean metrics summary CSV: {summary_path}")
+
+        # Per-run percentile stats across users, then average across runs per algorithm.
+        # stall_count is omitted here: see total_stall_count below (sum over users per run, then stats across runs).
+        metrics = [
+            "avg_playback_bitrate_kbps",
+            "playback_duration",
+            "interruption_duration",
+            "rebuffer_ratio",
+            "bitrate_switch_count",
+            "mean_throughput_kbps",
+            "avg_rtt",
+            "avg_cwnd"
+        ]
+        # Still pool per-user stall_count for boxplots
+        metrics_for_pooled_plots = metrics + ["stall_count"]
+
+        def _mode_value(values):
+            if not values:
+                return 0.0
+            counts = Counter(values)
+            max_count = max(counts.values())
+            modes = [v for v, c in counts.items() if c == max_count]
+            return min(modes)
+
+        def _jain_fairness_index(values):
+            """
+            Jain's fairness index: (sum(x)^2) / (n * sum(x^2)).
+            Returns None for empty/invalid-all-zero inputs.
+            """
+            cleaned = []
+            for v in values:
+                try:
+                    fv = float(v)
+                except (ValueError, TypeError):
+                    continue
+                if not np.isfinite(fv) or fv < 0:
+                    continue
+                cleaned.append(fv)
+            if not cleaned:
+                return None
+            n = len(cleaned)
+            sq_sum = sum(x * x for x in cleaned)
+            if sq_sum <= 0:
+                return None
+            return float((sum(cleaned) ** 2) / (n * sq_sum))
+
+        # Build per-run stats for each algorithm
+        per_algo_run_stats = defaultdict(list)
+        for row in relay_csv:
+            per_algo_run_stats[(row["algo"], row["run_id"])].append(row)
     
-    if rows_for_csv:
-        csv_path = os.path.join(output_dir, "per_user_stats.csv")
-        with open(csv_path, "w", newline="") as csvfile:
-            fieldnames = [
-                "algo", "protocol", "run_id", "player_id", "node_id",
-                "closest_enb_distance", "mean_throughput_kbps",
-                "avg_rtt", "avg_cwnd", "avg_playback_bitrate_kbps",
-                "playback_duration", "interruption_duration", "rebuffer_ratio",
-                "stall_count", "bitrate_switch_count"
-            ]
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows_for_csv)
-        print(f"Saved per-user stats CSV: {csv_path}")
-    
-    # Per-run percentile stats across users, then average across runs per algorithm
-    metrics = [
-        "avg_playback_bitrate_kbps",
-        "playback_duration",
-        "interruption_duration",
-        "rebuffer_ratio",
-        "bitrate_switch_count",
-        "mean_throughput_kbps",
-        "avg_rtt",
-        "avg_cwnd"
-    ]
-    
-    def _mode_value(values):
-        if not values:
-            return 0.0
-        counts = Counter(values)
-        max_count = max(counts.values())
-        modes = [v for v, c in counts.items() if c == max_count]
-        return min(modes)
-    
-    # Build per-run stats for each algorithm
-    per_algo_run_stats = defaultdict(list)
-    for row in rows_for_csv:
-        per_algo_run_stats[(row["algo"], row["run_id"])].append(row)
-    
-    per_algo_aggregate = defaultdict(lambda: defaultdict(list))
-    
-    for (algo, run_id), run_rows in per_algo_run_stats.items():
-        for metric in metrics:
-            values = []
+        per_algo_aggregate = defaultdict(lambda: defaultdict(list))
+
+        for (algo, run_id), run_rows in per_algo_run_stats.items():
+            for metric in metrics:
+                values = []
+                for r in run_rows:
+                    try:
+                        values.append(float(r[metric]))
+                    except (ValueError, TypeError):
+                        continue
+                if not values:
+                    continue
+                mean_val = float(np.mean(values))
+                median_val = float(np.median(values))
+                q1 = float(np.percentile(values, 25))
+                q3 = float(np.percentile(values, 75))
+                iqr_val = q3 - q1
+                mode_val = float(_mode_value(values))
+                per_algo_aggregate[algo][metric].append({
+                    "mean": mean_val,
+                    "median": median_val,
+                    "iqr": iqr_val,
+                    "mode": mode_val
+                })
+
+        # Average stats across runs for each algorithm
+        output_rows = []
+        for algo, metric_stats in per_algo_aggregate.items():
+            for metric, run_stats in metric_stats.items():
+                if not run_stats:
+                    continue
+                mean_avg = float(np.mean([s["mean"] for s in run_stats]))
+                median_avg = float(np.mean([s["median"] for s in run_stats]))
+                iqr_avg = float(np.mean([s["iqr"] for s in run_stats]))
+                mode_avg = float(np.mean([s["mode"] for s in run_stats]))
+                output_rows.append({
+                    "algorithm": algo,
+                    "metric": metric,
+                    "mean": mean_avg,
+                    "median": median_avg,
+                    "iqr": iqr_avg,
+                    "mode": mode_avg,
+                    "max": "",
+                })
+
+        # Sum of user stall_counts within each run; then mean/median/IQR/mode of those per-run totals across runs.
+        total_stall_by_algo = defaultdict(list)
+        for (algo, run_id), run_rows in per_algo_run_stats.items():
+            total = 0
             for r in run_rows:
                 try:
-                    values.append(float(r[metric]))
+                    total += int(float(r.get("stall_count", 0) or 0))
                 except (ValueError, TypeError):
-                    continue
-            if not values:
+                    pass
+            total_stall_by_algo[algo].append(float(total))
+
+        for algo, totals in sorted(total_stall_by_algo.items()):
+            if not totals:
                 continue
-            mean_val = float(np.mean(values))
-            median_val = float(np.median(values))
-            q1 = float(np.percentile(values, 25))
-            q3 = float(np.percentile(values, 75))
-            iqr_val = q3 - q1
-            mode_val = float(_mode_value(values))
-            
-            per_algo_aggregate[algo][metric].append({
-                "mean": mean_val,
-                "median": median_val,
-                "iqr": iqr_val,
-                "mode": mode_val
-            })
-    
-    # Average stats across runs for each algorithm
-    output_rows = []
-    for algo, metric_stats in per_algo_aggregate.items():
-        for metric, run_stats in metric_stats.items():
-            if not run_stats:
-                continue
-            mean_avg = float(np.mean([s["mean"] for s in run_stats]))
-            median_avg = float(np.mean([s["median"] for s in run_stats]))
-            iqr_avg = float(np.mean([s["iqr"] for s in run_stats]))
-            mode_avg = float(np.mean([s["mode"] for s in run_stats]))
+            vals = [float(t) for t in totals]
             output_rows.append({
                 "algorithm": algo,
-                "metric": metric,
-                "mean": mean_avg,
-                "median": median_avg,
-                "iqr": iqr_avg,
-                "mode": mode_avg
+                "metric": "total_stall_count",
+                "mean": float(np.mean(vals)),
+                "median": float(np.median(vals)),
+                "iqr": float(np.percentile(vals, 75) - np.percentile(vals, 25)),
+                "mode": float(_mode_value(vals)),
+                "max": float(np.max(vals)) if vals else "",
             })
-    
-    if output_rows:
-        output_path = os.path.join(output_dir, "per_algorithm_percentiles.csv")
-        with open(output_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["algorithm", "metric", "mean", "median", "iqr", "mode"])
-            writer.writeheader()
-            writer.writerows(output_rows)
-        print(f"Saved per-algorithm percentile stats CSV: {output_path}")
 
-    # Box plots per metric: pool all users across runs, one box per algorithm
-    # Box: p25-p75, median: p50, whiskers: p10-p90 (percentiles of pooled distribution)
-    if rows_for_csv:
-        # Pool users across all runs per (algo, metric)
-        pooled = defaultdict(lambda: defaultdict(list))
-        for r in rows_for_csv:
-            algo = r["algo"]
-            # Metrics
-            for metric in metrics:
+        # Add a "max" parameter for throughput and playback bitrate: per-run max across users, then average across runs.
+        for metric in ("mean_throughput_kbps", "avg_playback_bitrate_kbps"):
+            by_algo_run_max = defaultdict(list)
+            for (algo, run_id), run_rows in per_algo_run_stats.items():
+                run_vals = []
+                for r in run_rows:
+                    try:
+                        run_vals.append(float(r.get(metric, 0) or 0))
+                    except (ValueError, TypeError):
+                        continue
+                if run_vals:
+                    by_algo_run_max[algo].append(float(np.max(run_vals)))
+            for algo, run_max_list in sorted(by_algo_run_max.items()):
+                if not run_max_list:
+                    continue
+                # Find existing row and populate max; if absent (filtered metrics), append a new row.
+                filled = False
+                for row in output_rows:
+                    if row.get("algorithm") == algo and row.get("metric") == metric:
+                        row["max"] = float(np.mean(run_max_list))
+                        filled = True
+                        break
+                if not filled:
+                    vals = [float(v) for v in run_max_list]
+                    output_rows.append({
+                        "algorithm": algo,
+                        "metric": metric,
+                        "mean": "",
+                        "median": "",
+                        "iqr": "",
+                        "mode": "",
+                        "max": float(np.mean(vals)),
+                    })
+
+        if output_rows:
+            output_path = os.path.join(relay_output_dir, "per_algorithm_percentiles.csv")
+            with open(output_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["algorithm", "metric", "mean", "median", "iqr", "mode", "max"])
+                writer.writeheader()
+                writer.writerows(output_rows)
+            print(f"Saved per-algorithm percentile stats CSV: {output_path}")
+
+        # Fairness across users per (algorithm, run), then compare across algorithms.
+        fairness_rows = []
+        fairness_by_algo = defaultdict(lambda: defaultdict(list))
+        for (algo, run_id), run_rows in per_algo_run_stats.items():
+            throughput_vals = []
+            bitrate_vals = []
+            playback_duration_vals = []
+            for r in run_rows:
                 try:
-                    pooled[metric][algo].append(float(r[metric]))
+                    throughput_vals.append(float(r["mean_throughput_kbps"]))
+                except (ValueError, TypeError):
+                    pass
+                try:
+                    bitrate_vals.append(float(r["avg_playback_bitrate_kbps"]))
+                except (ValueError, TypeError):
+                    pass
+                try:
+                    playback_duration_vals.append(float(r["playback_duration"]))
+                except (ValueError, TypeError):
+                    pass
+
+            throughput_jain = _jain_fairness_index(throughput_vals)
+            bitrate_jain = _jain_fairness_index(bitrate_vals)
+            playback_duration_jain = _jain_fairness_index(playback_duration_vals)
+            fairness_rows.append({
+                "algorithm": algo,
+                "run_id": run_id,
+                "num_users": len(run_rows),
+                "jain_fairness_throughput": throughput_jain if throughput_jain is not None else "",
+                "jain_fairness_playback_bitrate": bitrate_jain if bitrate_jain is not None else "",
+                "jain_fairness_playback_duration": playback_duration_jain if playback_duration_jain is not None else "",
+            })
+            if throughput_jain is not None:
+                fairness_by_algo[algo]["jain_fairness_throughput"].append(throughput_jain)
+            if bitrate_jain is not None:
+                fairness_by_algo[algo]["jain_fairness_playback_bitrate"].append(bitrate_jain)
+            if playback_duration_jain is not None:
+                fairness_by_algo[algo]["jain_fairness_playback_duration"].append(playback_duration_jain)
+
+        if fairness_rows:
+            fairness_runs_csv = os.path.join(relay_output_dir, "per_run_jain_fairness.csv")
+            with open(fairness_runs_csv, "w", newline="") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=[
+                        "algorithm",
+                        "run_id",
+                        "num_users",
+                        "jain_fairness_throughput",
+                        "jain_fairness_playback_bitrate",
+                        "jain_fairness_playback_duration",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerows(fairness_rows)
+            print(f"Saved per-run Jain fairness CSV: {fairness_runs_csv}")
+
+        fairness_summary_rows = []
+        for algo, metric_map in fairness_by_algo.items():
+            for metric, vals in metric_map.items():
+                if not vals:
+                    continue
+                fairness_summary_rows.append({
+                    "algorithm": algo,
+                    "metric": metric,
+                    "mean": float(np.mean(vals)),
+                    "median": float(np.median(vals)),
+                    "p25": float(np.percentile(vals, 25)),
+                    "p75": float(np.percentile(vals, 75)),
+                })
+
+        if fairness_summary_rows:
+            fairness_summary_csv = os.path.join(relay_output_dir, "per_algorithm_jain_fairness.csv")
+            with open(fairness_summary_csv, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["algorithm", "metric", "mean", "median", "p25", "p75"])
+                writer.writeheader()
+                writer.writerows(fairness_summary_rows)
+            print(f"Saved per-algorithm Jain fairness CSV: {fairness_summary_csv}")
+
+            def _plot_fairness_boxplot(metric_key, title, ylabel, filename):
+                data_by_algo = {
+                    algo: metric_map.get(metric_key, [])
+                    for algo, metric_map in fairness_by_algo.items()
+                    if metric_map.get(metric_key)
+                }
+                if not data_by_algo:
+                    return
+                labels = sorted(data_by_algo.keys())
+                data = [data_by_algo[label] for label in labels]
+                fig, ax = plt.subplots(figsize=(10, 5))
+                bp = ax.boxplot(
+                    data, labels=labels, patch_artist=True, showmeans=True,
+                    whis=(10, 95), showfliers=False,
+                )
+                colors = []
+                for label in labels:
+                    if label.startswith("QUIC"):
+                        colors.append("lightcoral")
+                    elif label.startswith("TCP"):
+                        colors.append("lightblue")
+                    else:
+                        colors.append("lightgray")
+                for patch, color in zip(bp["boxes"], colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+                ax.set_title(title, fontsize=12, fontweight="bold")
+                ax.set_xlabel("Algorithm")
+                ax.set_ylabel(ylabel)
+                ax.set_ylim(0, 1.05)
+                ax.grid(True, axis="y", alpha=0.3)
+                plt.xticks(rotation=30, ha="right")
+                plt.tight_layout()
+                fig.savefig(os.path.join(relay_output_dir, filename), dpi=300, bbox_inches="tight")
+                plt.close(fig)
+                print(f"Saved {filename}")
+
+            _plot_fairness_boxplot(
+                "jain_fairness_throughput",
+                "Jain fairness index across users (mean throughput)",
+                "Jain fairness index",
+                "boxplot_jain_fairness_throughput.png",
+            )
+            _plot_fairness_boxplot(
+                "jain_fairness_playback_bitrate",
+                "Jain fairness index across users (avg playback bitrate)",
+                "Jain fairness index",
+                "boxplot_jain_fairness_playback_bitrate.png",
+            )
+            _plot_fairness_boxplot(
+                "jain_fairness_playback_duration",
+                "Jain fairness index across users (playback duration)",
+                "Jain fairness index",
+                "boxplot_jain_fairness_playback_duration.png",
+            )
+
+        # Box plots per metric: pool all users across runs, one box per algorithm
+        if relay_csv:
+            pooled = defaultdict(lambda: defaultdict(list))
+            for r in relay_csv:
+                algo = r["algo"]
+                for metric in metrics_for_pooled_plots:
+                    try:
+                        pooled[metric][algo].append(float(r[metric]))
+                    except (ValueError, TypeError):
+                        continue
+                try:
+                    inter = float(r["interruption_duration"])
+                    sc = int(float(r.get("stall_count", 0) or 0))
+                    # One binary sample per user: 1 if any rebuffer was observed (duration or
+                    # interrupt events). Do not use (playback==0 and inter==0): that marks users
+                    # as stalled when metrics collapse to zero despite no logged interrupts, and
+                    # it ignores stall_count-only cases (common for QUIC) where interruption_time
+                    # integrates to 0 but "No frames to play" fired.
+                    stalled = 1.0 if (sc > 0 or inter > 1e-9) else 0.0
+                    pooled["fraction_stalled_users"][algo].append(stalled)
                 except (ValueError, TypeError):
                     continue
-            # Fraction stalled: 1 if had interruption, 0 otherwise
-            try:
-                stalled = 1.0 if float(r["interruption_duration"]) > 0 else 0.0
-                pooled["fraction_stalled_users"][algo].append(stalled)
-            except (ValueError, TypeError):
-                continue
 
-        def _plot_pooled_boxplot(data_by_algo, title, ylabel, filename):
-            if not data_by_algo:
-                return
-            labels = sorted(data_by_algo.keys())
-            data = [data_by_algo[label] for label in labels]
-            if not any(data):
-                return
-            fig, ax = plt.subplots(figsize=(12, 6))
-            # whis=(10, 95): whiskers at p10 and p95; box is p25-p75, median at p50
-            bp = ax.boxplot(
-                data, labels=labels, patch_artist=True, showmeans=True,
-                whis=(10, 95),
-            )
-            colors = []
-            for label in labels:
-                if label.startswith("QUIC"):
-                    colors.append("lightcoral")
-                elif label.startswith("TCP"):
-                    colors.append("lightblue")
+            def _plot_pooled_boxplot(data_by_algo, title, ylabel, filename, scale=1.0):
+                if not data_by_algo:
+                    return
+                labels = sorted(data_by_algo.keys())
+                data = [[v * scale for v in data_by_algo[label]] for label in labels]
+                if not any(data):
+                    return
+                is_playback_duration_plot = filename == "boxplot_playback_duration.png"
+                fig_size = RELAY_CDF_FIGSIZE if is_playback_duration_plot else (12, 6)
+                fig, ax = plt.subplots(figsize=fig_size)
+                bp = ax.boxplot(
+                    data, labels=labels, patch_artist=True, showmeans=True,
+                    whis=(10, 95),
+                    showfliers=False,
+                )
+                colors = []
+                for label in labels:
+                    if label.startswith("QUIC"):
+                        colors.append("lightcoral")
+                    elif label.startswith("TCP"):
+                        colors.append("lightblue")
+                    else:
+                        colors.append("lightgray")
+                for patch, color in zip(bp["boxes"], colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+                if is_playback_duration_plot:
+                    title_fontsize = RELAY_CDF_TITLE_FONTSIZE
+                    label_fontsize = RELAY_CDF_LABEL_FONTSIZE
+                    tick_fontsize = RELAY_CDF_TICK_FONTSIZE
                 else:
-                    colors.append("lightgray")
-            for patch, color in zip(bp["boxes"], colors):
-                patch.set_facecolor(color)
-                patch.set_alpha(0.7)
-            ax.set_title(title, fontsize=12, fontweight="bold")
-            ax.set_xlabel("Algorithm")
-            ax.set_ylabel(ylabel)
-            ax.grid(True, axis="y", alpha=0.3)
-            plt.xticks(rotation=30, ha="right")
-            plt.tight_layout()
-            fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches="tight")
-            plt.close(fig)
-            print(f"Saved {filename}")
+                    title_fontsize = 12
+                    label_fontsize = 10
+                    tick_fontsize = 10
+                ax.set_title(title, fontsize=title_fontsize, fontweight="bold")
+                ax.set_xlabel("Algorithm", fontsize=label_fontsize)
+                ax.set_ylabel(ylabel, fontsize=label_fontsize)
+                ax.grid(True, axis="y", alpha=0.3)
+                ax.tick_params(axis="both", labelsize=tick_fontsize)
+                plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+                plt.tight_layout()
+                fig.savefig(os.path.join(relay_output_dir, filename), dpi=300, bbox_inches="tight")
+                plt.close(fig)
+                print(f"Saved {filename}")
 
-        for metric in metrics:
+            for metric in metrics_for_pooled_plots:
+                if metric == "mean_throughput_kbps":
+                    _plot_pooled_boxplot(
+                        pooled.get(metric, {}),
+                        "Mean throughput, Pooled user distribution ",
+                        "Mean throughput (Mbps)",
+                        f"boxplot_{metric}.png",
+                        scale=1e-3,
+                    )
+                elif metric == "avg_playback_bitrate_kbps":
+                    _plot_pooled_boxplot(
+                        pooled.get(metric, {}),
+                        "Avg playback bitrate, Pooled user distribution ",
+                        "Avg playback bitrate (Mbps)",
+                        f"boxplot_{metric}.png",
+                        scale=1e-3,
+                    )
+                elif metric == "stall_count":
+                    _plot_pooled_boxplot(
+                        pooled.get(metric, {}),
+                        "Playback stall count (interrupted events), Pooled user distribution ",
+                        "Stall count (per user)",
+                        f"boxplot_{metric}.png",
+                    )
+                elif metric == "playback_duration":
+                    _plot_pooled_boxplot(
+                        pooled.get(metric, {}),
+                        f"{metric}, Pooled user distribution ",
+                        "Duration",
+                        f"boxplot_{metric}.png",
+                    )
+                else:
+                    _plot_pooled_boxplot(
+                        pooled.get(metric, {}),
+                        f"{metric}, Pooled user distribution ",
+                        metric,
+                        f"boxplot_{metric}.png",
+                    )
             _plot_pooled_boxplot(
-                pooled.get(metric, {}),
-                f"Pooled user distribution (p10-p95 whiskers, p25-p75 box): {metric}",
-                metric,
-                f"boxplot_{metric}.png",
+                pooled.get("fraction_stalled_users", {}),
+                "User stall indicator (0/1), pooled across runs ",
+                "Stalled (1=yes, 0=no)",
+                "boxplot_fraction_stalled_users.png",
             )
-        _plot_pooled_boxplot(
-            pooled.get("fraction_stalled_users", {}),
-            "Pooled user distribution: fraction stalled (1=had interruption)",
-            "Fraction stalled",
-            "boxplot_fraction_stalled_users.png",
-        )
 
-    # Median CDF across runs per algorithm (throughput + bitrate)
-    if rows_for_csv:
-        def _cdf_values(sorted_vals, x_grid):
-            if not sorted_vals:
-                return None
-            n = len(sorted_vals)
-            idx = 0
-            cdf = []
-            for x in x_grid:
-                while idx < n and sorted_vals[idx] <= x:
-                    idx += 1
-                cdf.append(idx / n)
-            return cdf
-        
-        # Group per run
-        run_values = defaultdict(list)
-        for r in rows_for_csv:
-            run_key = (r["algo"], r["run_id"])
-            try:
-                run_values[run_key].append({
-                    "mean_throughput_kbps": float(r["mean_throughput_kbps"]),
-                    "avg_playback_bitrate_kbps": float(r["avg_playback_bitrate_kbps"])
-                })
-            except (ValueError, TypeError):
-                continue
-        
-        # Organize by algorithm
-        algo_runs = defaultdict(list)
-        for (algo, run_id), vals in run_values.items():
-            algo_runs[algo].append(vals)
-        
-        for algo, runs in algo_runs.items():
-            # Throughput CDF aggregation
+        # Median CDF across runs per algorithm (throughput + bitrate)
+        if relay_csv:
+            def _cdf_values(sorted_vals, x_grid):
+                if not sorted_vals:
+                    return None
+                n = len(sorted_vals)
+                idx = 0
+                cdf = []
+                for x in x_grid:
+                    while idx < n and sorted_vals[idx] <= x:
+                        idx += 1
+                    cdf.append(idx / n)
+                return cdf
+
+            # Group per run
+            run_values = defaultdict(list)
+            for r in relay_csv:
+                run_key = (r["algo"], r["run_id"])
+                try:
+                    run_values[run_key].append({
+                        "mean_throughput_kbps": float(r["mean_throughput_kbps"]),
+                        "avg_playback_bitrate_kbps": float(r["avg_playback_bitrate_kbps"]),
+                        "playback_duration": float(r["playback_duration"]),
+                    })
+                except (ValueError, TypeError):
+                    continue
+
+            # Organize by algorithm
+            algo_runs = defaultdict(list)
+            for (algo, run_id), vals in run_values.items():
+                algo_runs[algo].append(vals)
+            if ALLOWED_ALGOS is not None:
+                algo_runs = {a: v for a, v in algo_runs.items() if a in ALLOWED_ALGOS}
+
+            def _robust_xmax(values_by_algo, percentile=95, headroom=1.05):
+                # Use pooled percentile across all algorithms/users so a single high-variance
+                # algorithm does not keep the x-axis too wide.
+                pooled = []
+                for vals in values_by_algo.values():
+                    pooled.extend(
+                        float(v)
+                        for v in vals
+                        if v is not None and np.isfinite(v) and float(v) >= 0
+                    )
+                if not pooled:
+                    return None
+                return float(np.percentile(pooled, percentile)) * float(headroom)
+
+            # Combined throughput CDF (all algorithms on one figure)
             max_thr = 0.0
-            for vals in runs:
-                max_thr = max(max_thr, max(v["mean_throughput_kbps"] for v in vals))
+            for runs in algo_runs.values():
+                for vals in runs:
+                    max_thr = max(max_thr, max(v["mean_throughput_kbps"] for v in vals))
+            algo_list = sorted(algo_runs.keys())
             if max_thr > 0:
-                x_grid = np.linspace(0, max_thr, 200)
-                cdfs = []
-                for vals in runs:
-                    sorted_vals = sorted(v["mean_throughput_kbps"] for v in vals)
-                    cdf = _cdf_values(sorted_vals, x_grid)
-                    if cdf is not None:
-                        cdfs.append(cdf)
-                if cdfs:
-                    cdfs = np.array(cdfs)
-                    median_cdf = np.median(cdfs, axis=0)
-                    p25 = np.percentile(cdfs, 25, axis=0)
-                    p75 = np.percentile(cdfs, 75, axis=0)
-                    fig, ax = plt.subplots(figsize=(8, 5))
-                    ax.plot(x_grid, median_cdf, linewidth=2, label="Median CDF")
-                    ax.fill_between(x_grid, p25, p75, alpha=0.2, label="IQR")
-                    ax.set_title(f"Median CDF of mean throughput (Kbps)\n{algo}", fontsize=11, fontweight="bold")
-                    ax.set_xlabel("Mean throughput (Kbps)")
-                    ax.set_ylabel("CDF")
-                    ax.grid(True, alpha=0.3)
-                    ax.legend()
-                    filename = f"cdf_throughput_{algo.replace(' ', '_')}.png"
-                    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches="tight")
-                    plt.close(fig)
-            
-            # Bitrate CDF aggregation
+                max_thr_mbps = max_thr * 1e-3
+                pooled_thr_mbps_by_algo = defaultdict(list)
+                for algo in algo_list:
+                    for run_vals in algo_runs.get(algo, []):
+                        for u in run_vals:
+                            try:
+                                pooled_thr_mbps_by_algo[algo].append(float(u["mean_throughput_kbps"]) * 1e-3)
+                            except (ValueError, TypeError, KeyError):
+                                continue
+                x_max_thr_mbps = _robust_xmax(pooled_thr_mbps_by_algo, percentile=95, headroom=1.05)
+                if x_max_thr_mbps <= 0:
+                    x_max_thr_mbps = max_thr_mbps
+                print(f"Throughput CDF x-max (P95 pooled + 5%): {x_max_thr_mbps:.3f} Mbps")
+
+                x_grid = np.linspace(0, x_max_thr_mbps, 200)
+                fig, ax = plt.subplots(figsize=RELAY_CDF_FIGSIZE)
+                for i, algo in enumerate(algo_list):
+                    runs = algo_runs[algo]
+                    cdfs = []
+                    for vals in runs:
+                        sorted_vals = sorted(v["mean_throughput_kbps"] * 1e-3 for v in vals)
+                        cdf = _cdf_values(sorted_vals, x_grid)
+                        if cdf is not None:
+                            cdfs.append(cdf)
+                    if cdfs:
+                        cdfs = np.array(cdfs)
+                        median_cdf = np.median(cdfs, axis=0)
+                        p25 = np.percentile(cdfs, 25, axis=0)
+                        p75 = np.percentile(cdfs, 75, axis=0)
+                        color = f"C{i % 10}"
+                        ax.plot(x_grid, median_cdf, linewidth=2, label=algo, color=color)
+                ax.set_title(
+                    "Throughput (Mbps) CDF",
+                    fontsize=RELAY_CDF_TITLE_FONTSIZE,
+                    fontweight="bold",
+                )
+                ax.set_xlabel("Mean throughput (Mbps)", fontsize=RELAY_CDF_LABEL_FONTSIZE)
+                ax.set_ylabel("CDF", fontsize=RELAY_CDF_LABEL_FONTSIZE)
+                ax.set_xlim(0, x_max_thr_mbps)
+                ax.set_ylim(0, 1.05)
+                ax.grid(True, alpha=0.3)
+                ax.tick_params(axis="both", labelsize=RELAY_CDF_TICK_FONTSIZE)
+                ax.legend(fontsize=RELAY_CDF_LEGEND_FONTSIZE)
+                fig.savefig(os.path.join(relay_output_dir, "cdf_throughput_combined.png"), dpi=300, bbox_inches="tight")
+                plt.close(fig)
+
+            # Combined bitrate CDF (all algorithms on one figure)
             max_br = 0.0
-            for vals in runs:
-                max_br = max(max_br, max(v["avg_playback_bitrate_kbps"] for v in vals))
-            if max_br > 0:
-                x_grid = np.linspace(0, max_br, 200)
-                cdfs = []
+            for runs in algo_runs.values():
                 for vals in runs:
-                    sorted_vals = sorted(v["avg_playback_bitrate_kbps"] for v in vals)
-                    cdf = _cdf_values(sorted_vals, x_grid)
-                    if cdf is not None:
-                        cdfs.append(cdf)
-                if cdfs:
-                    cdfs = np.array(cdfs)
-                    median_cdf = np.median(cdfs, axis=0)
-                    p25 = np.percentile(cdfs, 25, axis=0)
-                    p75 = np.percentile(cdfs, 75, axis=0)
-                    fig, ax = plt.subplots(figsize=(8, 5))
-                    ax.plot(x_grid, median_cdf, linewidth=2, color="purple", label="Median CDF")
-                    ax.fill_between(x_grid, p25, p75, alpha=0.2, color="purple", label="IQR")
-                    ax.set_title(f"Median CDF of avg playback bitrate (Kbps)\n{algo}", fontsize=11, fontweight="bold")
-                    ax.set_xlabel("Avg playback bitrate (Kbps)")
-                    ax.set_ylabel("CDF")
-                    ax.grid(True, alpha=0.3)
-                    ax.legend()
-                    filename = f"cdf_bitrate_{algo.replace(' ', '_')}.png"
-                    fig.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches="tight")
-                    plt.close(fig)
+                    max_br = max(max_br, max(v["avg_playback_bitrate_kbps"] for v in vals))
+            if max_br > 0:
+                max_br_mbps = max_br * 1e-3
+                pooled_br_mbps_by_algo = defaultdict(list)
+                for algo in algo_list:
+                    for run_vals in algo_runs.get(algo, []):
+                        for u in run_vals:
+                            try:
+                                pooled_br_mbps_by_algo[algo].append(float(u["avg_playback_bitrate_kbps"]) * 1e-3)
+                            except (ValueError, TypeError, KeyError):
+                                continue
+                x_max_br_mbps = _robust_xmax(pooled_br_mbps_by_algo, percentile=95, headroom=1.05)
+                if x_max_br_mbps <= 0:
+                    x_max_br_mbps = max_br_mbps
+                print(f"Bitrate CDF x-max (P95 pooled + 5%): {x_max_br_mbps:.3f} Mbps")
+
+                x_grid = np.linspace(0, x_max_br_mbps, 200)
+                fig, ax = plt.subplots(figsize=RELAY_CDF_FIGSIZE)
+                for i, algo in enumerate(algo_list):
+                    runs = algo_runs[algo]
+                    cdfs = []
+                    for vals in runs:
+                        sorted_vals = sorted(v["avg_playback_bitrate_kbps"] * 1e-3 for v in vals)
+                        cdf = _cdf_values(sorted_vals, x_grid)
+                        if cdf is not None:
+                            cdfs.append(cdf)
+                    if cdfs:
+                        cdfs = np.array(cdfs)
+                        median_cdf = np.median(cdfs, axis=0)
+                        p25 = np.percentile(cdfs, 25, axis=0)
+                        p75 = np.percentile(cdfs, 75, axis=0)
+                        color = f"C{i % 10}"
+                        ax.plot(x_grid, median_cdf, linewidth=2, label=algo, color=color)
+                ax.set_title(
+                    "Playback bitrate (Mbps) CDF",
+                    fontsize=RELAY_CDF_TITLE_FONTSIZE,
+                    fontweight="bold",
+                )
+                ax.set_xlabel("Avg playback bitrate (Mbps)", fontsize=RELAY_CDF_LABEL_FONTSIZE)
+                ax.set_ylabel("CDF", fontsize=RELAY_CDF_LABEL_FONTSIZE)
+                ax.set_xlim(0, x_max_br_mbps)
+                ax.set_ylim(0, 1.05)
+                ax.grid(True, alpha=0.3)
+                ax.tick_params(axis="both", labelsize=RELAY_CDF_TICK_FONTSIZE)
+                ax.legend(fontsize=RELAY_CDF_LEGEND_FONTSIZE)
+                fig.savefig(os.path.join(relay_output_dir, "cdf_bitrate_combined.png"), dpi=300, bbox_inches="tight")
+                plt.close(fig)
+
+            # Combined playback duration CDF (all allowed algorithms on one figure)
+            max_pd = 0.0
+            for runs in algo_runs.values():
+                for vals in runs:
+                    max_pd = max(max_pd, max(v["playback_duration"] for v in vals))
+            if max_pd > 0:
+                x_grid = np.linspace(0, max_pd, 200)
+                fig, ax = plt.subplots(figsize=(8, 5))
+                for i, algo in enumerate(sorted(algo_runs.keys())):
+                    runs = algo_runs[algo]
+                    cdfs = []
+                    for vals in runs:
+                        sorted_vals = sorted(v["playback_duration"] for v in vals)
+                        cdf = _cdf_values(sorted_vals, x_grid)
+                        if cdf is not None:
+                            cdfs.append(cdf)
+                    if cdfs:
+                        cdfs = np.array(cdfs)
+                        median_cdf = np.median(cdfs, axis=0)
+                        p25 = np.percentile(cdfs, 25, axis=0)
+                        p75 = np.percentile(cdfs, 75, axis=0)
+                        color = f"C{i % 10}"
+                        ax.plot(x_grid, median_cdf, linewidth=2, label=algo, color=color)
+                ax.set_title("Median CDF of playback duration (s)", fontsize=11, fontweight="bold")
+                ax.set_xlabel("Playback duration (s)")
+                ax.set_ylabel("CDF")
+                ax.set_xlim(0, max_pd)
+                ax.set_ylim(0, 1.05)
+                ax.grid(True, alpha=0.3)
+                ax.legend()
+                fig.savefig(os.path.join(relay_output_dir, "cdf_playback_duration_combined.png"), dpi=300, bbox_inches="tight")
+                plt.close(fig)
+
+            for algo, runs in algo_runs.items():
+                max_pd = 0.0
+                for vals in runs:
+                    max_pd = max(max_pd, max(v["playback_duration"] for v in vals))
+                if max_pd > 0:
+                    x_grid = np.linspace(0, max_pd, 200)
+                    cdfs = []
+                    for vals in runs:
+                        sorted_vals = sorted(v["playback_duration"] for v in vals)
+                        cdf = _cdf_values(sorted_vals, x_grid)
+                        if cdf is not None:
+                            cdfs.append(cdf)
+                    if cdfs:
+                        cdfs = np.array(cdfs)
+                        median_cdf = np.median(cdfs, axis=0)
+                        p25 = np.percentile(cdfs, 25, axis=0)
+                        p75 = np.percentile(cdfs, 75, axis=0)
+                        fig, ax = plt.subplots(figsize=(8, 5))
+                        ax.plot(x_grid, median_cdf, linewidth=2, color="green", label="Median CDF")
+                        ax.set_title(f"Median CDF of playback duration (s)\n{algo}", fontsize=11, fontweight="bold")
+                        ax.set_xlabel("Playback duration (s)")
+                        ax.set_ylabel("CDF")
+                        ax.grid(True, alpha=0.3)
+                        ax.legend()
+                        filename = f"cdf_playback_duration_{algo.replace(' ', '_')}.png"
+                        fig.savefig(os.path.join(relay_output_dir, filename), dpi=300, bbox_inches="tight")
+                        plt.close(fig)
+
+    # Relay sensitivity plots (when relay dimension exists) - stays at top level
+    if rows_for_csv:
+        _plot_relay_sensitivity(rows_for_csv, output_dir)
+
+
+def _plot_relay_sensitivity(rows_for_csv, output_dir):
+    """
+    Generate relay sensitivity plots:
+    1. Median playback duration vs. relays
+    2. Fraction of users with playback >= 30s vs. relays
+    3. Playback duration CDF by relay count
+    """
+    # Filter rows with valid relay (int or numeric)
+    def _relay_val(r):
+        v = r.get("relay")
+        if v is None or v == "":
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
+
+    relay_rows = [r for r in rows_for_csv if _relay_val(r) is not None]
+    if not relay_rows:
+        return
+
+    relay_values = sorted(set(_relay_val(r) for r in relay_rows))
+    algos = sorted(set(r["algo"] for r in relay_rows))
+    if ALLOWED_ALGOS is not None:
+        algos = [a for a in algos if a in ALLOWED_ALGOS]
+    if not algos:
+        return
+
+    print("\nGenerating relay sensitivity plots...")
+    PLAYBACK_THRESHOLD = 30.0
+
+    # Group by (algo, relay, run_id) -> list of playback_duration per run; then (algo, relay) -> per-run medians
+    by_algo_relay_run = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for r in relay_rows:
+        relay = _relay_val(r)
+        algo = r["algo"]
+        run_id = r.get("run_id", "")
+        if relay is not None and algo in algos:
+            try:
+                pd = float(r["playback_duration"])
+                by_algo_relay_run[algo][relay][run_id].append(pd)
+            except (ValueError, TypeError):
+                pass
+
+    # --- Plot 1: Median playback duration vs. relays ---
+    # Use "median of per-run medians" to avoid distortion from many users with 0 playback (never streamed)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    colors = {a: f"C{i % 10}" for i, a in enumerate(algos)}
+    for algo in algos:
+        relays = []
+        medians = []
+        for relay in relay_values:
+            run_vals = by_algo_relay_run[algo].get(relay, {})
+            per_run_medians = [np.median(vals) for vals in run_vals.values() if vals]
+            if per_run_medians:
+                relays.append(relay)
+                medians.append(np.median(per_run_medians))
+        if relays:
+            ax.plot(relays, medians, "o-", linewidth=2, markersize=8, label=algo, color=colors[algo])
+    ax.set_xlabel("Number of relays")
+    ax.set_ylabel("Median playback duration (s)")
+    ax.set_title("Median playback duration vs. relay count (median of per-run medians)")
+    ax.set_xticks(relay_values)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.savefig(os.path.join(output_dir, "relay_median_playback_duration.png"), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print("Saved relay_median_playback_duration.png")
+
+    # Build flat list per (algo, relay) for fraction and CDF plots
+    by_algo_relay = defaultdict(lambda: defaultdict(list))
+    for algo in algos:
+        for relay in relay_values:
+            run_vals = by_algo_relay_run[algo].get(relay, {})
+            for vals in run_vals.values():
+                by_algo_relay[algo][relay].extend(vals)
+
+    # --- Plot 2: Fraction of users with playback >= 30s vs. relays ---
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for algo in algos:
+        relays = []
+        fractions = []
+        for relay in relay_values:
+            vals = by_algo_relay[algo].get(relay, [])
+            if vals:
+                frac = sum(1 for v in vals if v >= PLAYBACK_THRESHOLD) / len(vals)
+                relays.append(relay)
+                fractions.append(frac)
+        if relays:
+            ax.plot(relays, fractions, "o-", linewidth=2, markersize=8, label=algo, color=colors[algo])
+    ax.set_xlabel("Number of relays")
+    ax.set_ylabel(f"Fraction of users with playback ≥ {PLAYBACK_THRESHOLD}s")
+    ax.set_title(f"Fraction of users streaming ≥ {PLAYBACK_THRESHOLD}s vs. relay count")
+    ax.set_xticks(relay_values)
+    ax.set_ylim(0, 1.05)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.savefig(os.path.join(output_dir, "relay_fraction_playback_30s.png"), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print("Saved relay_fraction_playback_30s.png")
+
+    # --- Plot 3: Playback duration CDF by relay count ---
+    def _cdf_vals(sorted_vals, x_grid):
+        if not sorted_vals:
+            return None
+        n = len(sorted_vals)
+        idx = 0
+        cdf = []
+        for x in x_grid:
+            while idx < n and sorted_vals[idx] <= x:
+                idx += 1
+            cdf.append(idx / n)
+        return cdf
+
+    n_relays = len(relay_values)
+    n_cols = min(3, n_relays)
+    n_rows = (n_relays + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    if n_relays == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+    all_vals = [v for algo_vals in by_algo_relay.values() for vals in algo_vals.values() for v in vals]
+    max_pd = max(all_vals) if all_vals else 90
+    x_grid = np.linspace(0, max_pd, 200)
+    for i, relay in enumerate(relay_values):
+        ax = axes[i]
+        for j, algo in enumerate(algos):
+            vals = by_algo_relay[algo].get(relay, [])
+            if vals:
+                sorted_vals = sorted(vals)
+                cdf = _cdf_vals(sorted_vals, x_grid)
+                if cdf:
+                    ax.plot(x_grid, cdf, linewidth=2, label=algo, color=colors[algo])
+        ax.set_xlabel("Playback duration (s)")
+        ax.set_ylabel("CDF")
+        ax.set_title(f"Relay = {relay}")
+        ax.set_xlim(0, max_pd)
+        ax.set_ylim(0, 1.05)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    for j in range(n_relays, len(axes)):
+        axes[j].axis("off")
+    fig.suptitle("Playback duration CDF by relay count", fontsize=14, fontweight="bold", y=1.02)
+    fig.tight_layout()
+    fig.savefig(os.path.join(output_dir, "relay_cdf_playback_duration.png"), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print("Saved relay_cdf_playback_duration.png")
+
 
 def main():
     parser = argparse.ArgumentParser(description='Plot bitrate and playback status from simulation logs')
@@ -2522,7 +3606,6 @@ def main():
     print("=" * 60)
     print("Starting bitrate and playback analysis...")
     print("=" * 60)
-    import sys
     sys.stdout.flush()
     
     run_groups = find_all_runs(base_dir)

@@ -2,6 +2,8 @@
 
 This repository is an **ns-3 codebase** that combines **Non-Terrestrial Networks (NTN)** and **Integrated Access and Backhaul (IAB)** on top of the ns-3 **mmWave** module, and includes end-to-end application experiments with **MPEG-DASH video streaming** over **TCP** and **QUIC**.
 
+For detailed methodology, analysis, and results related to this project, please refer to our article on [arXiv](https://arxiv.org/abs/2604.16634).
+
 Developed at the **University of Manitoba**. 
 
 ## Modules and upstream code integrated

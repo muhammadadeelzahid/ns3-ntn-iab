@@ -46,7 +46,7 @@ MPEG-DASH video streaming experiments:
 You can pass program arguments after `--run`, for example:
 
 ```bash
-./waf --run "ntn-iab-quic-dash --numUes=10 --numRelay=1 --run=1"
+./waf --run "ntn-iab-quic-dash --numUes=10 --numRelay=1"
 ```
 ## Maintainers
 

@@ -8,14 +8,14 @@ Developed at the **University of Manitoba**.
 
 ## Modules and upstream code integrated
 
-This codebase extends the ns-3 **mmWave** stack by integrating functionality from the following upstream modules:
+This codebase integrates and extends the following upstream modules:
 
-- **Integrated Access and Backhaul (IAB)**: based on `ns3-mmwave-iab` from the [ns3-mmwave](https://github.com/nyuwireless-unipd/ns3-mmwave)
+- **Integrated Access and Backhaul (IAB)**: from the [ns3-mmwave](https://github.com/nyuwireless-unipd/ns3-mmwave)
 - **Non-Terrestrial Networks (NTN)**: from [ns-3-ntn](https://gitlab.com/mattiasandri/ns-3-ntn)
 - **Multilayer base stations and Hybrid Beamforming (HBF)**: from [ns3-mmwave-hbf](https://github.com/signetlabdei/ns3-mmwave-hbf)
 - **Traffic generators (NR/5G-LENA)**: from [5G-LENA](https://cttc-lena.gitlab.io/nr/html/)
-- **QUIC**: the ns-3 QUIC implementation in this tree is derived from the `quic-ns-3` lineage (see `src/quic/`)
-- **MPEG-DASH (HTTP Adaptive Streaming)**: the `dash` module integrated in this tree (`src/dash/`) is based on [djvergad/dash](https://github.com/djvergad/dash)
+- **QUIC**: from [quic-ns-3](https://github.com/signetlabdei/quic-ns-3)
+- **MPEG-DASH (HTTP Adaptive Streaming)**: from [djvergad/dash](https://github.com/djvergad/dash)
 
 ## Build
 

@@ -1,0 +1,805 @@
+%% bare_jrnl.tex
+%% V1.4b
+%% 2015/08/26
+%% by Michael Shell
+%% see http://www.michaelshell.org/
+%% for current contact information.
+%%
+%% This is a skeleton file demonstrating the use of IEEEtran.cls
+%% (requires IEEEtran.cls version 1.8b or later) with an IEEE
+%% journal paper.
+%%
+%% Support sites:
+%% http://www.michaelshell.org/tex/ieeetran/
+%% http://www.ctan.org/pkg/ieeetran
+%% and
+%% http://www.ieee.org/
+
+%%*************************************************************************
+%% Legal Notice:
+%% This code is offered as-is without any warranty either expressed or
+%% implied; without even the implied warranty of MERCHANTABILITY or
+%% FITNESS FOR A PARTICULAR PURPOSE! 
+%% User assumes all risk.
+%% In no event shall the IEEE or any contributor to this code be liable for
+%% any damages or losses, including, but not limited to, incidental,
+%% consequential, or any other damages, resulting from the use or misuse
+%% of any information contained here.
+%%
+%% All comments are the opinions of their respective authors and are not
+%% necessarily endorsed by the IEEE.
+%%
+%% This work is distributed under the LaTeX Project Public License (LPPL)
+%% ( http://www.latex-project.org/ ) version 1.3, and may be freely used,
+%% distributed and modified. A copy of the LPPL, version 1.3, is included
+%% in the base LaTeX documentation of all distributions of LaTeX released
+%% 2003/12/01 or later.
+%% Retain all contribution notices and credits.
+%% ** Modified files should be clearly indicated as such, including  **
+%% ** renaming them and changing author support contact information. **
+%%*************************************************************************
+
+
+% *** Authors should verify (and, if needed, correct) their LaTeX system  ***
+% *** with the testflow diagnostic prior to trusting their LaTeX platform ***
+% *** with production work. The IEEE's font choices and paper sizes can   ***
+% *** trigger bugs that do not appear when using other class files.       ***                          ***
+% The testflow support page is at:
+% http://www.michaelshell.org/tex/testflow/
+
+
+\documentclass[journal]{IEEEtran}
+\usepackage{multirow}
+\usepackage[justification=centering, font=footnotesize]{caption}
+%
+% If IEEEtran.cls has not been installed into the LaTeX system files,
+% manually specify the path to it like:
+% \documentclass[journal]{../sty/IEEEtran}
+
+
+% Some very useful LaTeX packages include:
+% (uncomment the ones you want to load)
+
+
+% *** MISC UTILITY PACKAGES ***
+%
+%\usepackage{ifpdf}
+% Heiko Oberdiek's ifpdf.sty is very useful if you need conditional
+% compilation based on whether the output is pdf or dvi.
+% usage:
+% \ifpdf
+%   % pdf code
+% \else
+%   % dvi code
+% \fi
+% The latest version of ifpdf.sty can be obtained from:
+% http://www.ctan.org/pkg/ifpdf
+% Also, note that IEEEtran.cls V1.7 and later provides a builtin
+% \ifCLASSINFOpdf conditional that works the same way.
+% When switching from latex to pdflatex and vice-versa, the compiler may
+% have to be run twice to clear warning/error messages.
+
+
+
+
+% *** CITATION PACKAGES ***
+%
+\usepackage{cite}
+
+
+% *** GRAPHICS RELATED PACKAGES ***
+%
+\ifCLASSINFOpdf
+  \usepackage[pdftex]{graphicx}
+  % declare the path(s) where your graphic files are
+  \graphicspath{{../pdf/}{../jpeg/}}
+  % and their extensions so you won't have to specify these with
+  % every instance of \includegraphics
+  \DeclareGraphicsExtensions{.pdf,.jpeg,.png}
+\else
+  % or other class option (dvipsone, dvipdf, if not using dvips). graphicx
+  % will default to the driver specified in the system graphics.cfg if no
+  % driver is specified.
+  \usepackage[dvips]{graphicx}
+  % declare the path(s) where your graphic files are
+  \graphicspath{{../eps/}}
+  % and their extensions so you won't have to specify these with
+  % every instance of \includegraphics
+  \DeclareGraphicsExtensions{.eps}
+\fi
+% graphicx was written by David Carlisle and Sebastian Rahtz. It is
+% required if you want graphics, photos, etc. graphicx.sty is already
+% installed on most LaTeX systems. The latest version and documentation
+% can be obtained at: 
+% http://www.ctan.org/pkg/graphicx
+% Another good source of documentation is "Using Imported Graphics in
+% LaTeX2e" by Keith Reckdahl which can be found at:
+% http://www.ctan.org/pkg/epslatex
+%
+% latex, and pdflatex in dvi mode, support graphics in encapsulated
+% postscript (.eps) format. pdflatex in pdf mode supports graphics
+% in .pdf, .jpeg, .png and .mps (metapost) formats. Users should ensure
+% that all non-photo figures use a vector format (.eps, .pdf, .mps) and
+% not a bitmapped formats (.jpeg, .png). The IEEE frowns on bitmapped formats
+% which can result in "jaggedy"/blurry rendering of lines and letters as
+% well as large increases in file sizes.
+%
+% You can find documentation about the pdfTeX application at:
+% http://www.tug.org/applications/pdftex
+\usepackage[hidelinks]{hyperref}
+
+% *** MATH PACKAGES ***
+%
+\usepackage{amsmath}
+% A popular package from the American Mathematical Society that provides
+% many useful and powerful commands for dealing with mathematics.
+%
+% Note that the amsmath package sets \interdisplaylinepenalty to 10000
+% thus preventing page breaks from occurring within multiline equations. Use:
+%\interdisplaylinepenalty=2500
+% after loading amsmath to restore such page breaks as IEEEtran.cls normally
+% does. amsmath.sty is already installed on most LaTeX systems. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/pkg/amsmath
+
+
+
+% *** SPECIALIZED LIST PACKAGES ***
+%
+%\usepackage{algorithmic}
+% algorithmic.sty was written by Peter Williams and Rogerio Brito.
+% This package provides an algorithmic environment fo describing algorithms.
+% You can use the algorithmic environment in-text or within a figure
+% environment to provide for a floating algorithm. Do NOT use the algorithm
+% floating environment provided by algorithm.sty (by the same authors) or
+% algorithm2e.sty (by Christophe Fiorio) as the IEEE does not use dedicated
+% algorithm float types and packages that provide these will not provide
+% correct IEEE style captions. The latest version and documentation of
+% algorithmic.sty can be obtained at:
+% http://www.ctan.org/pkg/algorithms
+% Also of interest may be the (relatively newer and more customizable)
+% algorithmicx.sty package by Szasz Janos:
+% http://www.ctan.org/pkg/algorithmicx
+
+
+
+
+% *** ALIGNMENT PACKAGES ***
+%
+%\usepackage{array}
+% Frank Mittelbach's and David Carlisle's array.sty patches and improves
+% the standard LaTeX2e array and tabular environments to provide better
+% appearance and additional user controls. As the default LaTeX2e table
+% generation code is lacking to the point of almost being broken with
+% respect to the quality of the end results, all users are strongly
+% advised to use an enhanced (at the very least that provided by array.sty)
+% set of table tools. array.sty is already installed on most systems. The
+% latest version and documentation can be obtained at:
+% http://www.ctan.org/pkg/array
+
+
+% IEEEtran contains the IEEEeqnarray family of commands that can be used to
+% generate multiline equations as well as matrices, tables, etc., of high
+% quality.
+
+
+
+
+% *** SUBFIGURE PACKAGES ***
+%\ifCLASSOPTIONcompsoc
+%  \usepackage[caption=false,font=normalsize,labelfont=sf,textfont=sf]{subfig}
+%\else
+%  \usepackage[caption=false,font=footnotesize]{subfig}
+%\fi
+% subfig.sty, written by Steven Douglas Cochran, is the modern replacement
+% for subfigure.sty, the latter of which is no longer maintained and is
+% incompatible with some LaTeX packages including fixltx2e. However,
+% subfig.sty requires and automatically loads Axel Sommerfeldt's caption.sty
+% which will override IEEEtran.cls' handling of captions and this will result
+% in non-IEEE style figure/table captions. To prevent this problem, be sure
+% and invoke subfig.sty's "caption=false" package option (available since
+% subfig.sty version 1.3, 2005/06/28) as this is will preserve IEEEtran.cls
+% handling of captions.
+% Note that the Computer Society format requires a larger sans serif font
+% than the serif footnote size font used in traditional IEEE formatting
+% and thus the need to invoke different subfig.sty package options depending
+% on whether compsoc mode has been enabled.
+%
+% The latest version and documentation of subfig.sty can be obtained at:
+% http://www.ctan.org/pkg/subfig
+
+
+
+
+% *** FLOAT PACKAGES ***
+%
+%\usepackage{fixltx2e}
+% fixltx2e, the successor to the earlier fix2col.sty, was written by
+% Frank Mittelbach and David Carlisle. This package corrects a few problems
+% in the LaTeX2e kernel, the most notable of which is that in current
+% LaTeX2e releases, the ordering of single and double column floats is not
+% guaranteed to be preserved. Thus, an unpatched LaTeX2e can allow a
+% single column figure to be placed prior to an earlier double column
+% figure.
+% Be aware that LaTeX2e kernels dated 2015 and later have fixltx2e.sty's
+% corrections already built into the system in which case a warning will
+% be issued if an attempt is made to load fixltx2e.sty as it is no longer
+% needed.
+% The latest version and documentation can be found at:
+% http://www.ctan.org/pkg/fixltx2e
+
+
+%\usepackage{stfloats}
+% stfloats.sty was written by Sigitas Tolusis. This package gives LaTeX2e
+% the ability to do double column floats at the bottom of the page as well
+% as the top. (e.g., "\begin{figure*}[!b]" is not normally possible in
+% LaTeX2e). It also provides a command:
+%\fnbelowfloat
+% to enable the placement of footnotes below bottom floats (the standard
+% LaTeX2e kernel puts them above bottom floats). This is an invasive package
+% which rewrites many portions of the LaTeX2e float routines. It may not work
+% with other packages that modify the LaTeX2e float routines. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/pkg/stfloats
+% Do not use the stfloats baselinefloat ability as the IEEE does not allow
+% \baselineskip to stretch. Authors submitting work to the IEEE should note
+% that the IEEE rarely uses double column equations and that authors should try
+% to avoid such use. Do not be tempted to use the cuted.sty or midfloat.sty
+% packages (also by Sigitas Tolusis) as the IEEE does not format its papers in
+% such ways.
+% Do not attempt to use stfloats with fixltx2e as they are incompatible.
+% Instead, use Morten Hogholm'a dblfloatfix which combines the features
+% of both fixltx2e and stfloats:
+%
+% \usepackage{dblfloatfix}
+% The latest version can be found at:
+% http://www.ctan.org/pkg/dblfloatfix
+
+\usepackage{booktabs}
+\usepackage{amssymb}
+
+
+%\ifCLASSOPTIONcaptionsoff
+%  \usepackage[nomarkers]{endfloat}
+% \let\MYoriglatexcaption\caption
+% \renewcommand{\caption}[2][\relax]{\MYoriglatexcaption[#2]{#2}}
+%\fi
+% endfloat.sty was written by James Darrell McCauley, Jeff Goldberg and 
+% Axel Sommerfeldt. This package may be useful when used in conjunction with 
+% IEEEtran.cls'  captionsoff option. Some IEEE journals/societies require that
+% submissions have lists of figures/tables at the end of the paper and that
+% figures/tables without any captions are placed on a page by themselves at
+% the end of the document. If needed, the draftcls IEEEtran class option or
+% \CLASSINPUTbaselinestretch interface can be used to increase the line
+% spacing as well. Be sure and use the nomarkers option of endfloat to
+% prevent endfloat from "marking" where the figures would have been placed
+% in the text. The two hack lines of code above are a slight modification of
+% that suggested by in the endfloat docs (section 8.4.1) to ensure that
+% the full captions always appear in the list of figures/tables - even if
+% the user used the short optional argument of \caption[]{}.
+% IEEE papers do not typically make use of \caption[]'s optional argument,
+% so this should not be an issue. A similar trick can be used to disable
+% captions of packages such as subfig.sty that lack options to turn off
+% the subcaptions:
+% For subfig.sty:
+% \let\MYorigsubfloat\subfloat
+% \renewcommand{\subfloat}[2][\relax]{\MYorigsubfloat[]{#2}}
+% However, the above trick will not work if both optional arguments of
+% the \subfloat command are used. Furthermore, there needs to be a
+% description of each subfigure *somewhere* and endfloat does not add
+% subfigure captions to its list of figures. Thus, the best approach is to
+% avoid the use of subfigure captions (many IEEE journals avoid them anyway)
+% and instead reference/explain all the subfigures within the main caption.
+% The latest version of endfloat.sty and its documentation can obtained at:
+% http://www.ctan.org/pkg/endfloat
+%
+% The IEEEtran \ifCLASSOPTIONcaptionsoff conditional can also be used
+% later in the document, say, to conditionally put the References on a 
+% page by themselves.
+
+
+
+
+% *** PDF, URL AND HYPERLINK PACKAGES ***
+%
+%\usepackage{url}
+% url.sty was written by Donald Arseneau. It provides better support for
+% handling and breaking URLs. url.sty is already installed on most LaTeX
+% systems. The latest version and documentation can be obtained at:
+% http://www.ctan.org/pkg/url
+% Basically, \url{my_url_here}.
+
+
+
+
+% *** Do not adjust lengths that control margins, column widths, etc. ***
+% *** Do not use packages that alter fonts (such as pslatex).         ***
+% There should be no need to do such things with IEEEtran.cls V1.6 and later.
+% (Unless specifically asked to do so by the journal or conference you plan
+% to submit to, of course. )
+
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+
+\begin{document}
+%
+% paper title
+% Titles are generally capitalized except for words such as a, an, and, as,
+% at, but, by, for, in, nor, of, on, or, the, to and up, which are usually
+% not capitalized unless they are the first or last word of the title.
+% Linebreaks \\ can be used within to get better formatting as desired.
+% Do not put math or special symbols in the title.
+\title{End-to-End Performance of Video Streaming With MPEG-DASH Over Satellite 5G IAB Networks}
+%
+%
+% author names and IEEE memberships
+% note positions of commas and nonbreaking spaces ( ~ ) LaTeX will not break
+% a structure at a ~ so this keeps an author's name from being broken across
+% two lines.
+% use \thanks{} to gain access to the first footnote area
+% a separate \thanks must be used for each paragraph as LaTeX2e's \thanks
+% was not built to handle multiple paragraphs
+%
+
+% \author{Michael~Shell,~\IEEEmembership{Member,~IEEE,}
+%         John~Doe,~\IEEEmembership{Fellow,~OSA,}
+%         and~Jane~Doe,~\IEEEmembership{Life~Fellow,~IEEE}% <-this % stops a space
+% \thanks{M. Shell was with the Department
+% of Electrical and Computer Engineering, Georgia Institute of Technology, Atlanta,
+% GA, 30332 USA e-mail: (see http://www.michaelshell.org/contact.html).}% <-this % stops a space
+% \thanks{J. Doe and J. Doe are with Anonymous University.}% <-this % stops a space
+% \thanks{Manuscript received April 19, 2005; revised August 26, 2015.}}
+
+% note the % following the last \IEEEmembership and also \thanks - 
+% these prevent an unwanted space from occurring between the last author name
+% and the end of the author line. i.e., if you had this:
+% 
+% \author{....lastname \thanks{...} \thanks{...} }
+%                     ^------------^------------^----Do not want these spaces!
+%
+% a space would be appended to the last name and could cause every name on that
+% line to be shifted left slightly. This is one of those "LaTeX things". For
+% instance, "\textbf{A} \textbf{B}" will typeset as "A B" not "AB". To get
+% "AB" then you have to do: "\textbf{A}\textbf{B}"
+% \thanks is no different in this regard, so shield the last } of each \thanks
+% that ends a line with a % and do not let a space in before the next \thanks.
+% Spaces after \IEEEmembership other than the last one are OK (and needed) as
+% you are supposed to have spaces between the names. For what it is worth,
+% this is a minor point as most people would not even notice if the said evil
+% space somehow managed to creep in.
+
+
+
+% The paper headers
+%\markboth{Journal of \LaTeX\ Class Files,~Vol.~14, No.~8, August~2015}%
+%{Shell \MakeLowercase{\textit{et al.}}: Bare Demo of IEEEtran.cls for IEEE Journals}
+% The only time the second header will appear is for the odd numbered pages
+% after the title page when using the twoside option.
+% 
+% *** Note that you probably will NOT want to include the author's ***
+% *** name in the headers of peer review papers.                   ***
+% You can use \ifCLASSOPTIONpeerreview for conditional compilation here if
+% you desire.
+
+
+
+
+% If you want to put a publisher's ID mark on the page you can do it like
+% this:
+%\IEEEpubid{0000--0000/00\$00.00~\copyright~2015 IEEE}
+% Remember, if you use this you must call \IEEEpubidadjcol in the second
+% column for its text to clear the IEEEpubid mark.
+
+
+
+% use for special paper notices
+%\IEEEspecialpapernotice{(Invited Paper)}
+
+
+
+
+% make the title area
+\author{Muhammad Adeel Zahid, Ekram~Hossain,~\IEEEmembership{Fellow,~IEEE}, and Peng~Hu,~\IEEEmembership{Senior Member,~IEEE}\thanks{The authors are with the
+Department of Electrical and Computer Engineering,
+University of Manitoba, Winnipeg, Canada 
+(Emails: zahidma@myumanitoba.ca, Ekram.Hossain@umanitoba.ca, Peng.Hu@umanitoba.ca)}
+}
+\maketitle
+
+
+% As a general rule, do not put math, special symbols or citations
+% in the abstract or keywords.
+\begin{abstract}
+We present an end-to-end performance evaluation of MPEG-DASH video streaming over a Low-Earth Orbit (LEO) satellite-based 5G Integrated Access and Backhaul (IAB) network. Our objective is to investigate how modern transport protocols and congestion control algorithms affect adaptive video delivery in an integrated satellite-terrestrial network (ISTN), where latency, throughput variation, and playback continuity jointly shape the user Quality-of-Experience (QoE). We implement a simulation framework in ns-3 by adapting open-source modules for the 5G radio access network, LEOS backhaul, transport layer protocols, and MPEG-DASH application behavior. Within this framework, TCP and QUIC are evaluated with multiple congestion control algorithms, including CUBIC, NewReno, and BBR. Performance is assessed using application-level and transport-level metrics, including playback duration, interruption duration, stall count, playback bitrate, throughput, latency, and fairness. The results show that no single configuration is uniformly optimal across all metrics. However, clear tradeoffs are observed among throughput, latency, playback continuity, and fairness. In particular, QUIC-BBR provides the most balanced overall behavior from a streaming QoE perspective, combining adequate playback duration with fewer interruptions and substantially lower latency than other alternatives. These findings highlight the importance of jointly considering transport design and congestion control when evaluating adaptive video streaming over ISTNs.
+\end{abstract}
+
+% Note that keywords are not normally used for peerreview papers.
+\begin{IEEEkeywords}
+MPEG-DASH (Moving Picture Experts Group – Dynamic Adaptive Streaming over HTTP), QUIC (Quick UDP Internet Connections), TCP, congestion control algorithms, BBR (Bottleneck Bandwidth and Round-trip time), CUBIC, NewReno, 5G New Radio (NR), integrated access and backhaul, low earth orbit satellite, adaptive-bitrate video streaming, quality of experience
+\end{IEEEkeywords}
+
+
+
+% For peer review papers, you can put extra information on the cover
+% page as needed:
+% \ifCLASSOPTIONpeerreview
+% \begin{center} \bfseries EDICS Category: 3-BBND \end{center}
+% \fi
+%
+% For peerreview papers, this IEEEtran command inserts a page break and
+% creates the second title. It will be ignored for other modes.
+\IEEEpeerreviewmaketitle
+
+
+% The very first letter is a 2 line initial drop letter followed
+% by the rest of the first word in caps.
+% 
+% form to use if the first word consists of a single letter:
+% \IEEEPARstart{A}{demo} file is ....
+% 
+% form to use if you need the single drop letter followed by
+% normal text (unknown if ever used by the IEEE):
+% \IEEEPARstart{A}{}demo file is ....
+% 
+% Some journals put the first two words in caps:
+% \IEEEPARstart{T}{his demo} file is ....
+% 
+% Here we have the typical use of a "T" for an initial drop letter
+% and "HIS" in caps to complete the first word.
+
+% An example of a floating figure using the graphicx package.
+% Note that \label must occur AFTER (or within) \caption.
+% For figures, \caption should occur after the \includegraphics.
+% Note that IEEEtran v1.7 and later has special internal code that
+% is designed to preserve the operation of \label within \caption
+% even when the captionsoff option is in effect. However, because
+% of issues like this, it may be the safest practice to put all your
+% \label just after \caption rather than within \caption{}.
+%
+% Reminder: the "draftcls" or "draftclsnofoot", not "draft", class
+% option should be used if it is desired that the figures are to be
+% displayed while in draft mode.
+%
+%\begin{figure}[!t]
+%\centering
+%\includegraphics[width=2.5in]{myfigure}
+% where an .eps filename suffix will be assumed under latex, 
+% and a .pdf suffix will be assumed for pdflatex; or what has been declared
+% via \DeclareGraphicsExtensions.
+%\caption{Simulation results for the network.}
+%\label{fig_sim}
+%\end{figure}
+
+% Note that the IEEE typically puts floats only at the top, even when this
+% results in a large percentage of a column being occupied by floats.
+
+
+% An example of a double column floating figure using two subfigures.
+% (The subfig.sty package must be loaded for this to work.)
+% The subfigure \label commands are set within each subfloat command,
+% and the \label for the overall figure must come after \caption.
+% \hfil is used as a separator to get equal spacing.
+% Watch out that the combined width of all the subfigures on a 
+% line do not exceed the text width or a line break will occur.
+%
+%\begin{figure*}[!t]
+%\centering
+%\subfloat[Case I]{\includegraphics[width=2.5in]{box}%
+%\label{fig_first_case}}
+%\hfil
+%\subfloat[Case II]{\includegraphics[width=2.5in]{box}%
+%\label{fig_second_case}}
+%\caption{Simulation results for the network.}
+%\label{fig_sim}
+%\end{figure*}
+%
+% Note that often IEEE papers with subfigures do not employ subfigure
+% captions (using the optional argument to \subfloat[]), but instead will
+% reference/describe all of them (a), (b), etc., within the main caption.
+% Be aware that for subfig.sty to generate the (a), (b), etc., subfigure
+% labels, the optional argument to \subfloat must be present. If a
+% subcaption is not desired, just leave its contents blank,
+% e.g., \subfloat[].
+
+
+% An example of a floating table. Note that, for IEEE style tables, the
+% \caption command should come BEFORE the table and, given that table
+% captions serve much like titles, are usually capitalized except for words
+% such as a, an, and, as, at, but, by, for, in, nor, of, on, or, the, to
+% and up, which are usually not capitalized unless they are the first or
+% last word of the caption. Table text will default to \footnotesize as
+% the IEEE normally uses this smaller font for tables.
+% The \label must come after \caption as always.
+%
+%\begin{table}[!t]
+%% increase table row spacing, adjust to taste
+%\renewcommand{\arraystretch}{1.3}
+% if using array.sty, it might be a good idea to tweak the value of
+% \extrarowheight as needed to properly center the text within the cells
+%\caption{An Example of a Table}
+%\label{table_example}
+%\centering
+%% Some packages, such as MDW tools, offer better commands for making tables
+%% than the plain LaTeX2e tabular which is used here.
+%\begin{tabular}{|c||c|}
+%\hline
+%One & Two\\
+%\hline
+%Three & Four\\
+%\hline
+%\end{tabular}
+%\end{table}
+
+
+% Note that the IEEE does not put floats in the very first column
+% - or typically anywhere on the first page for that matter. Also,
+% in-text middle ("here") positioning is typically not used, but it
+% is allowed and encouraged for Computer Society conferences (but
+% not Computer Society journals). Most IEEE journals/conferences use
+% top floats exclusively. 
+% Note that, LaTeX2e, unlike IEEE journals/conferences, places
+% footnotes above bottom floats. This can be corrected via the
+% \fnbelowfloat command of the stfloats package.
+
+%\IEEEPARstart{T}{his}
+
+\section*{Introduction}
+Video streaming is one of the most demanding and dominant forms of Internet traffic, and its performance depends strongly on the interaction between the application, transport, and underlying network. For adaptive streaming systems such as MPEG-DASH, quality-of-experience (QoE) is shaped not only by available throughput, but also by latency, packet loss, playback interruptions, and bitrate stability. Therefore, evaluating video streaming performance requires an end-to-end perspective that captures both network behavior and application-level outcomes.
+
+Currently, the integration of terrestrial 5G systems with low-Earth orbit (LEO) satellite networks is creating a new environment for broadband service delivery. Compared with conventional terrestrial backhaul, LEOS networks introduce propagation delay, dynamic link conditions, and time-varying transport characteristics. These properties make such systems an important setting for understanding how modern transport protocols behave under realistic but challenging operating conditions.
+
+Although prior work~\cite{Kim2019,Ge2019,Wang2018,Fang2024,Alshagri2023,Yang2018} has studied satellite-terrestrial integration, transport performance over satellite networks, and adaptive streaming mechanisms separately, fewer studies have examined their interaction in a unified end-to-end framework that jointly captures transport-level behavior and QoE. In~\cite{Ge2019}, multiaccess edge computing (MEC)-assisted satellite backhaul and prefetching are considered for QoE support in 5G streaming, without addressing the characteristics of the IAB architecture. Other representative works examine transport behavior in ISTN~\cite{Alshagri2023,Yang2018}, handover-aware live streaming over LEO satellite constellations~\cite{Fang2024}, and broader architectural or delivery-support mechanisms for satellite-terrestrial integration~\cite{Kim2019,Wang2018}.  
+
+5G IAB was first standardized in 3GPP Release 16, which allows the 5G New Radio (NR) spectrum to serve both UE access links and wireless backhaul among gNBs. However, current 3GPP standardization efforts neither address IAB architectures employing LEO satellite backhaul nor consider performance evaluations for key video streaming applications.
+
+To address the gap in the existing literature, this paper presents an end-to-end performance analysis of MPEG-DASH video streaming over a LEO-backhauled 5G integrated access and backhaul (IAB) network, enabling joint evaluation of transport protocol choice, congestion control behavior, and application-level QoE. This is based on a simulation framework implemented in ns-3 by customizing and integrating open-source modules for the radio access, satellite backhaul, transport, and application layers. Within this framework, we compare TCP and QUIC under multiple congestion control algorithms and evaluate their impact on playback continuity, bitrate delivery, throughput, latency, and fairness. The results show that the choice of transport protocol and congestion control algorithm leads to clear tradeoffs across these metrics. Rather than identifying one configuration as uniformly superior in every respect, the study highlights how different schemes balance responsiveness, continuity, throughput, and fairness in distinct ways. This provides a more complete understanding of protocol behavior for video streaming over an ISTN. Table~\ref{tab:related_work_comparison} summarizes the scope of these representative studies and highlights the distinctions of the present work.
+
+\begin{table*}[t]
+\centering
+\caption{Comparison with related work}
+\label{tab:related_work_comparison}
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Work} & \textbf{ISTN} & \textbf{Transport layer Analysis} & \textbf{QoE} & \textbf{IAB Architecture} & \textbf{End-to-End Analysis} \\
+\midrule
+Kim \textit{et al.}~\cite{Kim2019} & $\checkmark$ &  &  &  &  \\
+Ge \textit{et al.}~\cite{Ge2019} & $\checkmark$ &  & $\checkmark$ &  &  \\
+Wang \textit{et al.}~\cite{Wang2018} & $\checkmark$ &  & $\checkmark$ &  &  \\
+Alshagri \textit{et al.}~\cite{Alshagri2023} &  & $\checkmark$ & $\checkmark$ &  &  \\
+Yang \textit{et al.}~\cite{Yang2018} & $\checkmark$ & $\checkmark$ & $\checkmark$ &  &  \\
+Fang \textit{et al.}~\cite{Fang2024} &  &  & $\checkmark$ &  &  \\
+\textbf{This work} & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+
+
+\section*{Background and Related Work}
+
+The literature relevant to our work spans three critical and converging areas: the architectural design of ISTNs, the performance of transport layer protocols over high-latency links, and the assurance of QoE for adaptive video streaming.
+
+The evolution of 5G architecture has been moving toward integration of non-terrestrial networks (NTNs) and terrestrial infrastructure to provide enhanced mobile broadband in remote and under-served areas. The authors in \cite{Kim2019} focus on Multi-Connectivity (MC) to seamlessly integrate cellular and satellite links. MC is a core 5G feature, standardized primarily in 3GPP Release 15 and enhanced in later releases, that allows a device to simultaneously communicate over two different wireless technologies. In this integrated system, MC is crucial for combining the high-capacity, local access of 5G New Radio (NR) with the wide-area coverage of the non-terrestrial satellite links. The terrestrial component of this link assumes connectivity via standard 5G base stations.
+
+The authors in \cite{Ge2019} propose deploying Multi-access Edge Computing (MEC) servers at the 5G edge to offload content traffic via satellite backhaul. This strategy effectively breaks the end-to-end path into two distinct segments: the satellite backhaul and the 5G Radio Access Network. By localizing content delivery at the MEC, the system uses parallel TCP connections to prefetch video segments before they are requested by the user. This approach masks the high latency of satellite links and ensures a stalling-free experience with minimal startup delays \cite{Ge2019, Wang2018}. 
+The unique network environment of satellite links characterized by high latency, potential high packet loss, and dynamic connections, is the primary challenge. While Geostationary Earth Orbit (GEO) satellites impose RTTs exceeding 500~ms, LEO systems introduce frequent satellite handover events that cause abrupt network disruptions \cite{Fang2024}.
+
+%At the transport layer, TCP and QUIC are evaluated. 
+
+At the transport layer, performance of QUIC and TCP have been evaluated. QUIC, which was initially developed by Google and later standardized by the IETF as the transport basis of HTTP/3, is a UDP-based transport protocol designed for modern web and media delivery. It has been widely adopted for latency-sensitive services, such as Google Search and YouTube, because it reduces the delay in connection establishment, improves loss recovery, and eliminates transport-layer head-of-line blocking through native stream multiplexing. These properties make QUIC particularly attractive in high-latency environments such as satellite networks \cite{Alshagri2023, Yang2018}. Prior studies have shown that HTTP/3 over QUIC can outperform HTTP/2 over TCP in ISTN, especially in terms of page load time and transport efficiency \cite{Yang2018}. In addition to the transport protocol itself, the choice of congestion control algorithm is critical. In this context, the BBR algorithm is a model-based congestion control algorithm that estimates the available bottleneck bandwidth and minimum round-trip delay in order to regulate sending rate and the amount of in-flight data, rather than relying primarily on packet loss as a congestion signal \cite{IETFBBR}. This design generally allows BBR to achieve faster convergence and better link utilization than loss-based schemes such as CUBIC on large bandwidth-delay product satellite links \cite{Alshagri2023}. Even when TCP is enhanced with Explicit Congestion Notification (ECN) to signal impending congestion before packet loss occurs, QUIC has still been shown to provide superior performance in space-network scenarios due to its lower handshake latency, improved loss recovery, and more flexible transport architecture \cite{Yang2018, Alshagri2023}.
+
+Despite its architectural advantages, QUIC is not without limitations. It is observed in \cite{Alshagri2023} that the added complexity of QUIC and HTTP/3 introduces protocol overhead that can become a dominant factor affecting performance, and consequently the QoE. This effect is especially noticeable when QUIC operates with slower-reacting congestion control algorithms such as CUBIC, in which case the additional overhead may reduce or even outweigh the gains offered by faster connection setup and improved loss recovery. Fairness is another important concern when QUIC operates with the BBR congestion control algorithm. Because BBR is a model-based congestion control algorithm, it regulates transmission using estimates of bottleneck bandwidth and minimum RTT rather than relying primarily on packet loss. This design can create unfairness in two cases. The first occurs when BBR competes with traditional loss-based algorithms such as CUBIC and NewReno. Since loss-based flows expand their congestion window until losses occur, they tend to build queues, whereas BBR attempts to pace traffic according to its bandwidth and delay model. The mismatch between these control principles can lead to unequal bandwidth sharing, with the outcome depending on factors such as buffer size and the aggressiveness of the competing flow. The second case arises when multiple BBR flows share a bottleneck but experience different RTTs. Under these conditions, the longer-RTT flow may capture more bandwidth because its larger bandwidth-delay product allows more in-flight data, while its slower control loop helps preserve an aggressive sending state once bandwidth is obtained. As discussed in \cite{Yue2025, Tang2024}, both mixed-algorithm competition and heterogeneous-RTT BBR coexistence can produce persistent fairness imbalances, even though BBR often maintains high throughput and low latency.
+
+For the application layer, MPEG-DASH enables adaptive bitrate streaming, crucial for maintaining QoE. However, LEO satellite handovers lead to abrupt disruptions, causing significant video pauses that can last from a few seconds to more than twenty seconds \cite{Fang2024}. Effective solutions require the ABR (Adaptive Bitrate) logic to choose the best video quality (bitrate) at any moment, to be handover-aware to anticipate and mitigate the predictable timing of LEO handovers \cite{Zhao2024, Fang2024}. Techniques such as transient segment holding and prefetching, executed at the MEC server using multiple parallel TCP connections, are validated strategies to compensate for high latency \cite{Ge2019}. This enables stall-free streaming while minimizing live latency \cite{Ge2019, Zhao2024}.
+
+\begin{figure*}[!t]
+    \centering
+    \includegraphics[width=\textwidth]{Assets/simulation_model.png}
+    \caption{System architecture}
+    \label{fig:system_architecture}
+\end{figure*}
+
+\section*{Network Architecture and System Overview}
+
+%\subsection*{Network Architecture}
+The network architecture considered in this paper integrates 5G access with a non-terrestrial backhaul component for video streaming over MPEG-DASH. Fig. \ref{fig:system_architecture} illustrates the end-to-end topology, where the terrestrial IAB-node functions as a gateway for the terrestrial users. The number and placement of IAB nodes significantly impact the feasibility of the considered topology. Under realistic LEO satellite assumptions considered in this work, the system without an IAB relay remains in outage, as the direct link budget is not sufficient to provide reliable service to the user. The inclusion of an IAB node addresses this limitation by enabling a feasible terrestrial access link while utilizing the satellite connection for backhaul. Increasing the number of IAB nodes beyond one, however, leads to a degradation in link quality rather than an improvement. This is due to the additional interference introduced by the extra IAB nodes on the reception of the satellite signal. Moreover, because the satellite operates as a multibeam system, inter-beam interference further contributes to signal degradation. The resulting increase in losses can cause some users to lose connectivity entirely. Therefore, the system considered in this paper employs a single IAB node, placed centrally among the users.
+
+The system design is modeled based on the five-layer Internet protocol stack and follows the 3GPP guidelines for cellular and radio communication and RFC standards for transport and application layer protocol. The simulation platform, i.e.,  \textbf{ns-3}, includes a number of open-source modules for various components out of which some are part of the open-source code directory. These modules are used in this work with certain modifications. Combining these community models, our system model evaluates the performance metrics of video streaming over two major transport protocols (TCP and QUIC) with a number of congestion control algorithms (BBR, NewReno, CUBIC). {\em The source code for this work is available at} \url{https://github.com/muhammadadeelzahid/ns3-ntn-iab}.
+
+\subsection*{Application Layer}
+Video streaming in the proposed system is implemented using MPEG-DASH, specified by ISO/IEC 23009. Adaptive bitrate streaming is a fundamental technique used by modern video protocols like DASH to cope with variable network conditions. It works by detecting a user's available bandwidth and device capabilities in real time and adjusting the quality of the video stream accordingly. In ns-3, we employ the MPEG-DASH adaptation module proposed in \cite{vergados2016fdash}, referred to as FDASH. The FDASH algorithm extends the standard MPEG-DASH rate adaptation process by introducing a fuzzy logic controller that uses the client’s instantaneous buffering time and its rate of change as inputs to determine the most appropriate bitrate. The video stream is divided into a number of segments, each consisting of multiple frames, encoded at different available bitrates. The controller first maps these two inputs into linguistic variables (short, close, long for buffer level, and falling, steady, rising for its change), which are then processed through a fuzzy rule base to infer whether the client should increase, decrease, or maintain the current video bitrate. The output of this fuzzy inference system is a scaling factor that adjusts the bitrate estimate derived from recent segment throughput measurements. FDASH is specifically designed to minimize resolution oscillations, avoid buffer underflow, and maintain stable playback quality under variable network conditions. 
+
+\subsection*{Transport Layer}
+
+At the transport layer, we focus on the interaction between the adaptive video application and the congestion control mechanisms that govern the LEO-backhauled 5G IAB path. To this end, we implement and compare two alternative transports: a traditional HTTP-over-TCP stack and a QUIC-based stack that represents HTTP/3 style operation. 
+
+QUIC is a user-space transport protocol that runs over UDP and integrates cryptographic handshake, stream multiplexing, and loss recovery into a single layer. Standardized by the IETF in 2021 as RFC 9000, QUIC has since become the underlying transport for HTTP/3. Unlike TCP, which exposes a single ordered byte stream and therefore suffers from HOL blocking at the connection level, QUIC supports multiple independent streams. Loss on one stream does not block data delivery on others, which is particularly important in our setting where MPEG-DASH issues a sequence of HTTP requests and responses that can be mapped to different streams. QUIC also uses its own packet number spaces and rich acknowledgment information, which enables more precise loss detection and supports advanced congestion control and pacing strategies, especially over high-delay and variable-quality satellite links. In both cases, each MPEG-DASH client maintains a single long-lived connection to the video server and all segment requests are serialized over this connection, so that differences in performance are attributable to the transport rather than to connection management artifacts.
+
+For the TCP-based experiments, we use ns-3's native TCP implementation configured with modern loss recovery and congestion control options. For QUIC, we extend the ns-3 module originally developed in \cite{DeBiasio2019}, which has undergone a series of upgrades including the implementation of the BBR congestion control algorithm.
+
+\subsection*{Cellular Stack}
+
+5G NR is the global standard for the 5G air interface, designed to support diverse use cases ranging from enhanced Mobile Broadband to Ultra-Reliable Low-Latency Communications. Key architectural advancements include support for millimeter-wave (mmWave) spectrum, which offers vast bandwidth resources, and flexible numerologies that adapt subcarrier spacing to different channel conditions. To overcome the high path-loss associated with mmWave frequencies, 5G NR heavily relies on massive MIMO and beamforming technologies to maintain robust link budgets.
+
+The 5G stack, particularly with IAB, is simulated using the ns-3 mmWave module extended by \cite{Polese2018}. This module is further enhanced to incorporate the NTN channel and propagation models based on the work of \cite{Sandri2023}, which implements the 3GPP TR 38.811 channel model for satellite communication. Additionally, the system implements hybrid beamforming with multilayer functionality as described in \cite{Polese2020HBF}, enabling spatial multiplexing to communicate with multiple users simultaneously within the same time slot. This increases spectral efficiency and allows the network to support higher aggregate throughput.
+
+\section*{Performance Evaluation}
+
+\begin{table}[t]
+\centering
+\caption{Transport protocols and congestion control algorithms evaluated, and simulation parameters}
+\label{tab:simulation_parameters}
+
+\renewcommand{\arraystretch}{1.18}
+\setlength{\tabcolsep}{6pt}
+
+\begin{tabular}{|p{0.54\columnwidth}|p{0.38\columnwidth}|}
+\hline
+\textbf{Parameter} & \textbf{Value} \\ \hline
+
+\multicolumn{2}{|c|}{\rule{0pt}{2.5ex}\textbf{Application Layer}} \\ \hline
+Video playback interval & 60 s \\ \hline
+Number of independent runs & 30 \\ \hline
+MPEG-DASH target buffer level & 30 s \\ \hline
+Throughput estimation window & 50 ms \\ \hline
+Playback buffer size & 512 MB \\ \hline
+
+\multicolumn{2}{|c|}{\rule{0pt}{2.5ex}\textbf{Transport Layer}} \\ \hline
+Initial congestion window & 10 packets \\ \hline
+Slow-start threshold & 65535 bytes \\ \hline
+Idle timeout & 30 s \\ \hline
+Reordering threshold & 2 packets \\ \hline
+Maximum number of tail loss probes & 5 \\ \hline
+Minimum retransmission timeout & 200 ms \\ \hline
+Delayed acknowledgment timeout & 25 ms \\ \hline
+Initial RTT estimate & 333 ms \\ \hline
+
+\multicolumn{2}{|c|}{\rule{0pt}{2.5ex}\textbf{Congestion Control Algorithms}} \\ \hline
+TCP & BBR, NewReno, CUBIC \\ \hline
+QUIC & BBR, NewReno \\ \hline
+
+\multicolumn{2}{|c|}{\rule{0pt}{2.5ex}\textbf{MAC and Link Layer}} \\ \hline
+Modulation and coding scheme & Adaptive based on CQI \\ \hline
+Scheduler type & Padded hybrid beamforming \\ \hline
+Number of resource blocks & 1 \\ \hline
+Chunks per resource block & 72 \\ \hline
+Number of RBs per RBG & 1 \\ \hline
+Symbols per slot & 30 \\ \hline
+Symbol period & 4.16 us \\ \hline
+Subframe period & 100 us \\ \hline
+
+\multicolumn{2}{|c|}{\rule{0pt}{2.5ex}\textbf{Physical Layer}} \\ \hline
+Carrier frequency & 28 GHz \\ \hline
+System bandwidth & 100.008 MHz \\ \hline
+Subcarrier spacing & 28.9375 kHz \\ \hline
+NTN channel model & 3GPP TR 38.811  \\ \hline
+Terrestrial channel model & 3GPP TR 38.901 \\ \hline
+Channel scenario & 3GPP Rural\\ \hline
+UE antenna gain & 3 dBi \\ \hline
+IAB node antenna gain & 40 dBi \\ \hline
+Satellite antenna gain & 40 dBi \\ \hline
+UE transmit power & 23 dBm \\ \hline
+IAB transmit power & 40 dBm \\ \hline
+Satellite transmit power & 40 dBm \\ \hline
+Noise figure & 5 dB \\ \hline
+Antenna model & Uniform planar array \\ \hline
+\end{tabular}
+\end{table}
+
+ Table \ref{tab:simulation_parameters} shows different congestion control algorithms that are tested for our system model and used for comparison, and also summarizes the complete set of simulation parameters. The simulations are conducted with the primary objective of evaluating whether the considered configurations can reliably playback 60~s of video content. The User Equipment (UEs) are assumed to remain stationary during each simulation run, and the considered topology includes only a single terrestrial IAB node. The NTN channel model, 3GPP TR 38.811, does account for satellite-motion-induced channel effects, including Doppler shift and time-varying propagation characteristics. However, the serving satellite is assumed to remain in coverage for the full simulation duration. 
+ 
+ %Consequently, the analysis does not capture mobility-related events such as UE handover, inter-satellite transfer, or outage due to the serving satellite moving out of range. Therefore the reported results isolate the effects of transport protocol and congestion control design for a static access scenario. 
+
+\begin{table}[t]
+\centering
+\caption{Interruption, latency, and fairness metrics}
+\label{tab:performance_summary}
+
+\renewcommand{\arraystretch}{1.18}
+\setlength{\tabcolsep}{5pt}
+
+\begin{tabular}{|p{0.23\columnwidth}|p{0.17\columnwidth}|p{0.17\columnwidth}|p{0.17\columnwidth}|}
+\hline
+\multicolumn{4}{|c|}{\rule{0pt}{2.5ex}\textbf{Interruption and Latency Metrics}} \\ \hline
+\textbf{Algorithm} & \textbf{Interruption Duration (s)} & \textbf{Number of Interruptions} & \textbf{Latency (ms)} \\ \hline
+QUIC-BBR & 2.94 & 42 & 12.65 \\ \hline
+QUIC-NewReno & 34.33 & 55 & 7.48 \\ \hline
+TCP-BBR & 6.39 & 328 & 28.86 \\ \hline
+TCP-CUBIC & 0.00 & 50 & 289.42 \\ \hline
+TCP-NewReno & 0.00 & 78 & 287.65 \\ \hline
+
+\multicolumn{4}{|c|}{\rule{0pt}{2.5ex}\textbf{Fairness Metrics}} \\ \hline
+\textbf{Algorithm} & \textbf{Throughput} & \textbf{Bitrate} & \textbf{Playback Duration} \\ \hline
+QUIC-BBR & 0.270 & 0.349 & 0.909 \\ \hline
+QUIC-NewReno & 0.249 & 0.455 & 0.682 \\ \hline
+TCP-BBR & 0.179 & 0.228 & 0.930 \\ \hline
+TCP-CUBIC & 0.309 & 0.355 & 0.995 \\ \hline
+TCP-NewReno & 0.220 & 0.288 & 0.990 \\ \hline
+\end{tabular}
+\end{table}
+\begin{figure*}[!t]
+    \centering
+    \includegraphics[width=0.88\textwidth]{Assets/cdf_throughput_bitrate.png}
+    \caption{CDFs of average playback bitrate and mean throughput.}
+    \label{fig:bitrate_throughput_cdf}
+\end{figure*}
+
+\subsection*{Simulation Results}
+
+\subsubsection{Playback Continuity}
+We first evaluate playback continuity, since the most fundamental requirement of a video streaming system is that users are able to complete the session with minimal stalling. For this purpose, we analyze playback duration, interruption duration, and number of interruptions. Playback duration indicates whether a user is able to watch the full 60~s video session. In the ideal case, playback duration reaches 60~s, which means that the client successfully sustains delivery for the complete playback interval. Any value below 60~s indicates that the session was interrupted and the playback could not be completed within the 60~s of simulation.
+
+Fig.~\ref{fig:playback_duration_boxplot} presents the distribution of playback duration across all evaluated transport and congestion control configurations. Because outcomes differ from one user to another, a probability distribution is used to represent this variability across users. The simulation is run 30 times for each algorithm.
+%so that the results are not driven by a single random draw, which makes the estimated outcomes more reliable. 
+TCP-NewReno and TCP-CUBIC show the highest median playback durations, both close to the 60~s target. QUIC-BBR and TCP-BBR follow with slightly lower values, while QUIC-NewReno records the lowest median. Overall, the differences in playback duration are modest, and by themselves, do not suggest major differences in QoE.
+
+Interruption duration captures the total time during which playback is stalled. For this metric, lower values are preferred, and the ideal case is 0s. The number of interruptions is measured using the total stall count. This metric reflects how often playback is disrupted. It is important because two schemes may have similar total interruption duration while producing very different viewing experiences if one causes frequent short stalls and the other causes only occasional interruptions. Lower values are therefore preferred, with zero interruptions representing uninterrupted playback.
+
+Table~\ref{tab:performance_summary} reports the median interruption duration and the mean total number of stalls across repeated runs. TCP-CUBIC and TCP-NewReno each achieve a median interruption duration of 0~s, indicating stall-free playback for at least half of the users. QUIC-BBR shows a median interruption duration of 2.94~s, while TCP-BBR records a larger median of 6.39s. QUIC-NewReno exhibits the highest median interruption duration at 34.33~s. For the mean total number of stalls, QUIC-BBR yields the lowest value at 42, followed by TCP-CUBIC at 50 and QUIC-NewReno at 55. TCP-NewReno shows a higher mean stall count of 78, while TCP-BBR performs worst with a mean of 328 stalls. An important observation is that although QUIC-BBR and QUIC-NewReno have relatively similar stall counts, their interruption durations differ substantially, which suggests that the key distinction between these two schemes lies in stall severity rather than stall frequency. Taken together, the interruption metrics differentiate the evaluated schemes much more clearly than playback duration alone.
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=1.0\columnwidth]{Assets/boxplot_playback_duration.png}
+    \caption{Playback duration.}
+    \label{fig:playback_duration_boxplot}
+\end{figure}
+
+\subsubsection{Latency}
+We next consider latency, which reflects the responsiveness of the end-to-end path. Latency is defined as one-half of the measured round-trip time (RTT), representing the approximate time taken for a packet to travel one way to the receiver.
+
+Table~\ref{tab:performance_summary} reports the median latency values for each transport and congestion control configuration. The QUIC-based schemes yield the lowest median latency values, with QUIC-NewReno and QUIC-BBR achieving 7.48~ms and 12.65~ms, respectively. TCP-BBR follows at 28.86~ms. In contrast, TCP-CUBIC and TCP-NewReno exhibit substantially larger median latencies of 289.42~ms and 287.65~ms. These results indicate that the choice of transport and congestion control has a strong effect on end-to-end responsiveness even when some playback-related metrics remain relatively close.
+
+\subsubsection{Playback Quality and Transport Efficiency}
+After establishing continuity and responsiveness, we examine average playback bitrate and mean throughput to assess the delivered media quality and the transport efficiency supporting that quality. For both CDF plots, curves located further to the right correspond to higher values and therefore better performance.
+
+Fig.~\ref{fig:bitrate_throughput_cdf} shows the CDFs of average playback bitrate and mean throughput. In the bitrate distribution, QUIC-NewReno attains the highest median playback bitrate at approximately 3.28~Mbps and also exhibits a longer upper tail than the other schemes, indicating that some runs achieve substantially higher delivered quality. TCP-CUBIC, TCP-NewReno, and QUIC-BBR occupy an intermediate range, with median playback bitrates of 1.41~Mbps, 1.16~Mbps, and 1.03~Mbps, respectively. TCP-BBR records the lowest median playback bitrate at 0.72~Mbps. Overall, the bitrate distributions are spread across a wide range, indicating noticeable variability in the delivered video quality across runs.
+
+In the throughput distribution of Fig.~\ref{fig:bitrate_throughput_cdf}, TCP-CUBIC achieves the highest median throughput at 2.46~Mbps, followed by TCP-NewReno at 1.50~Mbps and QUIC-BBR at 1.24~Mbps. QUIC-NewReno has a lower median throughput of 0.50~Mbps, while TCP-BBR shows the lowest median throughput at 0.04~Mbps. The throughput distributions are highly dispersed, particularly for TCP-BBR, where the sharp rise near very small values and the long upper tail indicate that most runs experience low typical throughput while a small number of runs achieve much larger values.
+
+\subsubsection{Fairness}
+Finally, we analyze fairness using Jain's fairness index to determine how evenly the available resources are distributed across users, since strong aggregate performance may still hide unequal user experiences. For a set of $N$ users with values $x_1, x_2, \ldots, x_N$, the fairness index is defined as
+\begin{equation}
+J(\mathbf{x}) = \frac{\left(\sum_{i=1}^{N} x_i\right)^2}{N \sum_{i=1}^{N} x_i^2},
+\label{eq:jain_fairness}
+\end{equation}
+where $x_i$ represents the value of the metric for user $i$, such as throughput, playback bitrate, or playback duration. The value of $J(\mathbf{x})$ approaches 1 when the allocation is highly fair and decreases as the distribution becomes more uneven.
+
+Table~\ref{tab:performance_summary} shows that playback duration fairness remains high for most configurations, particularly for TCP-CUBIC and TCP-NewReno. However, the fairness values for throughput and playback bitrate are substantially lower across all schemes. This indicates that even when users achieve broadly similar playback durations, the underlying allocation of throughput and delivered video quality is much less balanced.
+
+\subsection*{Discussion}
+The results indicate that no single transport and congestion control combination is optimal across all metrics. Instead, each scheme reflects a different tradeoff among playback continuity, bitrate delivery, throughput, latency, and fairness. Among the evaluated configurations, QUIC-BBR provides the most balanced overall performance. It combines competitive playback duration with shorter interruption periods and substantially lower latency than the TCP loss-based variants. These characteristics make it well suited for video streaming scenarios where both continuity and responsiveness are important. TCP-CUBIC and TCP-NewReno achieve strong playback duration and throughput, but their much higher latency reduces their suitability for delay-sensitive applications. QUIC-NewReno achieves high playback bitrate and low latency, but its significantly larger interruption duration weakens its overall QoE performance.
+
+\section*{Conclusion}
+We have evaluated several transport and congestion control configurations for adaptive video streaming over a LEO-backhauled 5G IAB network. The results show that the tested schemes exhibit distinct performance tradeoffs, with no single approach dominating every metric. Among them, QUIC-BBR achieves the best overall balance across playback continuity, latency, and delivery performance, making it the most suitable option in the evaluated scenario. The study presented in this paper can be extended by exploring the following directions:
+
+\begin{itemize}
+    \item Extend the framework to incorporate UE mobility and constellation-level satellite dynamics, so that the impact of handover and possible outage events on transport and MPEG-DASH QoE can be evaluated.
+    
+    \item Develop adaptive or hybrid mechanisms that dynamically select or tune congestion control behavior based on real-time application requirements and network conditions.
+    \item Incorporate cross-layer information, such as link variability and handover events, to enable more informed transport-layer adaptations.
+    \item Integrate generative AI models to analyze complex network patterns and automate the selection of optimal protocol configurations.
+    \item Leverage observed per-metric QoE tradeoffs to design targeted transport and streaming optimizations for diverse traffic profiles.
+\end{itemize}
+
+\ifCLASSOPTIONcaptionsoff
+\newpage
+\fi
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\begin{IEEEbiographynophoto}{Muhammad Adeel Zahid} is currently pursuing the M.Sc. degree with the Department of Electrical and Computer Engineering at the University of Manitoba, Canada. His research interests include cellular networks, transport-layer design, congestion control, and end-to-end network optimization.
+\end{IEEEbiographynophoto}
+
+\begin{IEEEbiographynophoto}{Ekram Hossain}(Fellow, IEEE) is a Professor and the Associate Head (Graduate Studies) of the Department of Electrical and Computer Engineering, University of Manitoba, Canada. He is a Member of the College of the Royal Society of Canada, and a Fellow of the Canadian Academy of Engineering and the Engineering Institute of Canada. His research interests include modeling, analysis, and optimization of 6G networks and beyond.
+\end{IEEEbiographynophoto}
+
+\begin{IEEEbiographynophoto}
+{Peng Hu} (Senior Member, IEEE) is an Associate Professor in the Department of Electrical and Computer Engineering at the University of Manitoba, Canada. His research interests include non-terrestrial networks, space-air-ground integrated network systems, and network resilience.
+\end{IEEEbiographynophoto}
+%
+\end{document}

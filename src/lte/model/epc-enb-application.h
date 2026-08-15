@@ -39,6 +39,8 @@
 #include <ns3/epc-enb-s1-sap.h>
 #include <ns3/epc-s1ap-sap.h>
 #include <map>
+#include <set>
+#include <vector>
 
 namespace ns3 {
 class EpcEnbS1SapUser;
@@ -142,6 +144,32 @@ public:
     friend bool operator == (const EpsFlowId_t &a, const EpsFlowId_t &b);
     friend bool operator < (const EpsFlowId_t &a, const EpsFlowId_t &b);
   };
+
+  /**
+   * Relay state of one descendant flow (UE bearer reached through an IAB-MT), used to migrate the
+   * data plane to a new donor when the IAB-MT re-parents (genuine 3GPP inter-donor IAB migration).
+   */
+  struct IabDescendantContext
+  {
+    uint64_t imsi;   //!< IMSI of the remote (descendant) UE
+    uint32_t teid;   //!< downlink S1-U TEID for this flow (preserved across the migration)
+    uint8_t  bid;    //!< EPS bearer id on the IAB-MT's backhaul bearer that carries this flow
+    bool     isIab;  //!< true if the descendant is itself an IAB node (vs. a plain UE)
+  };
+
+  /**
+   * Export the relay state of every descendant flow currently reached through the given IAB-MT
+   * (the IAB-MT's local RNTI on THIS, the source, donor). Called on the source donor at handover.
+   */
+  std::vector<IabDescendantContext> ExportIabDescendants (uint16_t iabMtRnti);
+
+  /**
+   * Install, on THIS (the target) donor, the descendant relay state for an IAB-MT that has just
+   * handed over to local RNTI \p newIabMtRnti (IMSI \p iabImsi), then drive a real S1 path switch
+   * per descendant so the SGW/PGW re-tunnels each UE's downlink to this donor.
+   */
+  void ImportIabDescendants (uint16_t newIabMtRnti, uint64_t iabImsi,
+                             const std::vector<IabDescendantContext> & descendants);
 
 
 private:
@@ -267,6 +295,18 @@ private:
   std::map<uint32_t, bool> m_teidRemoteMap; // associate true only to the teid of nodes that are not local
 
   std::map<uint16_t, std::vector<uint64_t> > m_rntiImsiChildrenMap; // TODOIAB this contains only the IAB nodes
+
+  // Reliable per-TEID -> remote-UE IMSI map for relayed (non-local) flows. Populated wherever a remote
+  // (imsi, sgwTeid) binding is learned, so ExportIabDescendants can enumerate an IAB-MT's descendants
+  // by TEID without depending on m_rntiImsiChildrenMap (which holds only nested-IAB children) or on
+  // m_rbidRemoteImsiMap (whose key can collide when several UEs share an IAB-MT backhaul bearer/BID).
+  std::map<uint32_t, uint64_t> m_teidRemoteImsiMap;
+
+  // IMSIs of descendant UEs migrated to THIS donor. Used so DoPathSwitchRequestAcknowledge skips the
+  // SendUeContextRelease for these flows: a descendant's path-switch ack resolves to the IAB-MT's
+  // UeManager (relayed traffic rides the IAB-MT's RNTI), and releasing it would tear down the
+  // freshly-migrated backhaul. The SGW re-point already took effect in the MME before the ack.
+  std::set<uint64_t> m_migratedDescendantImsi;
 
   uint16_t m_cellId;
 

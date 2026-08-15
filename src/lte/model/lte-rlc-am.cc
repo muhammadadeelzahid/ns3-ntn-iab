@@ -34,6 +34,8 @@
 #include "ns3/ipv4-queue-disc-item.h"
 #include "ns3/ipv4-packet-filter.h"
 
+#include <iostream>
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("LteRlcAm");
@@ -2684,7 +2686,7 @@ LteRlcAm::ReassembleAndDeliver (Ptr<Packet> packet)
 void
 LteRlcAm::TriggerReceivePdcpPdu(Ptr<Packet> p)
 {
-  if(!isMc) 
+  if(!isMc)
   {
     m_rlcSapUser->ReceivePdcpPdu(p);
   }

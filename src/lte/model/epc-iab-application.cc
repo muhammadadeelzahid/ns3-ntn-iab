@@ -36,8 +36,10 @@
 #include <ns3/epc-s1ap-header.h>
 #include <ns3/epc-x2-header.h>
 #include <ns3/packet-socket.h>
+#include "ns3/simulator.h"
 
 #include <algorithm>
+#include <iostream>
 
 
 namespace ns3 {
@@ -484,7 +486,12 @@ EpcIabApplication::RecvFromLteSocket (Ptr<Socket> socket) // receive a packet fr
     EpcX2Header x2Header;
     if(gtpMessageType == GtpuHeader::X2 && packet->PeekHeader(x2Header))
     {
-      NS_FATAL_ERROR("TODO");
+      std::cout << "[MIG-X2] t=" << Simulator::Now ().GetSeconds () << "s IAB RecvFromLteSocket(access)"
+                << " GTP-X2: rnti=" << rnti << " teid=" << teid
+                << " x2MsgType=" << (uint32_t) x2Header.GetMessageType ()
+                << " x2ProcCode=" << (uint32_t) x2Header.GetProcedureCode ()
+                << " - DROPPING (X2-over-backhaul TODO)" << std::endl;
+      packet = 0;
       return;
     }
 
@@ -644,7 +651,13 @@ EpcIabApplication::RecvFromS1uSocket (Ptr<Socket> socket) // receive a packet fr
   }
   else if(gtpMessageType == GtpuHeader::X2 && packet->PeekHeader(x2Header))
   {
-    NS_FATAL_ERROR("Not implemented");
+    std::cout << "[MIG-X2] t=" << Simulator::Now ().GetSeconds () << "s IAB RecvFromS1uSocket(backhaul)"
+              << " GTP-X2: teid=" << teid
+              << " x2MsgType=" << (uint32_t) x2Header.GetMessageType ()
+              << " x2ProcCode=" << (uint32_t) x2Header.GetProcedureCode ()
+              << " - DROPPING (X2-over-backhaul TODO)" << std::endl;
+    packet = 0;
+    return;
   }
 
 

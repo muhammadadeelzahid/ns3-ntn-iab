@@ -232,7 +232,9 @@ MmWaveUeMac::MmWaveUeMac (void)
   m_freshUlBsr (false),
   //m_harqProcessId (0),
   m_rnti (0),
-  m_waitingForRaResponse (true)
+  m_waitingForRaResponse (true),
+  m_raContention (false),
+  m_raPreambleTransmissions (0)
 {
 	NS_LOG_FUNCTION (this);
 	m_cmacSapProvider = new UeMemberMmWaveUeCmacSapProvider (this);
@@ -602,7 +604,8 @@ MmWaveUeMac::RecvRaResponse (BuildRarListElement_s raResponse)
 {
   NS_LOG_FUNCTION (this);
   m_waitingForRaResponse = false;
-  //m_noRaResponseReceivedEvent.Cancel ();
+  m_noRaResponseEvent.Cancel ();
+  m_raPreambleTransmissions = 0;
   NS_LOG_INFO ("got RAR for RAPID " << (uint32_t) m_raPreambleId << ", setting T-C-RNTI = " << raResponse.m_rnti);
   m_rnti = raResponse.m_rnti;
   m_cmacSapUser->SetTemporaryCellRnti (m_rnti);
@@ -981,6 +984,7 @@ void
 MmWaveUeMac::DoStartContentionBasedRandomAccessProcedure ()
 {
   NS_LOG_FUNCTION (this);
+  m_raPreambleTransmissions = 0;
   RandomlySelectAndSendRaPreamble ();
 }
 
@@ -1005,9 +1009,46 @@ MmWaveUeMac::SendRaPreamble(bool contention)
 	/*raRnti should be subframeNo -1 */
 	m_raRnti = 1;
 	m_waitingForRaResponse = true;
+	m_raContention = contention;
+	++m_raPreambleTransmissions;
 
 	NS_LOG_DEBUG("SendRachPreamble at time " << Simulator::Now());
 	m_phySapProvider->SendRachPreamble(m_raPreambleId, m_raRnti);
+
+	// 3GPP RA preamble retransmission: arm the response-window timer. If no RAR arrives, the timer
+	// retransmits (up to MAX_RA_PREAMBLE_TX) or, once exhausted, declares RA failure to the RRC.
+	// The 10 ms window covers the LEO backhaul round-trip (~3.6 ms at 550 km) with margin and lets
+	// us recover a preamble dropped during the handover reset transient on an otherwise-up link.
+	m_noRaResponseEvent.Cancel ();
+	m_noRaResponseEvent = Simulator::Schedule (MilliSeconds (10), &MmWaveUeMac::RaResponseTimeout, this);
+}
+
+void
+MmWaveUeMac::RaResponseTimeout ()
+{
+	if (!m_waitingForRaResponse)
+	{
+		return; // RAR already received, nothing to do
+	}
+	const uint32_t MAX_RA_PREAMBLE_TX = 10;
+	if (m_raPreambleTransmissions < MAX_RA_PREAMBLE_TX)
+	{
+		NS_LOG_INFO ("RA response timeout for preambleId=" << (uint32_t)m_raPreambleId
+		             << " (attempt " << m_raPreambleTransmissions << "), retransmitting");
+		SendRaPreamble (m_raContention);
+	}
+	else
+	{
+		// Preamble retransmissions exhausted: declare random-access failure to the RRC. For a
+		// handover this fires LteUeRrc's HandoverEndError/RandomAccessError traces, making a failed
+		// IAB backhaul handover DETECTABLE (so it can be logged/excluded) instead of hanging
+		// silently in CONNECTED_HANDOVER. (Module note: RRC re-establishment after such a failure
+		// is an upstream TODO, so there is no automatic recovery beyond this notification.)
+		NS_LOG_WARN ("RA failed after " << m_raPreambleTransmissions << " preamble attempts (rnti="
+		             << m_rnti << "): notifying RRC of random-access failure");
+		m_waitingForRaResponse = false;
+		m_cmacSapUser->NotifyRandomAccessFailed ();
+	}
 }
 
 void
@@ -1017,6 +1058,7 @@ MmWaveUeMac::DoStartNonContentionBasedRandomAccessProcedure (uint16_t rnti, uint
 	NS_ASSERT_MSG (prachMask == 0, "requested PRACH MASK = " << (uint32_t) prachMask << ", but only PRACH MASK = 0 is supported");
 	m_rnti = rnti;
 	m_raPreambleId = preambleId;
+	m_raPreambleTransmissions = 0;
   	bool contention = false;
   	if(!m_interRatHoCapable) // we assume that the LTE eNB can send directionality info, thus the UE has not to wait to collect updated info
   	{

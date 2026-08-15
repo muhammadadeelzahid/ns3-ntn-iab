@@ -30,6 +30,8 @@
 #include "ns3/lte-rlc-sdu-status-tag.h"
 #include "ns3/lte-rlc-tag.h"
 
+#include <iostream>
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("LteRlcUm");
@@ -1104,7 +1106,7 @@ LteRlcUm::ReassembleAndDeliver (Ptr<Packet> packet)
 void
 LteRlcUm::TriggerReceivePdcpPdu(Ptr<Packet> p)
 {
-  if(!isMc) 
+  if(!isMc)
   {
     NS_LOG_INFO(this << " RlcUm forwards packet to PDCP (either from MmWave or LTE stack)");
     m_rlcSapUser->ReceivePdcpPdu(p);

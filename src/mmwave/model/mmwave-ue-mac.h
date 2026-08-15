@@ -109,6 +109,7 @@ private:
 
 	void RandomlySelectAndSendRaPreamble ();
 	void SendRaPreamble (bool contention);
+	void RaResponseTimeout ();  // retransmit the RA preamble if no RAR was received in time
   void SendReportBufferStatus (void);
   void RefreshHarqProcessesPacketBuffer (void);
 
@@ -168,6 +169,11 @@ private:
 	uint16_t m_rnti;
 
 	bool m_waitingForRaResponse;
+	// Random-access preamble retransmission (standard 3GPP RA behaviour, re-enabled so that a
+	// preamble lost during the handover reset transient is retried on the now-stable link).
+	EventId m_noRaResponseEvent;
+	bool m_raContention;                  // whether the in-progress RA is contention-based
+	uint32_t m_raPreambleTransmissions;   // number of preamble (re)transmissions for the current RA
 	static uint8_t g_raPreambleId;
 	Ptr<UniformRandomVariable> m_randomAccessProcedureDelay;
 	double m_ueUpdateSinrPeriod;

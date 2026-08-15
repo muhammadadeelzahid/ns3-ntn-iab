@@ -281,6 +281,8 @@ DashClient::RequestSegment()
     SendSegmentRequest(requestSegmentId, m_bitRate, false);
     m_requestTime = Simulator::Now();
     m_segment_bytes = 0;
+    m_lastWatchdogBytes = 0;
+    m_watchdogStuckTicks = 0;
 
     m_segmentWatchdogTimer.Cancel();
     m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
@@ -305,7 +307,14 @@ DashClient::SendSegmentRequest(uint32_t segmentId, uint32_t bitrate, bool isRetr
     int res = m_socket->Send(packet);
     if (res < 0)
     {
-        NS_FATAL_ERROR("Oh oh. Couldn't send packet! res=" << res << " size=" << packet->GetSize());
+        // Send can fail legitimately (e.g. the transport socket already closed after an idle timeout
+        // on a stalled connection, or a momentarily full send buffer). NS_FATAL_ERROR here turned one
+        // dead client into a dead SIMULATION (observed: QUIC's Send-in-IDLE abort at t=554 s killed a
+        // whole pilot run). Treat it like a lost request instead: the segment watchdog will retry once
+        // and eventually free the client (m_RequestPending=false) so the run and the other UEs go on.
+        NS_LOG_WARN("DashClient " << m_id << ": segment request send failed (res=" << res
+                    << ", size=" << packet->GetSize() << ") - leaving recovery to the watchdog");
+        return res;
     }
 
     m_txTrace(packet);
@@ -320,16 +329,50 @@ DashClient::SegmentRequestWatchdog()
         return;
     }
 
-    if (!m_pendingRetryUsed)
+    // Progress-aware watchdog. The previous version re-sent the segment request on every 500 ms tick
+    // regardless of whether the segment was actively downloading. Under multi-user load that turns a
+    // merely-slow segment (loss + slow recovery) into a duplicate full-segment resend at the server,
+    // which adds congestion and slows every other segment -> a positive-feedback stall spiral. Instead:
+    //  - if the segment is making progress (more bytes than the last tick), it is just slow: keep
+    //    waiting, do NOT re-request;
+    //  - only if there is NO progress do we act: a single re-request when nothing at all has arrived
+    //    (the request itself was likely lost), otherwise just keep waiting for the in-flight data;
+    //  - as a last resort, after a long stall with no progress, free the client so it can recover
+    //    (instead of leaving m_RequestPending stuck true forever).
+    bool progressing = (m_segment_bytes > m_lastWatchdogBytes);
+    m_lastWatchdogBytes = m_segment_bytes;
+
+    if (progressing)
+    {
+        m_watchdogStuckTicks = 0;
+        m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
+                                                     &DashClient::SegmentRequestWatchdog, this);
+        return;
+    }
+
+    m_watchdogStuckTicks++;
+
+    // Nothing received yet: the request may have been lost in a handover/loss burst — retry it once.
+    if (m_segment_bytes == 0 && !m_pendingRetryUsed)
     {
         m_pendingRetryUsed = true;
         SendSegmentRequest(m_pendingSegmentId, m_pendingBitRate, true);
-        // single-shot retry with one extra safety window
         m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
-                                                     &DashClient::SegmentRequestWatchdog,
-                                                     this);
+                                                     &DashClient::SegmentRequestWatchdog, this);
         return;
     }
+
+    // Some data arrived then progress stalled, or the lone retry already went out. Keep waiting for the
+    // in-flight segment (it usually completes), but bound the wait so a truly dead segment frees the
+    // client (~5 s of no progress) rather than wedging it permanently.
+    if (m_watchdogStuckTicks < 10)
+    {
+        m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
+                                                     &DashClient::SegmentRequestWatchdog, this);
+        return;
+    }
+
+    m_RequestPending = false; // give up on this segment; allow the buffer-underrun path to re-request
 }
 
 void

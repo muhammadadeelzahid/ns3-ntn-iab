@@ -22,6 +22,7 @@
 #define MPEG_PLAYER_H_
 
 #include "ns3/nstime.h"
+#include "ns3/event-id.h"
 #include "ns3/packet.h"
 #include "ns3/ptr.h"
 
@@ -85,6 +86,12 @@ class MpegPlayer
     }
 
     int m_state;
+    // Single outstanding PlayFrame event. ALL PlayFrame (re)scheduling goes through this EventId with a
+    // cancel-before-schedule, so there is only ever ONE pending PlayFrame. Without it, the underrun branch's
+    // keep-alive reschedule and ReceiveFrame's resume each started a chain, so every pause->resume cycle
+    // spawned an extra concurrent PlayFrame chain (frames consumed at 2x, 3x... -> runaway buffer drain and
+    // absurd interruption counts).
+    EventId m_playFrameEvent;
     Time m_interruption_time;
     int m_interrruptions;
 

@@ -109,10 +109,16 @@ class DashClient : public Application
 
     double GetSegmentFetchTime();
 
+    // Representation ladder (bps). Capped at ~4.2 Mbps (realistic 1080p top). RATIONALE (root-cause
+    // 2026-07-03): 100 Mbps backhaul / 10 UEs = 10 Mbps/UE fair share; the ABR top tier MUST sit below the
+    // fair share (with headroom) or BOLA chronically overshoots and offers ~1.5x capacity onto the shared
+    // mmWave access link. That sustained overload triggers loss bursts this ns-3 QUIC module's recovery
+    // cannot absorb (NewReno RTO never backs off cwnd; BBR pacing rate collapses to ~64 kbps), freezing
+    // QUIC flows while TCP (cwnd-halving RTO) survives. The old 15 Mbps top (1.5x fair share) was the root
+    // stressor. 10 UEs x 4.2 Mbps = 42 Mbps << 100 Mbps leaves ample headroom for mmWave variability.
     std::vector<uint32_t> rates = {45000,    89000,    131000,   178000,  221000,  263000,  334000,
                                    396000,   522000,   595000,   791000,  1033000, 1245000, 1547000,
-                                   2134000,  2484000,  3079000,  3527000, 3840000, 4220000, 9500000,
-                                   15000000, 30000000, 66000000, 85000000};
+                                   2134000,  2484000,  3079000,  3527000, 3840000, 4220000};
 
     uint32_t m_bufferSpace;
     MpegPlayer m_player; // The MpegPlayer object
@@ -192,6 +198,8 @@ class DashClient : public Application
     uint32_t m_pendingSegmentId = 0;
     uint32_t m_pendingBitRate = 0;
     bool m_pendingRetryUsed = false;
+    uint32_t m_lastWatchdogBytes = 0;  // bytes received as of the previous watchdog tick (progress detection)
+    uint32_t m_watchdogStuckTicks = 0; // consecutive watchdog ticks with no progress
 
     EventId m_keepAliveTimer;
     EventId m_connectWatchdogTimer;

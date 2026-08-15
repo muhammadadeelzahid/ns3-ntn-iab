@@ -18,6 +18,7 @@
  * Author: Dimitrios J. Vergados <djvergad@gmail.com>
  */
 
+#include <iostream>
 #include "mpeg-player.h"
 
 #include "dash-client.h"
@@ -144,13 +145,17 @@ MpegPlayer::ReceiveFrame(Ptr<Packet> message)
                       << "s. Total interruption time=" << m_interruption_time.GetSeconds() << "s");
         m_state = MPEG_PLAYER_PLAYING;
         m_interruption_time += (Simulator::Now() - m_lastpaused);
-        PlayFrame();
+        // Resume through the single guarded PlayFrame event (cancel any pending underrun keep-alive tick
+        // first) so resuming does NOT spawn a second concurrent PlayFrame chain.
+        m_playFrameEvent.Cancel();
+        m_playFrameEvent = Simulator::Schedule(MilliSeconds(0), &MpegPlayer::PlayFrame, this);
     }
     else if (m_state == MPEG_PLAYER_NOT_STARTED)
     {
         NS_LOG_INFO("Play started");
         m_state = MPEG_INITIAL_BUFFERING;
-        Simulator::Schedule(Seconds(1), &MpegPlayer::PlayFrame, this);
+        m_playFrameEvent.Cancel();
+        m_playFrameEvent = Simulator::Schedule(Seconds(1), &MpegPlayer::PlayFrame, this);
     }
     return true;
 }
@@ -181,16 +186,32 @@ MpegPlayer::PlayFrame(void)
         NS_LOG_UNCOND("[MPEG_PLAYER] No frames to play at t=" << Simulator::Now().GetSeconds() 
                       << "s. Player ID=" << (m_dashClient ? m_dashClient->m_id : -1)
                       << " State changing to PAUSED. Interruptions=" << m_interrruptions);
-        m_state = MPEG_PLAYER_PAUSED;
-        m_lastpaused = Simulator::Now();
-        m_interrruptions++;
-        
+        // Count/timestamp the interruption ONLY on the transition into a stall, not on every 100 ms
+        // PlayFrame tick while already paused. Otherwise the reschedule below would (a) inflate the
+        // interruption count and (b) keep resetting m_lastpaused so the resume in ReceiveFrame
+        // (m_interruption_time += Now - m_lastpaused) would undercount the true stall duration.
+        if (m_state != MPEG_PLAYER_PAUSED)
+        {
+            m_state = MPEG_PLAYER_PAUSED;
+            m_lastpaused = Simulator::Now();
+            m_interrruptions++;
+        }
+
         // Proactively request next segment if client is available
         if (m_dashClient && !m_dashClient->m_RequestPending)
         {
             NS_LOG_INFO("Proactively requesting segment due to buffer underrun");
             Simulator::Schedule(MilliSeconds(0), &DashClient::RequestSegment, m_dashClient);
         }
+        // CRITICAL: keep the player alive during an underrun. Every other PlayFrame branch reschedules
+        // itself, but this one used to `return` without doing so - so if the buffer emptied while a
+        // segment request was still pending (RequestPending==true, common when QUIC stalls a segment),
+        // PlayFrame was never rescheduled and DIED. When that pending segment later failed and the
+        // watchdog freed the client (RequestPending=false), the underrun re-request above - which lives
+        // inside PlayFrame - could never fire again => the client wedged forever (the residual freeze).
+        // Rescheduling here lets the client re-request and recover on the next tick.
+        m_playFrameEvent.Cancel();
+        m_playFrameEvent = Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
         return;
     }
 
@@ -204,7 +225,8 @@ MpegPlayer::PlayFrame(void)
     {
         NS_LOG_UNCOND("Dropping undersized frame: size=" << message->GetSize()
                                                        << " headerSize=" << headerSize);
-        Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
+        m_playFrameEvent.Cancel();
+        m_playFrameEvent = Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
         return;
     }
 
@@ -216,7 +238,8 @@ MpegPlayer::PlayFrame(void)
         NS_LOG_DEBUG("Dropping corrupted frame in player: removedHttp=" << removedHttp
                     << " removedMpeg=" << removedMpeg
                     << " size=" << message->GetSize());
-        Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
+        m_playFrameEvent.Cancel();
+        m_playFrameEvent = Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
         return;
     }
 
@@ -260,7 +283,8 @@ MpegPlayer::PlayFrame(void)
        << " now: " << Simulator::Now().GetSeconds()
        << std::endl;
        */
-    Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
+    m_playFrameEvent.Cancel();
+    m_playFrameEvent = Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
 
     // There may be space now to read a new packet from the socket
     // Trigger CheckBuffer immediately after consuming a frame to ensure continuous reception

@@ -3573,12 +3573,213 @@ def _plot_relay_sensitivity(rows_for_csv, output_dir):
     print("Saved relay_cdf_playback_duration.png")
 
 
+# ============================================================================
+# COMMAG-26-00357 revision: composite-QoE analysis of the LEO-handover campaign.
+# Reads our layout  <results>/<config>/run_<seed>/  (config in
+# {quic_bbr,quic_newreno,tcp_bbr,tcp_cubic,tcp_newreno}; each run has its own sim.log
+# plus per-connection server{QUIC,TCP}-cwnd-change*/rtt* traces). Reuses the existing
+# parse_bitrate_log_per_user(). Produces (into Analysis_artifacts/):
+#   - table2_qoe.csv        Per-config: Composite QoE | mean bitrate | total stall | mean RTT | Jain(QoE)
+#   - figA_qoe_boxplot.png  Composite-QoE distribution per config            (Fig. A, headline)
+#   - figB_cwnd_rtt.png     cwnd & RTT vs time, handover instants marked     (Fig. B, centerpiece)
+# Composite QoE (Yin et al. 2015, log-utility variant), per user:
+#   QoE = Σ_n ln(R_n/Rmin) − μ·rebuffer_seconds − λ·Σ_n |ln R_{n+1} − ln R_n|
+# with GLOBAL ladder Rmin/Rmax (comparable across users), μ = ln(Rmax/Rmin), λ = 1
+# (1 s rebuffering ≈ one max-quality segment of utility; μ,λ sensitivity reported in the paper).
+# ============================================================================
+HO_CONFIG_LABEL = {'quic_bbr': 'QUIC BBR', 'quic_newreno': 'QUIC NewReno',
+                   'tcp_bbr': 'TCP BBR', 'tcp_cubic': 'TCP Cubic', 'tcp_newreno': 'TCP NewReno'}
+HO_ORDER = ['QUIC BBR', 'QUIC NewReno', 'TCP BBR', 'TCP NewReno']  # TCP Cubic dropped (near-redundant with TCP NewReno; keeps clean QUIC/TCP x BBR/NewReno 2x2)
+HO_COLOR = {'QUIC BBR': 'tab:blue', 'QUIC NewReno': 'tab:cyan', 'TCP BBR': 'tab:red',
+            'TCP Cubic': 'tab:orange', 'TCP NewReno': 'tab:brown'}
+QOE_LAMBDA = 1.0
+_QOE_LINE_RE = re.compile(r"ue-id:\s*(\d+)\s+InterruptionTime:\s*(-?(?:[\d.]+(?:[eE][+-]?\d+)?|nan|inf))")
+
+
+def _qoe_load_trace(path, valcol=2):
+    """Load a 'time old new' trace; return (t, v[valcol]) or None.
+
+    Fast whitespace parse (str.split + np.array) instead of np.loadtxt, which is ~30x slower and made
+    the handover analysis take ~45 min loading the ~900 large per-ACK server RTT/cwnd traces. Trims any
+    trailing partial line (killed/timed-out runs) so the reshape is safe. Same numeric result."""
+    try:
+        with open(path, errors='ignore') as f:
+            vals = np.array(f.read().split(), dtype=float)
+        n = (vals.size // 3) * 3
+        if n == 0:
+            return None
+        d = vals[:n].reshape(-1, 3)
+        return d[:, 0], d[:, valcol]
+    except Exception:
+        return None
+
+
+def _smooth_downsample(t, v, npts=500, win=9):
+    """Rolling-median smooth (kills the per-ACK cwnd sawtooth) then step-resample onto a uniform time
+    grid, so a multi-thousand-point per-ACK trace plots as a clean, readable line for Fig. B."""
+    t = np.asarray(t, dtype=float)
+    v = np.asarray(v, dtype=float)
+    if t.size <= 3:
+        return t, v
+    if v.size >= win >= 3:
+        try:
+            from numpy.lib.stride_tricks import sliding_window_view
+            pad = win // 2
+            v = np.median(sliding_window_view(np.pad(v, pad, mode='edge'), win), axis=1)
+        except Exception:
+            pass  # smoothing is best-effort; fall back to raw values
+    if t.size > npts:
+        grid = np.linspace(float(t.min()), float(t.max()), npts)
+        idx = np.clip(np.searchsorted(t, grid, side='right') - 1, 0, v.size - 1)  # step (cwnd/RTT) interp
+        return grid, v[idx]
+    return t, v
+
+
+def analyze_handover_campaign(results_dir, ho_times, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    # ---- pass 1: per-(config,run,ue) bitrate series + rebuffering; global ladder bounds ----
+    # Key on HO_CONFIG_LABEL (all configs) so the global ladder is computed over every config even
+    # when some are excluded from HO_ORDER outputs -> kept configs' QoE stays byte-identical.
+    data = {lab: [] for lab in HO_CONFIG_LABEL.values()}
+    gmin, gmax = float('inf'), 0.0
+    for cfg, label in HO_CONFIG_LABEL.items():
+        for run_dir in sorted(glob.glob(os.path.join(results_dir, cfg, 'run_*'))):
+            simlog = os.path.join(run_dir, 'sim.log')
+            if not os.path.exists(simlog):
+                continue
+            br_by_ue = parse_bitrate_log_per_user(simlog)        # {ue: [(t, kbps)]}
+            rebuf = {}
+            with open(simlog, errors='ignore') as f:
+                for line in f:
+                    m = _QOE_LINE_RE.search(line)
+                    if m:
+                        try:
+                            rebuf[int(m.group(1))] = float(m.group(2))
+                        except ValueError:
+                            rebuf[int(m.group(1))] = 0.0
+            for ue, series in br_by_ue.items():
+                rs = [b for (_, b) in series if b and b > 0]
+                if not rs:
+                    continue
+                gmin = min(gmin, min(rs)); gmax = max(gmax, max(rs))
+                data[label].append({'series': series, 'rebuf': rebuf.get(ue, 0.0)})
+    if gmin == float('inf') or gmax <= gmin:
+        print("No bitrate data found under", results_dir); return
+    mu = float(np.log(gmax / gmin))
+    print(f"[handover] ladder Rmin={gmin:.0f} Rmax={gmax:.0f} kbps -> mu={mu:.3f}")
+
+    # ---- pass 2: composite QoE per user + per-config aggregates ----
+    qoe_by_cfg = {lab: [] for lab in HO_ORDER}
+    bitrate_by_cfg = {lab: [] for lab in HO_ORDER}
+    stall_by_cfg = {lab: [] for lab in HO_ORDER}
+    for label in HO_ORDER:
+        for rec in data[label]:
+            rs = np.array([b for (_, b) in rec['series'] if b and b > 0], dtype=float)
+            util = np.log(rs / gmin)
+            switch = float(np.abs(np.diff(util)).sum()) if util.size > 1 else 0.0
+            rebuf = max(0.0, rec['rebuf'])
+            qoe_by_cfg[label].append(float(util.sum()) - mu * rebuf - QOE_LAMBDA * switch)
+            bitrate_by_cfg[label].append(float(rs.mean()) / 1e3)   # Mbps
+            stall_by_cfg[label].append(rebuf)
+    # mean RTT per config (across all server-side rtt traces)
+    rtt_by_cfg = {lab: [] for lab in HO_CONFIG_LABEL.values()}
+    for cfg, label in HO_CONFIG_LABEL.items():
+        proto = 'QUIC' if label.startswith('QUIC') else 'TCP'
+        for run_dir in glob.glob(os.path.join(results_dir, cfg, 'run_*')):
+            for fp in glob.glob(os.path.join(run_dir, f'server{proto}-rtt*.txt')):
+                tv = _qoe_load_trace(fp)
+                # Require a minimum length so the listener socket (conn0) and short-lived reconnect
+                # sockets (a handful of rows) don't skew the per-config mean RTT.
+                if tv is not None and len(tv[1]) >= 20:
+                    rtt_by_cfg[label].append(float(np.mean(tv[1])) * 1e3)   # ms
+
+    def _jain(x):
+        a = np.array([v for v in x if v is not None], dtype=float)
+        return float((a.sum() ** 2) / (len(a) * (a ** 2).sum())) if len(a) and (a ** 2).sum() > 0 else float('nan')
+
+    # ---- Table II ----
+    with open(os.path.join(output_dir, 'table2_qoe.csv'), 'w', newline='') as fo:
+        w = csv.writer(fo)
+        w.writerow(['Config', 'CompositeQoE_mean', 'CompositeQoE_median', 'MeanBitrate_Mbps',
+                    'TotalStall_s_mean', 'MeanRTT_ms', 'Jain_QoE', 'n_users'])
+        for label in HO_ORDER:
+            q = qoe_by_cfg[label]
+            if not q:
+                continue
+            w.writerow([label, f"{np.mean(q):.3f}", f"{np.median(q):.3f}",
+                        f"{np.mean(bitrate_by_cfg[label]):.3f}", f"{np.mean(stall_by_cfg[label]):.2f}",
+                        f"{np.mean(rtt_by_cfg[label]):.2f}" if rtt_by_cfg[label] else "",
+                        f"{_jain(q):.3f}", len(q)])
+    print("[handover] wrote table2_qoe.csv")
+    for label in HO_ORDER:
+        if qoe_by_cfg[label]:
+            print(f"  {label:14s} QoE={np.mean(qoe_by_cfg[label]):8.2f} "
+                  f"bitrate={np.mean(bitrate_by_cfg[label]):5.2f}Mbps "
+                  f"stall={np.mean(stall_by_cfg[label]):5.1f}s n={len(qoe_by_cfg[label])}")
+
+    # ---- Fig. A: composite-QoE boxplot per config ----
+    fig, ax = plt.subplots(figsize=(8, 5))
+    order = [l for l in HO_ORDER if qoe_by_cfg[l]]
+    bp = ax.boxplot([qoe_by_cfg[l] for l in order], labels=order, showmeans=True, patch_artist=True,
+                    showfliers=False)
+    for patch, l in zip(bp['boxes'], order):
+        patch.set_facecolor(HO_COLOR[l]); patch.set_alpha(0.45)
+    ax.set_ylabel('QoE')
+    ax.tick_params(axis='x', rotation=20); ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout(); fig.savefig(os.path.join(output_dir, 'figA_qoe_boxplot.png'), dpi=200)
+    plt.close(fig); print("[handover] wrote figA_qoe_boxplot.png")
+
+    # ---- Fig. B: cwnd + RTT vs time, HO markers; busiest server connection per config ----
+    fig, axes = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
+    for cfg, label in HO_CONFIG_LABEL.items():
+        if label not in HO_ORDER:      # excluded config (e.g. TCP Cubic) kept only for ladder, not plotted
+            continue
+        proto = 'QUIC' if label.startswith('QUIC') else 'TCP'
+        best = best_cwnd_file = None
+        for run_dir in sorted(glob.glob(os.path.join(results_dir, cfg, 'run_*')))[:5]:
+            for fp in glob.glob(os.path.join(run_dir, f'server{proto}-cwnd-change*.txt')):
+                tv = _qoe_load_trace(fp)
+                if tv is not None and (best is None or len(tv[0]) > len(best[0])):
+                    best, best_cwnd_file = tv, fp
+            if best is not None:
+                break
+        if best is not None:
+            ct, cv = _smooth_downsample(best[0], np.asarray(best[1]) / 1e3)        # KB
+            axes[0].plot(ct, cv, label=label, color=HO_COLOR[label], lw=1.1)
+            rtv = _qoe_load_trace(best_cwnd_file.replace('cwnd-change', 'rtt'))
+            if rtv is not None:
+                rt, rv = _smooth_downsample(rtv[0], np.asarray(rtv[1]) * 1e3)      # ms
+                axes[1].plot(rt, rv, label=label, color=HO_COLOR[label], lw=1.1)
+    for ax in axes:
+        for ho in ho_times:
+            ax.axvline(ho, color='k', ls='--', alpha=0.45, lw=0.9)
+    axes[0].set_ylabel('cwnd (KB)'); axes[1].set_ylabel('RTT (ms)'); axes[1].set_xlabel('time (s)')
+    axes[0].set_title('Congestion window & RTT across LEO backhaul handovers (dashed = handover)')
+    axes[0].legend(fontsize=8, ncol=2)
+    fig.tight_layout(); fig.savefig(os.path.join(output_dir, 'figB_cwnd_rtt.png'), dpi=200)
+    plt.close(fig); print("[handover] wrote figB_cwnd_rtt.png")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Plot bitrate and playback status from simulation logs')
-    parser.add_argument('--client_nodes', type=str, default=None, 
+    parser.add_argument('--client_nodes', type=str, default=None,
                        help='Comma-separated list of client node IDs (e.g., "2,3,4") or range (e.g., "2:4" for 2,3,4). If provided, bitrate will be averaged across these users.')
-    
+    parser.add_argument('--handover', action='store_true',
+                       help='COMMAG revision: analyse the LEO-handover campaign (composite QoE + Table II + Fig A/B) from <results>/<config>/run_*/')
+    parser.add_argument('--results-dir', type=str, default=None,
+                       help='Path to the handover campaign results dir (default: <cwd>/results)')
+    parser.add_argument('--ho-times', type=str, default='90,180,270',
+                       help='Handover instants (s) to mark in Fig. B (default 90,180,270)')
+
     args = parser.parse_args()
+
+    if args.handover:
+        results_dir = args.results_dir or os.path.join(get_base_dir(), 'results')
+        ho_times = [float(x) for x in args.ho_times.split(',') if x.strip()]
+        out = os.path.join(os.path.dirname(os.path.abspath(results_dir)), 'Analysis_artifacts')
+        print(f"Handover-campaign analysis: results={results_dir} HOs={ho_times}")
+        analyze_handover_campaign(results_dir, ho_times, out)
+        return
     
     # Parse client_nodes if provided
     client_nodes = None

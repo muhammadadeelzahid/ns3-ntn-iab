@@ -45,6 +45,7 @@
 #include "ns3/point-to-point-helper.h"
 #include "ns3/config-store.h"
 #include "ns3/mmwave-point-to-point-epc-helper.h"
+#include "ns3/epc-enb-application.h"
 #include "ns3/quic-module.h"
 #include "ns3/quic-socket-base.h"
 #include "ns3/quic-header.h"
@@ -55,6 +56,7 @@
 #include <sstream>
 #include <mutex>
 #include <regex>
+#include <set>
 #include <limits>
 using namespace ns3;
 
@@ -83,6 +85,17 @@ uint32_t g_dashServerRxPackets = 0;
 uint64_t g_dashServerRxBytes = 0;
 std::map<uint64_t, uint32_t> g_imsiToNodeId;
 
+// IAB backhaul handover: map donor (satellite) cellId -> its NetDevice, and the IAB device,
+// so the HandoverStart trace callback can retune the IAB-MT beamforming to the target donor.
+std::map<uint16_t, Ptr<NetDevice>> g_donorByCellId;
+Ptr<NetDevice> g_iabHoDevice;
+
+// Captured at handover trigger so the (later) HandoverEndOk callback can migrate the IAB-MT's
+// descendant UE bearers from the source donor to the target donor (genuine inter-donor IAB migration).
+Ptr<NetDevice> g_hoSrcDonor;
+Ptr<NetDevice> g_hoTgtDonor;
+uint16_t g_hoOldIabRnti = 0;
+
 // BBR CSV log file (shared across connections)
 std::ofstream g_bbrStatsCsvFile;
 std::mutex g_bbrStatsCsvMutex;
@@ -92,9 +105,15 @@ uint32_t g_quicServerNodeId = std::numeric_limits<uint32_t>::max();
 bool g_quicRxTraceHooked = false;
 bool g_quicCwndTraceHooked = false;
 bool g_quicRttTraceHooked = false;
-std::map<uint32_t, Ptr<OutputStreamWrapper>> g_quicRxStreams;
-std::map<uint32_t, Ptr<OutputStreamWrapper>> g_quicCwndStreams;
-std::map<uint32_t, Ptr<OutputStreamWrapper>> g_quicRttStreams;
+// Keyed by a composite (nodeId<<32 | connId) so each QUIC connection gets its own trace file
+// (a multi-UE server hosts one connection per UE; keying by nodeId alone would collide them).
+std::map<uint64_t, Ptr<OutputStreamWrapper>> g_quicRxStreams;
+std::map<uint64_t, Ptr<OutputStreamWrapper>> g_quicCwndStreams;
+std::map<uint64_t, Ptr<OutputStreamWrapper>> g_quicRttStreams;
+// Specific (node,socket,metric) trace paths already connected, so a periodic rescan can hook
+// late-created sockets (clients start staggered up to ~2.35 s) without double-connecting an already
+// hooked source (which would duplicate every trace line).
+std::set<std::string> g_hookedQuicPaths;
 
 // Helper function to dump full packet in hex
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -276,11 +295,12 @@ GetQuicTracePathPrefix(uint32_t nodeId)
 }
 
 static Ptr<OutputStreamWrapper>
-GetOrCreateQuicTraceStream(std::map<uint32_t, Ptr<OutputStreamWrapper>>& streamMap,
+GetOrCreateQuicTraceStream(std::map<uint64_t, Ptr<OutputStreamWrapper>>& streamMap,
                            const std::string& metricName,
-                           uint32_t nodeId)
+                           uint32_t nodeId, uint32_t connId)
 {
-  auto it = streamMap.find(nodeId);
+  uint64_t key = ((uint64_t)nodeId << 32) | connId;
+  auto it = streamMap.find(key);
   if (it != streamMap.end())
     {
       return it->second;
@@ -288,9 +308,12 @@ GetOrCreateQuicTraceStream(std::map<uint32_t, Ptr<OutputStreamWrapper>>& streamM
 
   AsciiTraceHelper asciiTraceHelper;
   std::ostringstream fileName;
-  fileName << GetQuicTracePathPrefix(nodeId) << "QUIC-" << metricName << nodeId << ".txt";
+  // e.g. serverQUIC-cwnd-change2-conn0.txt : per node AND per connection so multi-UE server
+  // connections don't share a file. Node-only basename kept as the prefix for compatibility.
+  fileName << GetQuicTracePathPrefix(nodeId) << "QUIC-" << metricName << nodeId
+           << "-conn" << connId << ".txt";
   Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream(fileName.str().c_str());
-  streamMap[nodeId] = stream;
+  streamMap[key] = stream;
   return stream;
 }
 
@@ -393,10 +416,9 @@ QuicRxTraceWithContext(std::string context, Ptr<const Packet> p, const QuicHeade
 {
   uint32_t nodeId, connId;
   ParseNodeAndConnFromContext(context, nodeId, connId);
-  (void)connId;
   (void)q;
   (void)qsb;
-  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicRxStreams, "rx-data", nodeId);
+  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicRxStreams, "rx-data", nodeId, connId);
   *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << p->GetSize() << std::endl;
 }
 
@@ -405,8 +427,7 @@ QuicCwndTraceWithContext(std::string context, uint32_t oldCwnd, uint32_t newCwnd
 {
   uint32_t nodeId, connId;
   ParseNodeAndConnFromContext(context, nodeId, connId);
-  (void)connId;
-  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicCwndStreams, "cwnd-change", nodeId);
+  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicCwndStreams, "cwnd-change", nodeId, connId);
   *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldCwnd << "\t" << newCwnd << std::endl;
 }
 
@@ -415,56 +436,57 @@ QuicRttTraceWithContext(std::string context, Time oldRtt, Time newRtt)
 {
   uint32_t nodeId, connId;
   ParseNodeAndConnFromContext(context, nodeId, connId);
-  (void)connId;
-  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicRttStreams, "rtt", nodeId);
+  Ptr<OutputStreamWrapper> stream = GetOrCreateQuicTraceStream(g_quicRttStreams, "rtt", nodeId, connId);
   *stream->GetStream() << Simulator::Now().GetSeconds() << "\t" << oldRtt.GetSeconds() << "\t" << newRtt.GetSeconds() << std::endl;
 }
 
 static void
 ConnectQuicLayerTracesWithRetry(uint32_t retryCount)
 {
-  const uint32_t MAX_RETRIES = 20;
-  const Time RETRY_INTERVAL = MilliSeconds(100);
+  // A wildcard SocketList/* connect only hooks sockets that already exist at call time, and the old
+  // code latched after the first success - so with staggered client starts (0.1 + i*0.25 s, last at
+  // ~2.35 s) only the earliest connection(s) got cwnd/RTT/Rx traces (breaking the per-connection Fig.B).
+  // Instead, periodically rescan every node's QUIC sockets and hook each (node,socket,metric) source
+  // exactly once (tracked in g_hookedQuicPaths to avoid duplicate trace lines), for long enough to
+  // cover the last client's handshake.
+  const uint32_t MAX_RETRIES = 60;            // 60 x 250 ms = 15 s window (>> last client start ~2.35 s)
+  const Time RETRY_INTERVAL = MilliSeconds(250);
+  const uint32_t MAX_SOCKETS_PER_NODE = 64;   // server hosts one QUIC socket per UE + a listener
 
-  if (!g_quicRxTraceHooked)
+  uint32_t nNodes = NodeList::GetNNodes();
+  for (uint32_t n = 0; n < nNodes; ++n)
     {
-      g_quicRxTraceHooked = Config::ConnectFailSafe(
-        "/NodeList/*/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx",
-        MakeCallback(&QuicRxTraceWithContext));
-    }
-  if (!g_quicCwndTraceHooked)
-    {
-      g_quicCwndTraceHooked = Config::ConnectFailSafe(
-        "/NodeList/*/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/CongestionWindow",
-        MakeCallback(&QuicCwndTraceWithContext));
-    }
-  if (!g_quicRttTraceHooked)
-    {
-      g_quicRttTraceHooked = Config::ConnectFailSafe(
-        "/NodeList/*/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/RTT",
-        MakeCallback(&QuicRttTraceWithContext));
-    }
-
-  if (!g_quicRxTraceHooked || !g_quicCwndTraceHooked || !g_quicRttTraceHooked)
-    {
-      if (retryCount < MAX_RETRIES)
+      for (uint32_t s = 0; s < MAX_SOCKETS_PER_NODE; ++s)
         {
-          Simulator::Schedule(RETRY_INTERVAL, &ConnectQuicLayerTracesWithRetry, retryCount + 1);
+          std::ostringstream base;
+          base << "/NodeList/" << n << "/$ns3::QuicL4Protocol/SocketList/" << s << "/QuicSocketBase/";
+
+          const std::string cw = base.str() + "CongestionWindow";
+          if (!g_hookedQuicPaths.count(cw)
+              && Config::ConnectFailSafe(cw, MakeCallback(&QuicCwndTraceWithContext)))
+            g_hookedQuicPaths.insert(cw);
+
+          const std::string rtt = base.str() + "RTT";
+          if (!g_hookedQuicPaths.count(rtt)
+              && Config::ConnectFailSafe(rtt, MakeCallback(&QuicRttTraceWithContext)))
+            g_hookedQuicPaths.insert(rtt);
+
+          const std::string rx = base.str() + "Rx";
+          if (!g_hookedQuicPaths.count(rx)
+              && Config::ConnectFailSafe(rx, MakeCallback(&QuicRxTraceWithContext)))
+            g_hookedQuicPaths.insert(rx);
         }
-      else
-        {
-          NS_LOG_WARN("QUIC layer traces: retries exhausted. "
-                      << "Rx=" << g_quicRxTraceHooked
-                      << " Cwnd=" << g_quicCwndTraceHooked
-                      << " Rtt=" << g_quicRttTraceHooked);
-        }
-      return;
     }
 
-  NS_LOG_UNCOND("QUIC layer traces connected (context-based): "
-                << "Rx=" << g_quicRxTraceHooked
-                << " Cwnd=" << g_quicCwndTraceHooked
-                << " Rtt=" << g_quicRttTraceHooked);
+  if (retryCount < MAX_RETRIES)
+    {
+      Simulator::Schedule(RETRY_INTERVAL, &ConnectQuicLayerTracesWithRetry, retryCount + 1);
+    }
+  else
+    {
+      NS_LOG_UNCOND("QUIC layer traces: hooked " << g_hookedQuicPaths.size()
+                    << " trace sources across all sockets");
+    }
 }
 
 // BBR stats trace callback - logs to CSV with node_id and conn_id (csvLine: time,btlBw,...,state)
@@ -530,6 +552,162 @@ void LogTime()
 {
   NS_LOG_UNCOND("Simulator Time: " << Simulator::Now().GetSeconds());
   Simulator::Schedule(Seconds(0.25), &LogTime);
+}
+
+// Sample and print UE positions (std::cout so it is visible in the optimized build, where NS_LOG is
+// stripped) to document the random UE mobility - that the UEs actually move and stay within the disc.
+void DumpUePositions (NodeContainer ues)
+{
+  for (uint32_t i = 0; i < ues.GetN (); ++i)
+    {
+      Ptr<MobilityModel> m = ues.Get (i)->GetObject<MobilityModel> ();
+      if (m)
+        {
+          Vector p = m->GetPosition ();
+          std::cout << "[UE-POS] t=" << Simulator::Now ().GetSeconds () << " ue=" << ues.Get (i)->GetId ()
+                    << " x=" << p.x << " y=" << p.y << std::endl;
+        }
+    }
+}
+
+// ============================================================================
+// IAB backhaul handover (3GPP inter-donor IAB-MT migration, NTN elevation-CHO)
+// ----------------------------------------------------------------------------
+// Manually triggers re-parenting of the IAB-node's backhaul (its MT, an LteUeRrc)
+// from the serving donor satellite to a target donor satellite via the standard
+// X2 handover path (LteEnbRrc::SendHandoverRequest). No A3 measurement algorithm
+// is used: per 3GPP TR 38.821, LEO NTN uses elevation/time-based Conditional
+// Handover, so the trigger time is pre-scheduled (see Phase 3 for the elevation
+// crossing computation).
+// ============================================================================
+void
+IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t targetCellId)
+{
+  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+            << "s HANDOVER START: IAB MT imsi=" << imsi << " rnti=" << rnti
+            << " leaving cell " << cellId << " -> target physCell " << targetCellId << std::endl;
+
+  // Retune the IAB-MT backhaul to the target donor so the non-contention random access to
+  // the target cell can complete. The standard LteUeRrc handover does not update these
+  // IAB-specific bindings, so we mirror what AttachIabToClosestEnb does for the new donor:
+  //  (a) SetBackhaulTargetEnb  -> beamforming/channel target,
+  //  (b) backhaul PHY RegisterToEnb -> so the IAB-MT listens to the target cell and receives
+  //      the RAR (otherwise it keeps listening to the source donor and the RA never completes).
+  auto it = g_donorByCellId.find (targetCellId);
+  if (g_iabHoDevice && it != g_donorByCellId.end ())
+    {
+      Ptr<MmWaveIabNetDevice> iab = g_iabHoDevice->GetObject<MmWaveIabNetDevice> ();
+      Ptr<MmWaveEnbNetDevice> tgtDonor = it->second->GetObject<MmWaveEnbNetDevice> ();
+      if (iab && tgtDonor)
+        {
+          iab->SetBackhaulTargetEnb (it->second);
+          Ptr<MmWavePhyMacCommon> cfg = tgtDonor->GetPhy ()->GetConfigurationParameters ();
+          iab->GetBackhaulPhy ()->RegisterToEnb (targetCellId, cfg);
+          std::cout << "[IAB-HO]   retuned + registered IAB-MT backhaul PHY to donor cellId "
+                    << targetCellId << std::endl;
+        }
+    }
+  else
+    {
+      std::cout << "[IAB-HO]   WARN: no donor device for target cellId " << targetCellId
+                << " - beamforming NOT retuned" << std::endl;
+    }
+}
+
+// Migrate the IAB-MT's descendant UE bearers from the source donor to the target donor, so their
+// downlink does not black-hole after the backhaul re-parents. Reads the relay state from the source
+// donor's EpcEnbApplication and re-installs it on the target donor's, which then drives a real S1 path
+// switch per UE (SGW/PGW re-tunnels each UE's downlink to the new donor). See EpcEnbApplication::
+// Export/ImportIabDescendants.
+void
+MigrateIabDescendants (Ptr<NetDevice> srcDonor, Ptr<NetDevice> tgtDonor,
+                       uint16_t oldIabRnti, uint16_t newIabRnti, uint64_t iabImsi)
+{
+  if (!srcDonor || !tgtDonor)
+    {
+      std::cout << "[MIG] ERROR: missing src/tgt donor at handover end - cannot migrate descendants" << std::endl;
+      return;
+    }
+  Ptr<EpcEnbApplication> srcApp = srcDonor->GetNode ()->GetApplication (0)->GetObject<EpcEnbApplication> ();
+  Ptr<EpcEnbApplication> tgtApp = tgtDonor->GetNode ()->GetApplication (0)->GetObject<EpcEnbApplication> ();
+  if (!srcApp || !tgtApp)
+    {
+      std::cout << "[MIG] ERROR: could not retrieve donor EpcEnbApplication - descendants NOT migrated" << std::endl;
+      return;
+    }
+  std::vector<EpcEnbApplication::IabDescendantContext> ctx = srcApp->ExportIabDescendants (oldIabRnti);
+  tgtApp->ImportIabDescendants (newIabRnti, iabImsi, ctx);
+}
+
+void
+IabHandoverEndOk (uint64_t imsi, uint16_t cellId, uint16_t rnti)
+{
+  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+            << "s HANDOVER END OK: IAB MT imsi=" << imsi
+            << " now connected to cell " << cellId << " rnti=" << rnti << std::endl;
+
+  // The IAB-MT backhaul has re-parented; now migrate its descendant UEs' data plane to the new donor.
+  MigrateIabDescendants (g_hoSrcDonor, g_hoTgtDonor, g_hoOldIabRnti, rnti, imsi);
+}
+
+// Fired if an IAB backhaul handover FAILS (random access to the target donor never completed after
+// the preamble retransmissions are exhausted). Emitted prominently so the campaign post-processing
+// can detect/exclude runs with a failed handover (which would leave the IAB-MT's UEs black-holed).
+void
+IabHandoverEndError (uint64_t imsi, uint16_t cellId, uint16_t rnti)
+{
+  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+            << "s HANDOVER FAILED: IAB MT imsi=" << imsi
+            << " could not complete RA to target (was leaving cell " << cellId << ", rnti=" << rnti
+            << ") - downstream UEs may lose service for this run" << std::endl;
+}
+
+void
+TriggerIabBackhaulHandover (Ptr<NetDevice> iabDev, Ptr<NetDevice> srcDonor, Ptr<NetDevice> tgtDonor)
+{
+  Ptr<MmWaveIabNetDevice> iab = iabDev->GetObject<MmWaveIabNetDevice> ();
+  Ptr<MmWaveEnbNetDevice> src = srcDonor->GetObject<MmWaveEnbNetDevice> ();
+  Ptr<MmWaveEnbNetDevice> tgt = tgtDonor->GetObject<MmWaveEnbNetDevice> ();
+  NS_ASSERT_MSG (iab && src && tgt, "TriggerIabBackhaulHandover: null device(s)");
+
+  uint16_t rnti = iab->GetBackhaulRrc ()->GetRnti ();
+  uint16_t tgtCellId = tgt->GetCellId ();
+  Ptr<LteEnbRrc> srcRrc = src->GetRrc ();
+
+  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+            << "s: trigger IAB backhaul handover, MT rnti=" << rnti
+            << " serving(backhaulRrc cellId)=" << iab->GetBackhaulRrc ()->GetCellId ()
+            << " from donor cell " << src->GetCellId () << " -> target cell " << tgtCellId << std::endl;
+
+  if (srcRrc->HasUeManager (rnti))
+    {
+      // Capture the (src donor, tgt donor, IAB-MT's pre-handover RNTI) so the HandoverEndOk callback
+      // can migrate the descendant UE bearers once the IAB-MT's new RNTI on the target is known.
+      g_hoSrcDonor = srcDonor;
+      g_hoTgtDonor = tgtDonor;
+      g_hoOldIabRnti = rnti;
+      srcRrc->SendHandoverRequest (rnti, tgtCellId);
+    }
+  else
+    {
+      std::cout << "[IAB-HO] ERROR: no UeManager for IAB MT rnti " << rnti
+                << " at source donor cell " << src->GetCellId ()
+                << " (IAB not connected?) - handover NOT triggered" << std::endl;
+    }
+}
+
+// Print the IAB-MT's current serving (backhaul) cell - direct evidence of re-parenting.
+void
+PrintIabServingCell (Ptr<NetDevice> iabDev, std::string tag)
+{
+  Ptr<MmWaveIabNetDevice> iab = iabDev->GetObject<MmWaveIabNetDevice> ();
+  if (iab && iab->GetBackhaulRrc ())
+    {
+      std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds () << "s " << tag
+                << ": IAB-MT backhaul RRC cellId=" << iab->GetBackhaulRrc ()->GetCellId ()
+                << " rnti=" << iab->GetBackhaulRrc ()->GetRnti ()
+                << " state=" << iab->GetBackhaulRrc ()->GetState () << std::endl;
+    }
 }
 
 
@@ -718,15 +896,37 @@ main (int argc, char *argv[])
   bool rlcAm = false;
   uint32_t numRelays = 1;
   uint32_t numUes = 10;  // Number of UE nodes/users
+  uint32_t numSatellites = 4;  // Number of donor satellites in the constellation (numSat-1 handovers)
+  double hoTime = 10.0;        // Inter-handover interval [s]: handover k occurs at k*hoTime (0 = disabled)
+  double simDuration = 60.0;   // Video/simulation duration [s] (shorten for fast handover iteration)
+  double targetDt = 30.0;      // DASH target buffer [s] (lower => continuous requests, to test data-plane recovery)
+  std::string backhaulRate = "100Mbps";  // LEO satellite backhaul capacity (S1-U feeder rate). Realistic for a single
+                                          // rural IAB (5G-NR-NTN Ka-band LEO ~100-300 Mbps; arXiv 2012.02136). Makes the
+                                          // satellite backhaul the bottleneck so the handover transient is observable.
+  std::string abrAlgorithm = "ns3::FdashClient";  // DASH ABR controller: ns3::FdashClient or ns3::BolaClient
+  bool enableTraces = false;   // Heavy RLC/MAC/PHY ASCII traces (DlRlcStats/RxPacketTrace ~12MB/run): off for the campaign
   uint32_t rlcBufSize = 50;  // Increased from 10 to 50 MB to prevent RLC buffer overflows and packet drops
   uint32_t interPacketInterval = 10000; 
   uint32_t packetSize = 1400; //bytes // Decreased from 1500 to 1400 to avoid IP fragmentation (packet < MTU - headers)
+  bool ueMobility = true;      // UEs move randomly within a disc around the IAB (false = static placement)
+  double ueSpeed = 1.5;        // UE random-waypoint speed [m/s] (pedestrian)
+  double ueRadiusMax = 500.0;  // radius [m] of the circular boundary the UEs roam within, centred on the IAB
   cmd.AddValue("run", "run for RNG (for generating different deterministic sequences for different drops)", run);
   cmd.AddValue("am", "RLC AM if true", rlcAm);
   cmd.AddValue("numRelay", "Number of relays", numRelays);
   cmd.AddValue("numUes", "Number of UE nodes/users", numUes);
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
+  cmd.AddValue("numSat", "Number of donor satellites (>=2 enables backhaul handover)", numSatellites);
+  cmd.AddValue("hoTime", "IAB backhaul handover trigger time [s] (0 = disabled)", hoTime);
+  cmd.AddValue("simDuration", "Video/simulation duration [s] (shorten for fast handover iteration)", simDuration);
+  cmd.AddValue("targetDt", "DASH target buffer [s] (low => continuous requests, tests data-plane recovery)", targetDt);
+  cmd.AddValue("backhaulRate", "LEO satellite backhaul capacity / S1-U feeder rate (e.g. 100Mbps)", backhaulRate);
+  cmd.AddValue("abrAlgorithm", "DASH ABR algorithm TypeId (ns3::FdashClient or ns3::BolaClient)", abrAlgorithm);
+  cmd.AddValue("traces", "Enable heavy RLC/MAC/PHY ASCII traces (slow; off for campaign)", enableTraces);
+  cmd.AddValue("ueMobility", "UEs move randomly within a disc around the IAB (false = static placement)", ueMobility);
+  cmd.AddValue("ueSpeed", "UE random-waypoint speed [m/s]", ueSpeed);
+  cmd.AddValue("ueRadiusMax", "Radius [m] of the UE mobility boundary around the IAB", ueRadiusMax);
 
   //   if(rlcAm)
   // {
@@ -783,8 +983,13 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
   
-  // QUIC-specific configuration
-  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(30.0)));
+  // QUIC-specific configuration.
+  // IdleTimeout was 30 s == the DASH target buffer (targetDt), so whenever a client filled its ~30 s
+  // playback buffer the server connection went idle and hit the idle-timeout Close - forcing a reconnect
+  // (+ handshake) when the buffer later drained, which stalls playback and churns sockets. For a persistent
+  // video-streaming session the connection must outlive buffer-full idle periods, so set the idle timeout
+  // well beyond the whole simulation (a real client would send keepalives).
+  Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(simDuration + 120.0)));
   
   // ============================================================================
   // ACKNOWLEDGMENT GAP ELIMINATION PARAMETERS
@@ -911,10 +1116,14 @@ main (int argc, char *argv[])
   // ============================================================================
   // FLOW CONTROL PARAMETERS (RFC COMPLIANCE)
   // ============================================================================
-  // Set initial flow control limits to reasonable values (e.g., 4GB)
-  // This enables actual flow control behavior as intended by RFC
-  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(512 * 1024 * 1024));
-  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(512 * 1024 * 1024));
+  // Connection/stream flow-control window = 64 MB, matched to the 64 MB socket/stream buffers. (An earlier
+  // attempt to bound the BBR burst-storm by shrinking this to 4 MB backfired: at 4 MB all 10 flows block on
+  // connection flow control near-simultaneously ~1 s in and the sim runs dry - NewReno needs the larger
+  // window for multi-user operation. The BBR storm is instead fixed at its source by the pacing-rate ceiling
+  // in QuicBbr::SetPacingRate, which is flow-control-size independent; NewReno does not pace and progresses
+  // fine at 64 MB - it completed a 10-UE/100 s run.)
+  Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(64 * 1024 * 1024));
+  Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(64 * 1024 * 1024));
 
   // ============================================================================
   // NOTE: Parameters Set in Constructors (Not Configurable via Config::SetDefault)
@@ -942,6 +1151,22 @@ main (int argc, char *argv[])
  
   // Enable multi-beam functionality
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
+
+  // Constrain the satellite backhaul to a realistic LEO capacity by rate-limiting the S1-U feeder
+  // link between the donor (satellite) and the core. This makes the satellite backhaul the
+  // end-to-end bottleneck (the access link and Internet segment stay fast), so the handover's brief
+  // radio outage produces an observable congestion-window collapse and recovery. Default 100 Mbps is
+  // representative of a single rural IAB LEO backhaul (5G-NR-NTN Ka-band ~100-300 Mbps; arXiv 2012.02136).
+  Config::SetDefault("ns3::MmWavePointToPointEpcHelper::S1uLinkDataRate", DataRateValue(DataRate(backhaulRate)));
+  // S1-U MTU must exceed the largest tunneled datagram (the attribute's own doc warns the MTU
+  // needs headroom for GTP/UDP/IP overhead). The default 2000 silently IP-fragmented every
+  // full-size QUIC data+ACK datagram (~2399 B with tunnel headers) at the PGW, and ns-3's
+  // fragment reassembly corrupted bytes at the fragment seam -> receiver parse failures ->
+  // ACKed-but-undelivered stream gaps (the QUIC freeze). GTP transport networks use jumbo
+  // frames for exactly this reason. 9000 (jumbo): at 10 UEs, loss-lengthened ACK lists pushed rare
+  // datagrams past 3000 (16 residual PARSEFAILs in postfix task 7) - 9000 covers everything.
+  Config::SetDefault("ns3::MmWavePointToPointEpcHelper::S1uLinkMtu", UintegerValue(9000));
+  NS_LOG_UNCOND("LEO backhaul (S1-U feeder) rate-limited to " << backhaulRate);
   
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
@@ -1034,7 +1259,7 @@ main (int argc, char *argv[])
   NodeContainer enbNodes;
   NodeContainer iabNodes;
  
-  enbNodes.Create(1);
+  enbNodes.Create(numSatellites);
   iabNodes.Create(numRelays);
   ueNodes.Create(numUes);
   
@@ -1051,7 +1276,7 @@ main (int argc, char *argv[])
   // double minSimulationDuration = desiredVideoDuration*1.15;
   
   // Get current stopTime (line 1024)
-  double desiredVideoDuration = 60.0;
+  double desiredVideoDuration = simDuration;
   double stopTime = desiredVideoDuration;  // Minimal time for testing
   
   // // Check if current stopTime is less than minimum, and adjust if needed
@@ -1072,9 +1297,10 @@ main (int argc, char *argv[])
   
   // Install WaypointMobilityModel for satellite (eNB)
   // Start at original position (Overhead)
-  // Move in X direction at 7.8 km/s
-  
-  double satVelocity = 7800.0; // m/s
+  // Move in X direction at 7.56 km/s (realistic Starlink 550 km circular-orbit ground speed:
+  // v = sqrt(mu/r), mu=398600 km^3/s^2, r=6921 km => 7.59 km/s; adopt 7.56 km/s).
+
+  double satVelocity = 7560.0; // m/s
   
   MobilityHelper enbmobility;
   enbmobility.SetMobilityModel ("ns3::WaypointMobilityModel");
@@ -1082,18 +1308,23 @@ main (int argc, char *argv[])
 
   double minSimulationDuration = stopTime;
 
+  // Space the donor satellites along the orbital track by satVelocity*hoTime, so a new donor reaches the
+  // zenith above the IAB every hoTime seconds (the overhead-pass interval). With the realistic Starlink
+  // single-plane values (v=7.56 km/s, hoTime=262 s) this gives ~1,980 km spacing, matching the ~22
+  // satellites/plane in-plane spacing (circumference 2*pi*6921 km / 22). Handovers fire at the
+  // equal-elevation CROSSOVER (midway between two donors being overhead), where both are at horizontal
+  // distance satSpacing/2 = 990 km => elevation atan(550/990) ~= 29 deg (see the handover schedule below).
+  double satSpacing = satVelocity * (hoTime > 0.0 ? hoTime : minSimulationDuration);
   for (uint32_t i = 0; i < enbNodes.GetN(); ++i)
   {
       Ptr<WaypointMobilityModel> mob = enbNodes.Get(i)->GetObject<WaypointMobilityModel>();
-      
-      // Waypoint 1: Start at t=0 (Original Position)
-      Vector pos1 = posWired;
+
+      // Waypoint 1: Start at t=0. Donor 0 is at the zenith; later donors trail in -X.
+      Vector pos1 = Vector(posWired.x - (double)i * satSpacing, posWired.y, posWired.z);
       mob->AddWaypoint(Waypoint(Seconds(0.0), pos1));
 
-      // Waypoint 2: End at t=minSimulationDuration
-      // Move in X direction
-      // Distance = velocity * time
-      Vector pos2 = Vector(posWired.x + (satVelocity * minSimulationDuration), posWired.y, posWired.z);
+      // Waypoint 2: End at t=minSimulationDuration, having moved +X at satVelocity.
+      Vector pos2 = Vector(pos1.x + (satVelocity * minSimulationDuration), posWired.y, posWired.z);
       mob->AddWaypoint(Waypoint(Seconds(minSimulationDuration), pos2));
   }
 
@@ -1165,38 +1396,82 @@ main (int argc, char *argv[])
   uint32_t baseUesPerCluster = totalUes / clusterCount;
   uint32_t extraUes = totalUes % clusterCount;
 
-  double min_distance = 1.0;
-  double max_distance = 100.0;
-  NS_LOG_UNCOND("UE cluster radius range: [" << min_distance << ", " << max_distance << "] meters");
-
-  Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  radiusRand->SetAttribute("Min", DoubleValue(min_distance));
-  radiusRand->SetAttribute("Max", DoubleValue(max_distance));
-  Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  angleRand->SetAttribute("Min", DoubleValue(0.0));
-  angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-
   double zHeight = 1.7;
-  for (uint32_t c = 0; c < clusterCenters.size(); ++c)
+
+  if (ueMobility)
   {
-    uint32_t uesInCluster = baseUesPerCluster + (c < extraUes ? 1 : 0);
-    const Vector& center = clusterCenters[c];
-    for (uint32_t u = 0; u < uesInCluster; ++u)
+    // UEs move RANDOMLY within a disc of radius ueRadiusMax (default 500 m) centred on their IAB, at a
+    // pedestrian random-waypoint speed (ueSpeed). Implemented with WaypointMobilityModel: for each UE we
+    // pre-compute a random-waypoint track (uniform-area points inside the disc, straight legs at ueSpeed),
+    // so the mmWave channel sees real UE motion/Doppler. Deterministic per RngRun and byte-identical to the
+    // TCP scratch => the same UE tracks for the paired TCP-vs-QUIC comparison.
+    NS_LOG_UNCOND("UE mobility: random-waypoint within " << ueRadiusMax << " m disc, speed " << ueSpeed << " m/s");
+    uemobility.SetMobilityModel ("ns3::WaypointMobilityModel");
+    uemobility.Install (ueNodes);
+
+    Ptr<UniformRandomVariable> uni = CreateObject<UniformRandomVariable>();
+    uni->SetAttribute("Min", DoubleValue(0.0));
+    uni->SetAttribute("Max", DoubleValue(1.0));
+
+    uint32_t ueIdx = 0;
+    for (uint32_t c = 0; c < clusterCenters.size(); ++c)
     {
-      double r = radiusRand->GetValue();
-      double theta = angleRand->GetValue();
-      double x = center.x + r * std::cos(theta);
-      double y = center.y + r * std::sin(theta);
-      // Clamp to simulation area
-      x = std::min(std::max(x, 0.0), xMax);
-      y = std::min(std::max(y, 0.0), yMax);
-      uePosAlloc->Add(Vector(x, y, zHeight));
+      uint32_t uesInCluster = baseUesPerCluster + (c < extraUes ? 1 : 0);
+      const Vector& center = clusterCenters[c];
+      for (uint32_t u = 0; u < uesInCluster && ueIdx < ueNodes.GetN(); ++u, ++ueIdx)
+      {
+        Ptr<WaypointMobilityModel> mob = ueNodes.Get(ueIdx)->GetObject<WaypointMobilityModel>();
+        // uniform-area random start point inside the disc, clamped to the scene
+        double r0 = ueRadiusMax * std::sqrt(uni->GetValue());
+        double a0 = 2.0 * M_PI * uni->GetValue();
+        double cx = std::min(std::max(center.x + r0 * std::cos(a0), 0.0), xMax);
+        double cy = std::min(std::max(center.y + r0 * std::sin(a0), 0.0), yMax);
+        double t = 0.0;
+        mob->AddWaypoint(Waypoint(Seconds(t), Vector(cx, cy, zHeight)));
+        // random-waypoint legs until the sim end (last leg may extend past the end - node keeps moving)
+        while (t < stopTime)
+        {
+          double r = ueRadiusMax * std::sqrt(uni->GetValue());
+          double a = 2.0 * M_PI * uni->GetValue();
+          double nx = std::min(std::max(center.x + r * std::cos(a), 0.0), xMax);
+          double ny = std::min(std::max(center.y + r * std::sin(a), 0.0), yMax);
+          double d = std::sqrt((nx - cx) * (nx - cx) + (ny - cy) * (ny - cy));
+          double dt = (ueSpeed > 0.0) ? d / ueSpeed : stopTime;
+          if (dt < 1e-3) dt = 1e-3;  // avoid zero-duration legs
+          t += dt;
+          mob->AddWaypoint(Waypoint(Seconds(t), Vector(nx, ny, zHeight)));
+          cx = nx; cy = ny;
+        }
+      }
     }
   }
-
-  uemobility.SetPositionAllocator (uePosAlloc);
-  uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  uemobility.Install (ueNodes);
+  else
+  {
+    // Static placement (regression / handover-isolation baseline): UEs fixed at random points 1-100 m
+    // from the IAB.
+    Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
+    radiusRand->SetAttribute("Min", DoubleValue(1.0));
+    radiusRand->SetAttribute("Max", DoubleValue(100.0));
+    Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
+    angleRand->SetAttribute("Min", DoubleValue(0.0));
+    angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
+    for (uint32_t c = 0; c < clusterCenters.size(); ++c)
+    {
+      uint32_t uesInCluster = baseUesPerCluster + (c < extraUes ? 1 : 0);
+      const Vector& center = clusterCenters[c];
+      for (uint32_t u = 0; u < uesInCluster; ++u)
+      {
+        double r = radiusRand->GetValue();
+        double theta = angleRand->GetValue();
+        double x = std::min(std::max(center.x + r * std::cos(theta), 0.0), xMax);
+        double y = std::min(std::max(center.y + r * std::sin(theta), 0.0), yMax);
+        uePosAlloc->Add(Vector(x, y, zHeight));
+      }
+    }
+    uemobility.SetPositionAllocator (uePosAlloc);
+    uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+    uemobility.Install (ueNodes);
+  }
   
   // Install mmWave Devices to the nodes
   NetDeviceContainer enbmmWaveDevs = mmwaveHelper->InstallSatelliteEnbDevice (enbNodes);
@@ -1246,6 +1521,59 @@ main (int argc, char *argv[])
   }
   mmwaveHelper->AttachToClosestEnb (uemmWaveDevs, possibleBaseStations);
 
+  // Set up X2 interfaces between donor satellites so the IAB backhaul can hand over
+  // between them (3GPP inter-donor IAB-MT migration over X2).
+  if (enbmmWaveDevs.GetN () > 1)
+  {
+    mmwaveHelper->AddX2Interface (enbNodes);
+    std::cout << "[IAB-HO] X2 interfaces set up between " << enbNodes.GetN() << " donor satellites" << std::endl;
+  }
+
+  // Build the donor cellId -> device map (used by the HandoverStart callback to retune
+  // the IAB-MT beamforming target) and connect handover traces on the IAB backhaul RRC.
+  for (uint32_t s = 0; s < enbmmWaveDevs.GetN (); ++s)
+  {
+    Ptr<MmWaveEnbNetDevice> donor = enbmmWaveDevs.Get (s)->GetObject<MmWaveEnbNetDevice> ();
+    if (donor)
+    {
+      g_donorByCellId[donor->GetCellId ()] = enbmmWaveDevs.Get (s);
+      std::cout << "[IAB-HO] donor " << s << " cellId=" << donor->GetCellId () << std::endl;
+    }
+  }
+  if (numRelays > 0)
+  {
+    g_iabHoDevice = iabmmWaveDevs.Get (0);
+    Ptr<MmWaveIabNetDevice> iab0 = iabmmWaveDevs.Get (0)->GetObject<MmWaveIabNetDevice> ();
+    if (iab0 && iab0->GetBackhaulRrc ())
+    {
+      iab0->GetBackhaulRrc ()->TraceConnectWithoutContext ("HandoverStart", MakeCallback (&IabHandoverStart));
+      iab0->GetBackhaulRrc ()->TraceConnectWithoutContext ("HandoverEndOk", MakeCallback (&IabHandoverEndOk));
+      iab0->GetBackhaulRrc ()->TraceConnectWithoutContext ("HandoverEndError", MakeCallback (&IabHandoverEndError));
+    }
+  }
+
+  // Schedule a CHAIN of IAB backhaul handovers across the satellite constellation, modelling a LEO pass
+  // with periodic inter-satellite backhaul handovers. Donor k reaches the zenith above the IAB at
+  // t = k*hoTime (by the satSpacing construction above); handover k (k = 1..numSat-1) fires at the
+  // EQUAL-ELEVATION CROSSOVER t = (k-0.5)*hoTime, when the setting donor k-1 and the rising donor k are at
+  // the same elevation (~29 deg for the realistic single-plane params) - the physically natural handover
+  // instant, vs. handing over at the target's zenith. The trigger is time/ephemeris-scheduled (deterministic
+  // LEO ephemeris, per 3GPP TR 38.821 NTN Conditional Handover), not a runtime-measured elevation threshold.
+  if (hoTime > 0.0 && enbmmWaveDevs.GetN () > 1 && numRelays > 0)
+  {
+    for (uint32_t k = 1; k < enbmmWaveDevs.GetN (); ++k)
+    {
+      double t = ((double)k - 0.5) * hoTime;
+      Simulator::Schedule (Seconds (t), &TriggerIabBackhaulHandover,
+                           iabmmWaveDevs.Get (0), enbmmWaveDevs.Get (k - 1), enbmmWaveDevs.Get (k));
+      // Probe the IAB-MT serving cell shortly after each handover to confirm completion.
+      Simulator::Schedule (Seconds (t + 0.5), &PrintIabServingCell, iabmmWaveDevs.Get (0),
+                           std::string ("HO") + std::to_string (k) + "+0.5");
+      std::cout << "[IAB-HO] Scheduled handover " << k << " at t=" << t
+                << "s (donor " << (k - 1) << " -> donor " << k << ")" << std::endl;
+    }
+  }
+
   // Map IMSI/RNTI to NodeId and position
   Config::ConnectWithoutContext("/NodeList/*/DeviceList/*/LteEnbRrc/ConnectionEstablished",
                                 MakeCallback(&ConnectionEstablishedTraceSink));
@@ -1278,31 +1606,30 @@ main (int argc, char *argv[])
   
 
 
-  // QUIC Socket buffer configuration - must be large enough for high bitrate segments
-  // For 66 Mbps: average segment ~15.74 MB, max segment ~31.47 MB
-  // CRITICAL FIX: Increased buffers to 128 MB to handle multiple concurrent connections
-  // With 5 users, each connection needs sufficient buffer space to avoid blocking
-  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(512*1024*1024));  // 128 MB (Increased for multiple concurrent connections)
-  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(512*1024*1024));  // 128 MB (Increased for multiple concurrent connections)
-  
-  // QUIC stream buffer configuration - must hold multiple large frames (up to 330 KB each)
-  // CRITICAL FIX: Increased buffers to 128 MB to match socket buffers and handle multiple connections
-  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (512*1024*1024));  // 128 MB (Match Socket buffer, increased for multiple connections)
-  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (512*1024*1024));  // 128 MB (Match Socket buffer, increased for multiple connections)
+  // QUIC socket + stream buffers: 64 MB, matched to the TCP socket buffers (ns3::TcpSocket::Snd/RcvBufSize,
+  // also 64 MB) for a fair comparison. The code previously set 512 MB (contradicting its own comment, which
+  // warned "512 MB OOMs at 10 UEs"): harmless while flows froze early at the 15 Mbps ladder, but once the
+  // realistic 4.2 Mbps ladder let a fast NewReno flow actually run, the 512 MB (x4 layers x ~20 sockets)
+  // queued tens of GB and hit the 36 GB login-node vmem cap (std::bad_alloc at ~7 s). At 4.2 Mbps, 64 MB =
+  // ~120 s of buffering per layer (ample) and bounds worst-case RSS to ~5-7 GB (under the 16 GB SLURM cap).
+  Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(64*1024*1024));
+  Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(64*1024*1024));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (64*1024*1024));
+  Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (64*1024*1024));
 
   // DASH over QUIC configuration - optimized for QoE and preventing interruptions
   // Increased target buffering time for more aggressive buffering to prevent rebuffering
   // For NTN scenarios with high latency and variable throughput, 45-60s is realistic
   // 60s provides good balance: prevents interruptions while remaining realistic for real-world scenarios
-  double target_dt = 30.0;  // Target buffering time (increased from 45.0s to 60.0s - realistic for NTN while preventing interruptions)
-  // DASH bufferSpace: should hold multiple segments for smooth playback
-  // For 66 Mbps: ~6 segments in 100 MB
-  // Reduced to 64 MB to prevents OOM while keeping reasonable buffering
-  uint32_t bufferSpace = 512*1024*1024;  // 512 MB (Reduced from 512MB)
+  double target_dt = targetDt;  // Target buffering time [s] (CLI-configurable; low value keeps DASH requesting continuously, useful to test data-plane recovery across a handover)
+  // DASH playback buffer: holds the targetDt (30 s, up to ~54 s with BOLA) of buffered video. With the
+  // 15 Mbps-capped ladder that is <=~100 MB, so 128 MB suffices (avoids frame rejection); matched to the
+  // TCP scratch.
+  uint32_t bufferSpace = 128*1024*1024;  // 128 MB DASH frame buffer (matches TCP scratch)
 
   double window = 50;  // Throughput measurement window in milliseconds (increased from 10ms to 50ms for more stable measurements and smoother adaptation)
 
-  std::string algorithm = "ns3::FdashClient";  // DASH adaptation algorithm
+  std::string algorithm = abrAlgorithm;  // DASH adaptation algorithm (--abrAlgorithm: FdashClient/BolaClient)
   
 
 
@@ -1396,7 +1723,7 @@ main (int argc, char *argv[])
   }
   NS_LOG_UNCOND("=======================\n");
     
-  mmwaveHelper->EnableTraces ();  // Enables RLC/MAC/PHY traces (DlRlcStats.txt, RxPacketTrace.txt, etc.)
+  if (enableTraces) { mmwaveHelper->EnableTraces (); }  // Heavy RLC/MAC/PHY ASCII traces - off by default (campaign speed/disk)
   
   // CRITICAL FIX: Server starts early to ensure it's ready before clients connect
   // With QUIC, the server needs to be listening before clients initiate handshakes
@@ -1407,41 +1734,45 @@ main (int argc, char *argv[])
     serverApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
   }
   
-  // Clients start after servers (no stagger - all start at same time)
+  // Clients start after the server, staggered by 0.25 s each, so their QUIC handshakes (1-RTT over the
+  // satellite backhaul) do not all collide at t=0.1 s. Simultaneous handshakes + 10 concurrent slow-starts
+  // previously left some UEs unable to establish (e.g. ue never receives any segment) - see the root-cause
+  // note above. The per-client offset is identical in the TCP scratch to keep the comparison fair.
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
-    double clientStartTime = 0.1;
+    double clientStartTime = 0.1 + i * 0.25;
     clientApps.Get(i)->SetStartTime(Seconds(clientStartTime));
     // Stop apps 1 second before simulation stops to allow cleanup
     clientApps.Get(i)->SetStopTime(Seconds(stopTime + 2.0 - 1.0));
     NS_LOG_UNCOND("DASH Client " << i << " scheduled to start at t=" << clientStartTime << "s");
   }
   
+  // Sample UE positions at 0/25/50/75% of the run so the log documents the random UE mobility.
+  if (ueMobility)
+    {
+      for (int s = 0; s < 4; ++s)
+        Simulator::Schedule (Seconds (0.25 * s * stopTime), &DumpUePositions, ueNodes);
+    }
+
   Simulator::Stop (Seconds (stopTime + 2.0));
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections (DOWNLINK) ===");
   
   // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
-  // Connect traces for each UE node (QUIC clients) - schedule after apps start and QUIC sockets are created
-  // Matching TCP procedure: clientStartTime=0.1, add 0.05s buffer for handshake
-  double clientStartTime = 0.1;
-  Time clientConnectionTime = Seconds(clientStartTime + 0.05);
-  for (uint32_t u = 0; u < ueNodes.GetN(); ++u)
-  {
-    uint32_t nodeId = ueNodes.Get(u)->GetId();
-    Simulator::Schedule(clientConnectionTime, &Traces, nodeId, "./client", ".txt", 0);
-    NS_LOG_UNCOND("  Scheduled QUIC traces for UE Node " << nodeId << " (UE " << u
-                  << ", DASH client) at t=" << clientConnectionTime.GetSeconds()
-                  << "s (client starts at t=" << clientStartTime << "s)");
-  }
-  
-  // Connect traces for remoteHost (QUIC server) - schedule after server starts and sockets are created
-  // Matching TCP procedure: server starts at 0.1, add 0.05s buffer for handshake
-  uint32_t serverNodeId = remoteHost->GetId();
-  Time serverTraceTimeSched = Seconds(0.1 + 0.05);
-  Simulator::Schedule(serverTraceTimeSched, &Traces, serverNodeId, "./server", ".txt", 0);
-  NS_LOG_UNCOND("  Scheduled QUIC traces for Server Node " << serverNodeId
-                << " (remoteHost, DASH server) at t=" << serverTraceTimeSched.GetSeconds() << "s");
+  // ---------------------------------------------------------------------------
+  // QUIC cwnd/RTT/Rx trace hookup.
+  // The previous per-node Traces() hooked /SocketList/0, but on the QUIC server
+  // socket 0 is the *listening* socket (no congestion window); the data
+  // connection is a higher socket index, so those files came out empty.
+  // We use the context-based wildcard hookup (SocketList/*) instead, which
+  // matches the data sockets and writes per-node files (server<id>/client<id>),
+  // parsing the node id from the trace context. It is scheduled after the QUIC
+  // connections are established so the data sockets exist at connect time.
+  // ---------------------------------------------------------------------------
+  g_quicServerNodeId = remoteHost->GetId();
+  Simulator::Schedule(Seconds(0.5), &ConnectQuicLayerTracesWithRetry, 0);
+  NS_LOG_UNCOND("  Scheduled context-based QUIC trace hookup (wildcard SocketList/*) at t=0.5s"
+                << ", server node " << g_quicServerNodeId);
 
   // Schedule BBR stats trace connection for CSV logging
   Simulator::Schedule(Seconds(0.15), []() {

@@ -235,7 +235,19 @@ public:
    */
   uint64_t GetMaxData ();
 bool vnReceived;
+
+  /**
+   * QUIC_RXFIX (RFC 9000 Sec. 13.1 compliance): true if the last DisgregateRecv hit an
+   * unparseable subheader. The socket must not queue such a packet's number for ACK,
+   * so the sender retransmits it and a corrupted delivery heals instead of freezing.
+   */
+  bool LastRecvParseFailed () const
+  {
+    return m_lastDisgregateFailed;
+  }
+
 private:
+  bool m_lastDisgregateFailed = false;  //!< see LastRecvParseFailed ()
   Ptr<QuicSocketBase> m_socket;                 //!< The Quic socket this stack is associated with
   Ptr<Node> m_node;                             //!< The node this stack is associated with
   uint64_t m_connectionId;                      //!< The connection id this stack is associated with

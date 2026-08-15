@@ -3744,8 +3744,14 @@ TcpSocketBase::ReTxTimeout ()
   m_congestionControl->CwndEvent (m_tcb, TcpSocketState::CA_EVENT_LOSS);
   m_congestionControl->CongestionStateSet (m_tcb, TcpSocketState::CA_LOSS);
   m_tcb->m_congState = TcpSocketState::CA_LOSS;
-  m_tcb->m_cWnd = m_tcb->m_segmentSize;
-  m_tcb->m_cWndInfl = m_tcb->m_cWnd;
+  // Full-cong-control algorithms (e.g. BBR) manage their own window and reassert their model-based
+  // target on the next ACK; forcing cwnd=1 here would pin BBR's window at the floor under repeated
+  // RTOs on a lossy link. Only reset cwnd for the classic (ssthresh-based) recovery algorithms.
+  if (!m_congestionControl->HasCongControl ())
+    {
+      m_tcb->m_cWnd = m_tcb->m_segmentSize;
+      m_tcb->m_cWndInfl = m_tcb->m_cWnd;
+    }
 
   m_pacingTimer.Cancel ();
 

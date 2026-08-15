@@ -264,7 +264,6 @@ QuicSocketTxScheduler::GetNewSegment (uint32_t numBytes, uint8_t pathId)
           else
             {
               NS_LOG_INFO ("Split packet on stream " << qsb.GetStreamId () << ", sending " << newPacketSizeInt << " bytes from offset " << qsb.GetOffset ());
-              
               currentPacket->RemoveHeader (qsb);
               uint32_t newPacketSize = (uint32_t)newPacketSizeInt;
 

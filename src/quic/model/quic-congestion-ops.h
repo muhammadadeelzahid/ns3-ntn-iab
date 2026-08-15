@@ -117,6 +117,17 @@ public:
    */
   virtual void OnPacketsLost (Ptr<TcpSocketState> tcb, std::vector<Ptr<QuicSocketTxItem> > lostPackets);
 
+  /**
+   * \brief Method called when retransmission timeout fires. It updates the quantities in the tcb.
+   *
+   * Public so that QuicSocketBase::ReTxTimeout can invoke the CC's loss-state response directly on
+   * persistent congestion (RFC 9002 Sec. 7.6: consecutive RTOs with no intervening ACK) - the
+   * original ACK-gated invocation in OnPacketAcked is unreachable when no ACKs arrive at all.
+   *
+   * \param tcb a smart pointer to the SocketState (it accepts a QuicSocketState)
+   */
+  virtual void OnRetransmissionTimeoutVerified (Ptr<TcpSocketState> tcb);
+
 protected:
   // QuicCongestionControl Draft10
 
@@ -154,13 +165,6 @@ protected:
    * \param ackedPacked the acked packet
    */
   void OnPacketAckedCC (Ptr<TcpSocketState> tcb, Ptr<QuicSocketTxItem> ackedPacket);
-
-  /**
-   * \brief Method called when retransmission timeout fires. It updates the quantities in the tcb.
-   *
-   * \param tcb a smart pointer to the SocketState (it accepts a QuicSocketState)
-   */
-  virtual void OnRetransmissionTimeoutVerified (Ptr<TcpSocketState> tcb);
 
 };
 

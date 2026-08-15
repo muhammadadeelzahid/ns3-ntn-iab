@@ -70,7 +70,7 @@ MpQuicSubFlow::MpQuicSubFlow()
 
     m_numPacketsReceivedSinceLastAckSent = 0;
     m_queue_ack = false;
-    m_receivedPacketNumbers = std::vector<SequenceNumber32> ();
+    m_receivedPacketNumbers.clear ();
 
     //For congestion control
     m_tcb = CreateObject<QuicSocketState> ();

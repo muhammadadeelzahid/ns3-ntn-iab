@@ -462,6 +462,7 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
           NS_LOG_WARN ("ForwardUp: dropping truncated packet (size=" << rawSize << " < " << QUIC_HEADER_MIN_BYTES << ")");
           continue;
         }
+
       QuicHeader header;
       packet->RemoveHeader (header);
       uint32_t payloadSize = packet->GetSize ();
@@ -493,8 +494,13 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
         }*/
       else
         {
-          NS_FATAL_ERROR ("The Connection ID can only be omitted by means of m_omit_connection_id transport parameter"
-                          " if source and destination IP address and port are sufficient to identify a connection");
+          // A packet arrived with the connection ID omitted but no transport
+          // parameter / endpoint demux is configured to resolve it. This must not
+          // abort the whole simulation (the original NS_FATAL_ERROR did). Drop the
+          // packet gracefully - the sender's loss detection will retransmit if the
+          // data was real. Consistent with the graceful Send-in-IDLE handling.
+          NS_LOG_WARN ("Dropping packet with omitted connection ID: cannot demux");
+          return;
         }
 
       QuicUdpBindingList::iterator it;

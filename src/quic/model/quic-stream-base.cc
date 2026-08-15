@@ -472,12 +472,25 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
 
     //  std::cout<< Simulator::Now ().GetSeconds () << "--///--Received a frame on stream "<< m_streamId <<" with the size " << sub.GetLength ()<<" expected offset: "<<m_recvSize<<" actual offset:"<<sub.GetOffset ()<< " Buffer Size: " << m_rxBuffer->Size ()<<std::endl;
 
-      if (m_recvSize == sub.GetOffset ()) 
+      // In-order if the frame starts exactly at the read offset, or STRADDLES it
+      // (an overlapping retransmission re-chunked at the sender: its head repeats
+      // already-delivered bytes but its tail is the very data the stream is
+      // waiting for — without the trim-and-accept the stream would stall forever,
+      // since the sender saw the original ACKed and will never resend the tail).
+      if (m_recvSize == sub.GetOffset ()
+          || (sub.GetOffset () < m_recvSize
+              && sub.GetOffset () + frame->GetSize () > m_recvSize))
         {
 
           NS_LOG_INFO ("Received a frame with the correct order of size " << sub.GetLength ());
-         
-          m_recvSize += sub.GetLength ();
+
+          uint32_t headTrim = (uint32_t) (m_recvSize - sub.GetOffset ());
+          if (headTrim > 0)
+            {
+              NS_LOG_INFO ("Trimming " << headTrim << " already-delivered bytes from frame head");
+              frame->RemoveAtStart (headTrim);
+            }
+          m_recvSize += frame->GetSize ();
 
           if (m_maxAdvertisedData == 0 || m_recvSize + m_rxBuffer->Available () > m_maxAdvertisedData + m_maxDataInterval)
             {
@@ -495,7 +508,7 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
           NS_LOG_LOGIC ("Extracting " << offSetLength.second << " bytes from RxBuffer");
           if (offSetLength.second > 0)
             {
-              Ptr<Packet> payload = m_rxBuffer->Extract (offSetLength.second);
+              Ptr<Packet> payload = m_rxBuffer->Extract (offSetLength.second, m_recvSize);
               m_recvSize += offSetLength.second;
               if (payload) {
                 frame->AddAtEnd (payload);
@@ -531,7 +544,7 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
           // std::cout<<"quic-stream-base.cc  Buffering unordered received frame of size " << sub.GetLength () <<" m_recvSize: "<<m_recvSize<< ", frame offset " << sub.GetOffset ()<<std::endl;
           if (!m_rxBuffer->Add (frame, sub, m_recvSize) && frame->GetSize () > 0)
             {
-              // Insert failed: No or duplicate data, or RX buffer full
+              // Insert failed: stale/covered duplicate (harmless), or RX buffer full
               NS_LOG_WARN ("Dropping packet as it could not be inserted in RX buffer");
               if (frame->GetSize() > m_rxBuffer->Available()) {
                   // Abort connection if indeed buffer is full

@@ -559,36 +559,65 @@ TcpBbr::ModulateCwndForProbeRTT (Ptr<TcpSocketState> tcb)
 }
 
 void
+TcpBbr::SetCwndToRecoverOrRestore (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpRateSample &rs)
+{
+  NS_LOG_FUNCTION (this << tcb << rs);
+  // Faithful port of Linux bbr_set_cwnd_to_recover_or_restore (net/ipv4/tcp_bbr.c). Runs every ACK.
+  TcpSocketState::TcpCongState_t state = tcb->m_congState;
+
+  // An ACK for P pkts should release at most 2*P packets. First, deduct newly-detected losses here;
+  // then SetCwnd's normal path slow-starts back toward the target.
+  if (rs.m_bytesLoss > 0)
+    {
+      tcb->m_cWnd = std::max ((int) tcb->m_cWnd.Get () - (int) rs.m_bytesLoss, (int) tcb->m_segmentSize);
+    }
+
+  if (m_prevCongState != TcpSocketState::CA_RECOVERY && state == TcpSocketState::CA_RECOVERY)
+    {
+      // Starting the 1st round of Recovery -> do packet conservation and cut unused cwnd ONCE.
+      m_packetConservation = true;
+      tcb->m_cWnd = tcb->m_bytesInFlight.Get () + rs.m_ackedSacked;
+    }
+  else if ((m_prevCongState == TcpSocketState::CA_RECOVERY || m_prevCongState == TcpSocketState::CA_LOSS)
+           && state != TcpSocketState::CA_RECOVERY && state != TcpSocketState::CA_LOSS)
+    {
+      // Exiting loss recovery -> restore cwnd saved before recovery (reliable, every ACK; does NOT
+      // depend on CA_EVENT_COMPLETE_CWR, which ns-3 fires only on full recovery completion).
+      m_packetConservation = false;
+      RestoreCwnd (tcb);
+    }
+  m_prevCongState = state;
+
+  if (m_packetConservation)
+    {
+      tcb->m_cWnd = std::max (tcb->m_cWnd.Get (), tcb->m_bytesInFlight.Get () + rs.m_ackedSacked);
+    }
+}
+
+void
 TcpBbr::SetCwnd (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpRateSample &rs)
 {
   NS_LOG_FUNCTION (this << tcb << rs);
+  // Restructured to match canonical Linux BBR bbr_set_cwnd(): always update the target, apply the
+  // inline recover-or-restore (which replaces the old event-driven RestoreCwnd + CongestionStateSet
+  // cwnd cut), then grow toward the target unless in packet conservation. This is the fix for the
+  // "TCP-BBR collapse" -- the socket cwnd previously stayed pinned to bytesInFlight because the
+  // restore-on-recovery-exit (CA_EVENT_COMPLETE_CWR) ~never fired under persistent loss.
+  UpdateTargetCwnd (tcb);
+  SetCwndToRecoverOrRestore (tcb, rs);
 
-  if (!rs.m_ackedSacked)
+  if (!m_packetConservation)
     {
-      goto done;
-    }
-
-  if (tcb->m_congState == TcpSocketState::CA_RECOVERY)
-    {
-      if (ModulateCwndForRecovery (tcb, rs)) 
+      if (m_isPipeFilled)
         {
-          goto done;
+          tcb->m_cWnd = std::min (tcb->m_cWnd.Get () + (uint32_t) rs.m_ackedSacked, m_targetCWnd);
         }
+      else if (tcb->m_cWnd < m_targetCWnd || m_delivered < tcb->m_initialCWnd * tcb->m_segmentSize)
+        {
+          tcb->m_cWnd = tcb->m_cWnd.Get () + rs.m_ackedSacked;
+        }
+      tcb->m_cWnd = std::max (tcb->m_cWnd.Get (), m_minPipeCwnd);
     }
-
-    UpdateTargetCwnd (tcb);
-
-  if (m_isPipeFilled)
-    {
-      tcb->m_cWnd = std::min (tcb->m_cWnd.Get () + (uint32_t) rs.m_ackedSacked, m_targetCWnd);
-    }
-  else if (tcb->m_cWnd < m_targetCWnd || m_delivered < tcb->m_initialCWnd * tcb->m_segmentSize)
-    {
-      tcb->m_cWnd = tcb->m_cWnd.Get () + rs.m_ackedSacked;
-    }
-  tcb->m_cWnd = std::max (tcb->m_cWnd.Get (), m_minPipeCwnd);
-  
-done:
   ModulateCwndForProbeRTT (tcb);
 }
 
@@ -631,6 +660,12 @@ void
 TcpBbr::UpdateModelAndState (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpRateSample &rs)
 {
   NS_LOG_FUNCTION (this << tcb << rs);
+  // Restart-from-idle (added 2026-07-30): upstream ns-3 TcpBbr defines HandleRestartFromIdle but
+  // NEVER calls it -- dead code. Without it, after each app-limited DASH ON/OFF gap the pacing rate
+  // is not reset on resumption, the BtlBw max-filter is starved of good delivery-rate samples, BtlBw
+  // decays and cwnd=gain*BtlBw*minRtt collapses (observed 458->19 KB). QUIC-BBR calls it (quic-bbr.cc
+  // :554) and does not collapse. Enabling it makes TCP-BBR a faithful BBR, matching QUIC/Linux BBR.
+  HandleRestartFromIdle (tcb, rs);
   UpdateBtlBw (tcb, rs);
   UpdateAckAggregation (tcb, rs);
   CheckCyclePhase (tcb, rs);
@@ -741,20 +776,22 @@ TcpBbr::CongestionStateSet (Ptr<TcpSocketState> tcb,
       m_ackEpochAcked = 0;
       m_extraAcked[0] = 0;
       m_extraAcked[1] = 0;
+      m_prevCongState = TcpSocketState::CA_OPEN;
       m_isInitialized = true;
     }
   else if (newState == TcpSocketState::CA_LOSS)
     {
       NS_LOG_DEBUG ("CongestionStateSet triggered to CA_LOSS :: " << newState);
-      SaveCwnd (tcb);      
+      SaveCwnd (tcb);
       m_roundStart = true;
     }
   else if (newState == TcpSocketState::CA_RECOVERY)
     {
       NS_LOG_DEBUG ("CongestionStateSet triggered to CA_RECOVERY :: " << newState);
+      // Save the (healthy, pre-recovery) cwnd here; the actual cut to bytes-in-flight and packet
+      // conservation are applied inline per-ACK in SetCwndToRecoverOrRestore (Linux BBR structure),
+      // and the restore on recovery exit happens there too (not via CA_EVENT_COMPLETE_CWR).
       SaveCwnd (tcb);
-      tcb->m_cWnd = tcb->m_bytesInFlight.Get () + std::max (tcb->m_lastAckedSackedBytes, tcb->m_segmentSize);
-      m_packetConservation = true;
     }
 }
 

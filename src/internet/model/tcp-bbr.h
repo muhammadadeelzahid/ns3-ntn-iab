@@ -273,6 +273,16 @@ protected:
   void SetCwnd (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpRateSample &rs);
 
   /**
+   * \brief Inline recover-or-restore of cwnd, faithful to Linux bbr_set_cwnd_to_recover_or_restore:
+   * deduct losses; on entering CA_RECOVERY cut cwnd to in-flight (packet conservation); on exiting
+   * loss recovery restore cwnd = max(cwnd, prior_cwnd). Called every ACK from SetCwnd, so the restore
+   * does NOT depend on the (unreliable-under-persistent-loss) CA_EVENT_COMPLETE_CWR event.
+   * \param tcb the socket state.
+   * \param rs  rate sample
+   */
+  void SetCwndToRecoverOrRestore (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpRateSample &rs);
+
+  /**
    * \brief Updates pacing rate based on network model.
    * \param tcb the socket state.
    * \param gain pacing gain.
@@ -367,6 +377,7 @@ private:
   bool        m_probeRttRoundDone           {false};             //!< True when it is time to exit BBR_PROBE_RTT
   bool        m_packetConservation          {false};             //!< Enable/Disable packet conservation mode
   uint32_t    m_priorCwnd                   {0};                 //!< The last-known good congestion window
+  TcpSocketState::TcpCongState_t m_prevCongState {TcpSocketState::CA_OPEN}; //!< Previous TCP ca-state, for inline recover/restore
   bool        m_idleRestart                 {false};             //!< When restarting from idle, set it true
   uint32_t    m_targetCWnd                  {0};                 //!< Target value for congestion window, adapted to the estimated BDP
   DataRate    m_fullBandwidth               {0};                 //!< Value of full bandwidth recorded

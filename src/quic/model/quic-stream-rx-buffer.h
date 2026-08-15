@@ -146,12 +146,16 @@ public:
   bool Add (Ptr<Packet> p, const QuicSubheader& sub, uint64_t expectedOffset);
 
   /**
-   * Extract maxSize bytes from the buffer
+   * Extract maxSize in-order bytes from the buffer, starting at fromOffset.
+   * Items entirely below fromOffset are discarded (already delivered);
+   * items straddling the extraction point are head-trimmed, so overlapping
+   * retransmitted data never corrupts the extracted byte stream.
    *
    * \param maxSize the number of bytes to be extracted
+   * \param fromOffset the stream offset extraction starts at
    * \return a smart pointer to the extracted packet
    */
-  Ptr<Packet> Extract (uint32_t maxSize);
+  Ptr<Packet> Extract (uint32_t maxSize, uint64_t fromOffset);
 
   /**
    * Get the total amount of data received in a stream

@@ -28,6 +28,7 @@
 #include <queue>
 #include <list>
 #include <set>
+#include <functional>
 
 #include "ns3/object.h"
 #include "ns3/uinteger.h"
@@ -96,7 +97,11 @@ public:
 
     // Pacing timer
     Timer m_pacingTimer       {Timer::REMOVE_ON_DESTROY};   //!< Pacing Event
-    std::vector<SequenceNumber32> m_receivedPacketNumbers;  //!< Received packet number vector
+    // Always-sorted (descending) + deduplicated set of received packet numbers. Was a std::vector that
+    // OnSendingAckFrame re-sorted on every ACK; unbounded growth + per-ACK full sort was O(N^2 log N) and
+    // hung the sim. A set gives O(log N) insert, no re-sort, and byte-identical ACK emission (vector
+    // duplicates never produced ACK blocks). Reset with .clear() at connection open/close.
+    std::set<SequenceNumber32, std::greater<SequenceNumber32> > m_receivedPacketNumbers;  //!< Received packet numbers
 
     uint32_t m_rounds;
 

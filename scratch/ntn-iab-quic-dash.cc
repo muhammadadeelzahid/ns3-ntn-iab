@@ -92,6 +92,10 @@ Ptr<NetDevice> g_iabHoDevice;
 
 // Captured at handover trigger so the (later) HandoverEndOk callback can migrate the IAB-MT's
 // descendant UE bearers from the source donor to the target donor (genuine inter-donor IAB migration).
+// Modeled NTN handover-execution / sync delay [s]: extra interruption ADDED on top of the intrinsic
+// RA gap (TA/Doppler re-acquisition + core-network S1 path switch per 3GPP TR 38.821). Defers the
+// descendant-UE migration so the interruption reaches the realistic LEO band (~50-300 ms). 0 = off.
+double g_hoExecDelay = 0.0;
 Ptr<NetDevice> g_hoSrcDonor;
 Ptr<NetDevice> g_hoTgtDonor;
 uint16_t g_hoOldIabRnti = 0;
@@ -647,7 +651,19 @@ IabHandoverEndOk (uint64_t imsi, uint16_t cellId, uint16_t rnti)
             << " now connected to cell " << cellId << " rnti=" << rnti << std::endl;
 
   // The IAB-MT backhaul has re-parented; now migrate its descendant UEs' data plane to the new donor.
-  MigrateIabDescendants (g_hoSrcDonor, g_hoTgtDonor, g_hoOldIabRnti, rnti, imsi);
+  // If a handover-execution/sync delay is modeled, defer the migration by that amount: the descendant
+  // downlink stays interrupted until TA re-acquisition + the S1 path switch complete (realistic NTN).
+  if (g_hoExecDelay > 0.0)
+    {
+      std::cout << "[IAB-HO]   deferring descendant migration by hoExecDelay="
+                << g_hoExecDelay * 1e3 << " ms (modeled NTN sync + path-switch interruption)" << std::endl;
+      Simulator::Schedule (Seconds (g_hoExecDelay), &MigrateIabDescendants,
+                           g_hoSrcDonor, g_hoTgtDonor, g_hoOldIabRnti, rnti, imsi);
+    }
+  else
+    {
+      MigrateIabDescendants (g_hoSrcDonor, g_hoTgtDonor, g_hoOldIabRnti, rnti, imsi);
+    }
 }
 
 // Fired if an IAB backhaul handover FAILS (random access to the target donor never completed after
@@ -900,9 +916,13 @@ main (int argc, char *argv[])
   double hoTime = 10.0;        // Inter-handover interval [s]: handover k occurs at k*hoTime (0 = disabled)
   double simDuration = 60.0;   // Video/simulation duration [s] (shorten for fast handover iteration)
   double targetDt = 30.0;      // DASH target buffer [s] (lower => continuous requests, to test data-plane recovery)
+  double maxBufferS = 0.0;     // Hard playback-buffer cap [s] (dash.js BufferController model; 0 = unlimited)
   std::string backhaulRate = "100Mbps";  // LEO satellite backhaul capacity (S1-U feeder rate). Realistic for a single
                                           // rural IAB (5G-NR-NTN Ka-band LEO ~100-300 Mbps; arXiv 2012.02136). Makes the
                                           // satellite backhaul the bottleneck so the handover transient is observable.
+  double feederDelay = 0.010;  // LEO feeder/S1-U one-way link delay [s]. Default 10ms (optimistic). Realistic
+                               // LEO feeder+service propagation is ~20-40ms one-way; raising it lengthens the
+                               // handover interruption into the realistic NTN band and makes it visible.
   std::string abrAlgorithm = "ns3::FdashClient";  // DASH ABR controller: ns3::FdashClient or ns3::BolaClient
   bool enableTraces = false;   // Heavy RLC/MAC/PHY ASCII traces (DlRlcStats/RxPacketTrace ~12MB/run): off for the campaign
   uint32_t rlcBufSize = 50;  // Increased from 10 to 50 MB to prevent RLC buffer overflows and packet drops
@@ -921,7 +941,10 @@ main (int argc, char *argv[])
   cmd.AddValue("hoTime", "IAB backhaul handover trigger time [s] (0 = disabled)", hoTime);
   cmd.AddValue("simDuration", "Video/simulation duration [s] (shorten for fast handover iteration)", simDuration);
   cmd.AddValue("targetDt", "DASH target buffer [s] (low => continuous requests, tests data-plane recovery)", targetDt);
+  cmd.AddValue("maxBufferS", "Hard playback-buffer cap [s] (models dash.js BufferController; 0 = unlimited)", maxBufferS);
   cmd.AddValue("backhaulRate", "LEO satellite backhaul capacity / S1-U feeder rate (e.g. 100Mbps)", backhaulRate);
+  cmd.AddValue("feederDelay", "LEO feeder/S1-U one-way link delay [s] (default 0.010; realistic LEO ~0.02-0.04)", feederDelay);
+  cmd.AddValue("hoExecDelay", "Modeled NTN handover-execution/sync delay [s] added to the interruption (TA re-acq + path switch; default 0; realistic ~0.02-0.07)", g_hoExecDelay);
   cmd.AddValue("abrAlgorithm", "DASH ABR algorithm TypeId (ns3::FdashClient or ns3::BolaClient)", abrAlgorithm);
   cmd.AddValue("traces", "Enable heavy RLC/MAC/PHY ASCII traces (slow; off for campaign)", enableTraces);
   cmd.AddValue("ueMobility", "UEs move randomly within a disc around the IAB (false = static placement)", ueMobility);
@@ -1208,7 +1231,7 @@ main (int argc, char *argv[])
   PointToPointHelper p2ph;
   p2ph.SetDeviceAttribute ("DataRate", DataRateValue (DataRate ("100Gb/s")));
   p2ph.SetDeviceAttribute ("Mtu", UintegerValue (9000));
-  p2ph.SetChannelAttribute ("Delay", TimeValue (Seconds (0.010)));
+  p2ph.SetChannelAttribute ("Delay", TimeValue (Seconds (feederDelay)));
   NetDeviceContainer internetDevices = p2ph.Install (pgw, remoteHost);
   Ipv4AddressHelper ipv4h;
   ipv4h.SetBase ("1.0.0.0", "255.0.0.0");
@@ -1648,6 +1671,7 @@ main (int argc, char *argv[])
                                   algorithm);
     dashClient.SetAttribute ("VideoId", UintegerValue(u + 1));
     dashClient.SetAttribute ("TargetDt", TimeValue(Seconds(target_dt)));
+    dashClient.SetAttribute ("MaxBufferS", DoubleValue(maxBufferS));
     dashClient.SetAttribute ("window", TimeValue(MilliSeconds(window)));
     dashClient.SetAttribute ("bufferSpace", UintegerValue(bufferSpace));
     

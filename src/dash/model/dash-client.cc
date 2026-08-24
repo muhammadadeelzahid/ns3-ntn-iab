@@ -26,6 +26,7 @@
 #include <ns3/inet6-socket-address.h>
 #include <ns3/log.h>
 #include <ns3/simulator.h>
+#include <ns3/double.h>
 #include <ns3/tcp-socket-factory.h>
 #include <ns3/uinteger.h>
 #include <sstream>
@@ -80,6 +81,14 @@ DashClient::GetTypeId(void)
                                           TimeValue(Seconds(0)),  // 0 = unlimited
                                           MakeTimeAccessor(&DashClient::m_maxVideoDuration),
                                           MakeTimeChecker())
+                            .AddAttribute("MaxBufferS",
+                                          "Hard playback-buffer capacity in seconds (models the dash.js "
+                                          "BufferController; 0 = unlimited). Decoupled from the ABR's "
+                                          "internal buffer target so the actual buffer can be swept "
+                                          "independently of BOLA's bufferTime.",
+                                          DoubleValue(0.0),  // 0 = unlimited
+                                          MakeDoubleAccessor(&DashClient::m_maxBufferS),
+                                          MakeDoubleChecker<double>())
                             .AddTraceSource("Tx",
                                             "A new packet is created and is sent",
                                             MakeTraceSourceAccessor(&DashClient::m_txTrace),
@@ -96,6 +105,7 @@ DashClient::DashClient()
       m_player(this->GetObject<DashClient>(), m_bufferSpace),
       m_rateChanges(0),
       m_target_dt("35s"),
+      m_maxBufferS(0.0),
       m_bitrateEstimate(0.0),
       m_segmentId(0),
       m_socket(0),
@@ -654,6 +664,20 @@ DashClient::MessageReceived(Packet message)
         if (prevBitrate != m_bitRate)
         {
             m_rateChanges++;
+        }
+
+        // BufferController-style hard cap (models dash.js's separate buffer target). Holds the actual
+        // playback buffer at m_maxBufferS regardless of the ABR's internal buffer target, so the
+        // buffer capacity can be swept independently of BOLA's bufferTime. When the buffer plus one
+        // segment would exceed the cap, defer the next fetch until it has drained back to the cap.
+        if (m_maxBufferS > 0.0)
+        {
+            const double segDur = (MPEG_FRAMES_PER_SEGMENT * MPEG_TIME_BETWEEN_FRAMES) / 1000.0;
+            double capDelay = currDt.GetSeconds() + segDur - m_maxBufferS;
+            if (capDelay > bufferDelay.GetSeconds())
+            {
+                bufferDelay = Seconds(capDelay);
+            }
         }
 
         if (bufferDelay == Seconds(0))

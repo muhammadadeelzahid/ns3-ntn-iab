@@ -126,6 +126,7 @@ class DashClient : public Application
     std::map<Time, Time> m_bufferState;
     uint32_t m_rateChanges;
     Time m_target_dt;
+    double m_maxBufferS;  // Hard playback-buffer cap [s] (dash.js BufferController model; 0 = unlimited)
     std::deque<std::pair<Time, double>> m_bitrateQueue;
     double m_bitrateSum = 0;
 

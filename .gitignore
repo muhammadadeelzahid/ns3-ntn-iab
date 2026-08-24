@@ -61,3 +61,5 @@ handover_campaign/*
 /NEWRENO_PACING_FIX.md
 /PTO_ACK_DEBUG.md
 /QUIC_DEBUG_HANDOFF.md
+# Article/manuscript sources — kept local, not part of the code repository
+latex-article/

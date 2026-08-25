@@ -59,3 +59,6 @@ handover_campaign/
 /QUIC_DEBUG_HANDOFF.md
 # Article/manuscript sources — kept local, not part of the code repository
 latex-article/
+
+# Locked reference results for pre/post-bugfix comparison — kept local
+reference_baseline/

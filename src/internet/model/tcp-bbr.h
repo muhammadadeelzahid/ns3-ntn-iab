@@ -273,10 +273,10 @@ protected:
   void SetCwnd (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpRateSample &rs);
 
   /**
-   * \brief Inline recover-or-restore of cwnd, faithful to Linux bbr_set_cwnd_to_recover_or_restore:
+   * \brief Inline recover-or-restore of cwnd, matching Linux bbr_set_cwnd_to_recover_or_restore:
    * deduct losses; on entering CA_RECOVERY cut cwnd to in-flight (packet conservation); on exiting
    * loss recovery restore cwnd = max(cwnd, prior_cwnd). Called every ACK from SetCwnd, so the restore
-   * does NOT depend on the (unreliable-under-persistent-loss) CA_EVENT_COMPLETE_CWR event.
+   * does not depend on the CA_EVENT_COMPLETE_CWR event, which is unreliable under persistent loss.
    * \param tcb the socket state.
    * \param rs  rate sample
    */

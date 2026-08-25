@@ -237,9 +237,9 @@ public:
 bool vnReceived;
 
   /**
-   * QUIC_RXFIX (RFC 9000 Sec. 13.1 compliance): true if the last DisgregateRecv hit an
-   * unparseable subheader. The socket must not queue such a packet's number for ACK,
-   * so the sender retransmits it and a corrupted delivery heals instead of freezing.
+   * True if the last DisgregateRecv hit an unparseable subheader. Per RFC 9000
+   * Sec. 13.1 the socket must not queue such a packet's number for ACK, so the
+   * sender retransmits it and a corrupted delivery recovers rather than stalling.
    */
   bool LastRecvParseFailed () const
   {

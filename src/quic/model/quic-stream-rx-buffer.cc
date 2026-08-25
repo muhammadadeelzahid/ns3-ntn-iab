@@ -123,7 +123,7 @@ QuicStreamRxBuffer::Add (Ptr<Packet> p, const QuicSubheader& sub, uint64_t expec
     }
 
   // A FIN frame pins the final stream size even if the data itself is a
-  // duplicate we end up discarding below.
+  // duplicate discarded below.
   if (sub.IsStreamFin ())
     {
       NS_LOG_LOGIC ("FIN packet for the stream");
@@ -131,14 +131,12 @@ QuicStreamRxBuffer::Add (Ptr<Packet> p, const QuicSubheader& sub, uint64_t expec
       m_recvFin = true;
     }
 
-  // Insert only the byte ranges NOT already covered (by delivered data or by
-  // buffered items). Retransmission storms deliver the same ranges many times,
-  // re-chunked at arbitrary boundaries; counting redundant copies as occupancy
-  // exhausted the buffer, and the advertised flow-control credit
-  // (m_recvSize + Available()) then lied to the sender: new UNIQUE data sent
-  // within credit was rejected for room after being ACKed = bytes lost forever
-  // = permanent stream stall. Trimming keeps occupancy == unique bytes, keeps
-  // the credit honest, and makes the buffered items disjoint by construction.
+  // Insert only the byte ranges not already covered (by delivered data or by buffered items).
+  // Retransmissions deliver the same ranges many times, re-chunked at arbitrary boundaries;
+  // counting redundant copies as occupancy would exhaust the buffer and make the advertised
+  // flow-control credit (m_recvSize + Available()) inaccurate, so unique data sent within credit
+  // could be rejected for room after being ACKed and stall the stream. Trimming keeps occupancy
+  // equal to unique bytes and makes the buffered items disjoint by construction.
   uint64_t start = sub.GetOffset ();
   uint64_t end = start + p->GetSize ();
   if (end <= expectedOffset)
@@ -305,12 +303,6 @@ uint32_t
 QuicStreamRxBuffer::Size (void) const
 {
   NS_LOG_FUNCTION (this);
-
-  // uint32_t inFlight = 0;
-  // for (auto recv_it = m_streamRecvList.begin (); recv_it != m_streamRecvList.end () and !m_streamRecvList.empty (); ++recv_it)
-  //   {
-  //     inFlight += (*recv_it)->m_packet->GetSize ();
-  //   }
 
   return m_numBytesInBuffer;
 }

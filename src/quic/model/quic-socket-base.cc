@@ -996,10 +996,9 @@ QuicSocketBase::AppendingTx (Ptr<Packet> frame)
 
       if (m_socketState != IDLE)
         {
-          // Call SendPendingData immediately when data is added, not just schedule it
-          // This ensures data is sent even if AppSize was 0 before
+          // Send immediately when data is added so it is not delayed if AppSize was 0 before.
           SendPendingData (m_connected);
-          
+
           // Also schedule it for later in case more data arrives
           if (!m_sendPendingDataEvent.IsRunning ())
             {
@@ -1017,10 +1016,9 @@ QuicSocketBase::AppendingTx (Ptr<Packet> frame)
     }
   else
     {
-      // A stalled flow's connection can idle out to IDLE/CLOSING; the DASH client/watchdog may then
-      // try to Send() a new request on the dead socket. The upstream code NS_ABORT_MSG'd here, which
-      // crashed the WHOLE simulation (observed: quic_newreno aborted at t=554 s). A transport must not
-      // kill the sim: return an error so the app sees a failed send and can recover.
+      // A stalled connection can idle out to IDLE/CLOSING while the application still tries to
+      // Send() on it. Return an error instead of aborting so the transport does not kill the
+      // simulation and the application can recover.
       NS_LOG_WARN ("Send() attempted in state " << QuicStateName[m_socketState] << " - returning -1");
       return -1;
     }
@@ -1176,15 +1174,11 @@ QuicSocketBase::SendPendingData (bool withAck)
 
         availableWindow = AvailableWindow(sendingPathId);
 
-        // No-progress guard against a data-dependent send-loop livelock. Observed 2026-07-23 (seed18):
-        // this while-loop spun ~1.5 h at 100% CPU with sim-time frozen and RSS bounded, the PC pinned in
-        // AvailableWindow/BytesInFlight/ConnectionWindow (all inlined into this loop's window recompute).
-        // A healthy iteration either consumes app data (AppSize drops) or puts bytes on the wire
-        // (BytesInFlight rises). If SendDataPacket did NEITHER, the loop cannot make forward progress yet
-        // keeps re-satisfying (availableWindow>0 && AppSize>0), so it never terminates. Break out and let
-        // the next ACK / app-data event re-drive SendPendingData. Behavior-neutral in normal operation:
-        // every real app-data send drops AppSize by the sent bytes, so the guard never fires on healthy
-        // runs (keeps already-completed runs byte-identical); it only trips on the pathological no-op send.
+        // No-progress guard against a data-dependent send-loop livelock. A healthy iteration either
+        // consumes app data (AppSize drops) or puts bytes on the wire (BytesInFlight rises). If
+        // SendDataPacket did neither, the loop keeps re-satisfying (availableWindow>0 && AppSize>0)
+        // and never terminates. Break out and let the next ACK / app-data event re-drive
+        // SendPendingData; every real app-data send drops AppSize, so the guard only trips on a no-op send.
         if (bytesInFlight <= biFBefore && m_txBuffer->AppSize () >= appSizeBefore)
           {
             NS_LOG_WARN ("SendPendingData: no-progress iteration (biF " << biFBefore << "->" << bytesInFlight
@@ -1358,13 +1352,10 @@ QuicSocketBase::SendDataPacket (SequenceNumber32 packetNumber, uint32_t maxSize,
       p = m_txBuffer->NextSequence (maxSize, packetNumber, pathId);
     }
 
-  // NextSequence/NextStream0Sequence return the SAME Ptr<Packet> stored in the
-  // sent list. Every downstream mutation - the appended ACK frame below, headers
-  // added in L4 - would otherwise accumulate inside the stored copy and be re-sent
-  // on retransmission: observed as sent packets snowballing by one stale ACK frame
-  // (~410 B) per retransmission cycle up to multi-MB mega-packets, exploding the
-  // 6-UE runs into a 16 GB bad_alloc OOM. Send a COW copy; keep the stored packet
-  // pristine (RFC 9002: ACK frames are not retransmitted with data anyway).
+  // NextSequence/NextStream0Sequence return the same Ptr<Packet> stored in the sent list.
+  // Downstream mutations (the ACK frame appended below, headers added in L4) would otherwise
+  // accumulate inside the stored copy and be re-sent on retransmission. Send a copy-on-write copy
+  // and keep the stored packet pristine (RFC 9002: ACK frames are not retransmitted with data).
   p = p->Copy ();
 
   uint32_t sz = p->GetSize ();
@@ -1391,12 +1382,10 @@ QuicSocketBase::SendDataPacket (SequenceNumber32 packetNumber, uint32_t maxSize,
       m_subflows[pathId]->m_tcb->m_appLimitedUntil = m_subflows[pathId]->m_tcb->m_delivered + m_subflows[pathId]->m_tcb->m_bytesInFlight.Get () ? : 1U;
     }
 
-  // The non-BBR (NewReno) path never set a pacing rate: tcb->m_pacing was false and m_pacingRate
-  // kept the 4 Gb/s default, so pacing was a no-op and a reopened flow-control window let NewReno
-  // dump up to the whole 64 MB window in ONE sim instant -> event storm + unbounded memory (the
-  // sim=600 s/10 UE OOM that no memory ceiling, even 370 GB, could hold). Give it a real cwnd/RTT
-  // paced rate (BBR already sets + clamps its own). Pacing spreads a window over ~1 RTT, which
-  // ACK-clocks the flow and eliminates the instant burst.
+  // The non-BBR (NewReno) path never set a pacing rate, so a reopened flow-control window let it
+  // dump the whole window in one instant (event storm + unbounded memory). Give it a real cwnd/RTT
+  // paced rate (BBR already sets and clamps its own); pacing spreads a window over ~1 RTT and
+  // ACK-clocks the flow, eliminating the instant burst.
   if (!m_ccIsBbr)
     {
       Ptr<QuicSocketState> tcbP = m_subflows[pathId]->m_tcb;
@@ -1406,9 +1395,8 @@ QuicSocketBase::SendDataPacket (SequenceNumber32 packetNumber, uint32_t maxSize,
                     : tcbP->m_kDefaultInitialRtt);
       double secs = std::max (rtt.GetSeconds (), 1e-3);
       // Linux-style pacing gain: 2x during slow start (let the window double), 1.2x in congestion
-      // avoidance. Clamp to [1, 50] Mbps (BBR uses the same band): the floor prevents a pacing-timer
-      // stall, the ceiling (>10x the ~10 Mbps/UE fair share, well above the 4.2 Mbps ABR ladder cap)
-      // never throttles legitimate throughput but bounds the instantaneous burst.
+      // avoidance. Clamp to [1, 50] Mbps: the floor prevents a pacing-timer stall, the ceiling
+      // bounds the instantaneous burst without throttling legitimate throughput.
       double gain = (tcbP->m_cWnd.Get () < tcbP->m_ssThresh) ? 2.0 : 1.2;
       uint64_t bps = (uint64_t) ((double) tcbP->m_cWnd.Get () * 8.0 * gain / secs);
       DataRate paced (bps);
@@ -1610,23 +1598,16 @@ QuicSocketBase::DoRetransmit (std::vector<Ptr<QuicSocketTxItem> > lostPackets, u
                        pathId);
   }
 
-  // Send the retransmitted data in MTU-sized packets, NOT one mega-packet. Retransmission() re-queued all
-  // lost bytes into the app buffer; NextSequence(maxSize) coalesces whatever fits into ONE packet, so
-  // passing toRetx (which grows to 87 KB+ once losses accumulate and MergeItems coalesces them) put an
-  // ~87 KB "packet" on the wire. On a lossy mmWave link a packet that large is essentially guaranteed to
-  // lose a fragment and be dropped, and its equally-huge retransmit is dropped again -> the observed
-  // flush/resend/re-freeze churn (only 16 s of sim in 3.5 h) and, more fundamentally, the multi-user
-  // freeze itself (a flow can never get a mega-packet through). Chunk at GetSegSize() so each retransmit
-  // is one MTU: a loss costs one segment and recovery is tractable, matching how SendPendingData paces
-  // normal data. Packet numbering mirrors SendPendingData (++m_nextTxSequence per packet).
+  // Send the retransmitted data in MTU-sized packets, not one coalesced mega-packet. Retransmission()
+  // re-queues all lost bytes into the app buffer and NextSequence(maxSize) coalesces whatever fits into
+  // one packet; passing the full toRetx would put an oversized packet on the wire that a lossy link is
+  // almost certain to drop again. Chunk at GetSegSize() so each retransmit is one MTU and recovery is
+  // tractable, matching how SendPendingData paces normal data (++m_nextTxSequence per packet).
   NS_LOG_INFO ("Retransmitted packet, next sequence number " << m_subflows[pathId]->m_tcb->m_nextTxSequence);
-  // Inject at most maxPackets probes immediately (RFC 9002 Sec. 6.2). Injecting the
-  // whole re-queued backlog here (previously unbounded) put hundreds of packets on an
-  // already-lossy link per alarm firing, several times per second per flow: most were
-  // re-lost, re-declared and re-injected, and the resulting sent-list/event-queue
-  // amplification grew the process to the 16 GB OOM kill while the sim churned. The
-  // rest of the re-queued data stays in the scheduler and is sent window-paced by
-  // SendPendingData as the probe-elicited ACKs reopen the window.
+  // Inject at most maxPackets probes immediately (RFC 9002 Sec. 6.2). Injecting the whole re-queued
+  // backlog here would put hundreds of packets on an already-lossy link per alarm firing, most of
+  // which are re-lost and re-injected. The rest of the re-queued data stays in the scheduler and is
+  // sent window-paced by SendPendingData as the probe-elicited ACKs reopen the window.
   uint32_t seg = GetSegSize ();
   uint32_t remaining = toRetx;
   uint32_t pktsSent = 0;
@@ -1661,12 +1642,10 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
     {
       // Handshake retransmission alarm.
       m_subflows[pathId]->m_tcb->m_handshakeCount++;
-      // The original module left this as a no-op (the RetransmitAllHandshakePackets TODO below), so a
-      // single lost handshake packet left the connection stuck in CONNECTING forever and the UE never
-      // established (observed: ~2/10 UEs under BBR never start). Handshake data rides stream 0, whose
-      // sent packets are tracked in m_subflowSentList[0]; MarkHeadAsLost + DoRetransmit re-queues the
-      // oldest outstanding handshake packet (Retransmission re-inserts isStream0 items into the stream-0
-      // list) and resends it with the proper Initial/Handshake header, re-arming the alarm.
+      // Retransmit the lost handshake packet; without this a single loss leaves the connection stuck
+      // in CONNECTING forever. Handshake data rides stream 0; MarkHeadAsLost + DoRetransmit re-queues
+      // the oldest outstanding handshake packet and resends it with the proper Initial/Handshake
+      // header, re-arming the alarm.
       //RetransmitAllHandshakePackets();
       // MarkHeadAsLost is best-effort; DoRetransmit is unconditional so an already-lost handshake packet
       // still gets resent (gating on MarkHeadAsLost would let it stall in CONNECTING under repeated loss).
@@ -1722,11 +1701,10 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
       if (s == 0 && BytesInFlight (pathId) > 0)
         {
           // Window-limited tail loss: a new-data probe would be 0-byte (ack-only) and make no progress.
-          // Retransmit outstanding data instead (not gated by the window). MarkHeadAsLost is best-effort
-          // (flags the oldest not-yet-lost packet); DoRetransmit then resends ALL lost packets. Crucially
-          // DoRetransmit is called UNCONDITIONALLY: once every outstanding packet is already flagged lost,
-          // MarkHeadAsLost returns false, and gating the retransmit on it would skip the resend and freeze
-          // the flow (RTO fires forever sending nothing).
+          // Retransmit outstanding data instead (not gated by the window). MarkHeadAsLost is best-effort;
+          // DoRetransmit then resends all lost packets and is called unconditionally, since once every
+          // outstanding packet is already flagged lost, gating on MarkHeadAsLost would skip the resend
+          // and freeze the flow.
           m_txBuffer->MarkHeadAsLost (pathId);
           DoRetransmit (m_txBuffer->DetectLostPackets (pathId), pathId);
         }
@@ -1759,9 +1737,9 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
               // Window-limited RTO: a new-data probe would be 0-byte (ack-only) and make no progress,
               // leaving the flow frozen with a healthy cwnd and data stuck in flight. Retransmit
               // outstanding data (not gated by the window). MarkHeadAsLost is best-effort; DoRetransmit
-              // then resends ALL lost packets and is called UNCONDITIONALLY - once every outstanding
-              // packet is already flagged lost, MarkHeadAsLost returns false, and gating the retransmit
-              // on it would skip the resend and freeze the flow (the residual freeze the pilot exposed).
+              // then resends all lost packets and is called unconditionally, since once every
+              // outstanding packet is already flagged lost, gating on it would skip the resend and
+              // freeze the flow.
               m_txBuffer->MarkHeadAsLost (pathId);
               DoRetransmit (m_txBuffer->DetectLostPackets (pathId), pathId);
             }
@@ -1774,19 +1752,15 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
 
       m_subflows[pathId]->m_tcb->m_rtoCount++;
 
-      // RFC 9002 Sec. 7.6 persistent congestion — ACK-INDEPENDENT backoff. The module's only cwnd
-      // backoff (OnRetransmissionTimeoutVerified) is invoked from OnPacketAcked, i.e. it requires an
-      // ACK to arrive after the RTO. Under a genuine loss burst (tail loss + retransmits also lost)
-      // NO acks arrive, so cwnd was never reduced: the flow kept probing a full window into a lossy
-      // link and froze with a healthy cwnd (the observed multi-user stall), while ns-3 TCP collapses
-      // cwnd to 1 MSS directly in its RTO handler and recovers. Declare persistent congestion after
-      // the SECOND consecutive RTO with no intervening ACK (m_rtoCount is reset by OnPacketAcked),
-      // approximating the RFC's kPersistentCongestionThreshold duration, and invoke the CC's own
-      // existing loss-state response (NewReno: cwnd=kMinimumWindow; BBR: SaveCwnd + cwnd=1 segment).
-      // A/B DIAGNOSTIC (strip before campaign): QUIC_NO_FLUSH disables the whole-sent-list flush
-      // heuristics (PC-flush here + STUCK-FLUSH below) so we can tell whether they are the storm
-      // engine (flows recover without them via normal ACK-driven recovery) or a necessary crutch
-      // (flows freeze without them because ACKs are genuinely absent = system-model blocker).
+      // RFC 9002 Sec. 7.6 persistent congestion, applied ACK-independently. The CC's cwnd backoff
+      // (OnRetransmissionTimeoutVerified) is invoked from OnPacketAcked and thus requires an ACK after
+      // the RTO; under a loss burst where no ACKs arrive, cwnd would never be reduced and the flow
+      // freezes with a healthy cwnd. Declare persistent congestion after the second consecutive RTO
+      // with no intervening ACK (m_rtoCount is reset by OnPacketAcked), approximating the RFC's
+      // kPersistentCongestionThreshold, and invoke the CC's own loss-state response (NewReno:
+      // cwnd=kMinimumWindow; BBR: SaveCwnd + cwnd=1 segment).
+      // QUIC_NO_FLUSH disables the whole-sent-list flush heuristics (this PC flush and the stuck-flush
+      // below) for diagnostics.
       static const bool s_noFlush = (getenv ("QUIC_NO_FLUSH") != nullptr);
       if (m_subflows[pathId]->m_tcb->m_rtoCount >= 2 && !s_noFlush)
         {
@@ -1811,13 +1785,11 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
               m_subflows[pathId]->m_tcb->m_congState = TcpSocketState::CA_LOSS;
             }
 
-          // 2. Release the pinned in-flight bytes. With zero ACKs arriving, nothing else can ever
-          //    declare the outstanding sent-list packets lost (all other loss marking is ACK-driven;
-          //    DetectLostPackets only RETURNS already-marked items), so BytesInFlight stays pinned at
-          //    the old cwnd and AvailableWindow stays 0 forever - the cwnd collapse alone cannot
-          //    unfreeze the flow. Mark the whole sent list lost and re-queue it (exactly TCP's RTO
-          //    response: mark sent list lost + restart from the head), which empties the sent list
-          //    (BytesInFlight -> 0) and reopens the minimum window.
+          // 2. Release the pinned in-flight bytes. With zero ACKs arriving, all other loss marking
+          //    (ACK-driven; DetectLostPackets only returns already-marked items) can never declare the
+          //    outstanding packets lost, so BytesInFlight stays pinned and the cwnd collapse alone
+          //    cannot unfreeze the flow. Mark the whole sent list lost and re-queue it (TCP's RTO
+          //    response), which empties the sent list (BytesInFlight -> 0) and reopens the minimum window.
           uint32_t flushed = m_txBuffer->MarkAllOutstandingAsLost (pathId);
           if (flushed > 0)
             {
@@ -1833,15 +1805,13 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
     }
 
   // Progress-based stuck-flow recovery (robust to sporadic ACKs). The count-based persistent-congestion
-  // trigger above (m_rtoCount>=2) never fires for a flow that gets occasional ACKs: each ACK resets BOTH
+  // trigger above (m_rtoCount>=2) never fires for a flow that gets occasional ACKs: each ACK resets both
   // m_rtoCount and m_tlpCount in OnPacketAcked, so the alarm keeps firing as a window-limited TLP that
-  // retransmits only the head, m_tlpCount never reaches kMaxTLPs, the RTO branch is never entered, and
-  // BytesInFlight stays pinned (biF >> cwnd, AvailableWindow==0) forever - the exact frozen state the 6-UE
-  // pilot exposed (server retransmits into a black hole; client Rx dies). Escalate INDEPENDENTLY of the
-  // alarm-type/RTO bookkeeping: if the flow is window-pinned (AvailableWindow < one segment while biF>0)
-  // and has made NO delivery progress (BytesInFlight not decreasing) across >=3 consecutive alarm firings,
-  // the outstanding data is genuinely stuck; collapse cwnd, mark the whole sent list lost (biF->0) + re-queue
-  // it, and restart - mirroring TCP's RTO. Keyed per (socket,path) via a static map (no header change).
+  // retransmits only the head, the RTO branch is never entered, and BytesInFlight stays pinned forever.
+  // Escalate independently of the alarm-type/RTO bookkeeping: if the flow is window-pinned
+  // (AvailableWindow < one segment while biF>0) and has made no delivery progress across >=3 consecutive
+  // alarm firings, collapse cwnd, mark the whole sent list lost (biF->0) and re-queue it, then restart -
+  // mirroring TCP's RTO. Keyed per (socket,path) via a static map (no header change).
   {
     static std::map<std::pair<void*, uint8_t>, std::pair<uint32_t, uint32_t> > s_stuck; // key -> (lastBiF, noProgressCount)
     uint32_t biFNow = BytesInFlight (pathId);
@@ -2557,14 +2527,11 @@ QuicSocketBase::OnSendingAckFrame (uint8_t pathId)
 
   NS_LOG_INFO ("Attach an ACK frame to the packet");
 
-  // m_receivedPacketNumbers is a std::set ordered by std::greater, so it is ALWAYS sorted descending and
-  // deduplicated — no per-ACK std::sort is needed. Upstream kept it as a std::vector and re-sorted the
-  // whole thing on every ACK; because the vector was never pruned it grew without bound and each ACK paid
-  // an O(N log N) sort, giving O(N^2 log N) total that pinned the process at 100% CPU inside introsort and
-  // froze sim-time (the 600 s/10-UE campaign hang). Switching the container to an always-sorted set makes
-  // insertion O(log N) and removes the sort entirely, while the emitted ACK is byte-identical: the old
-  // vector's duplicates produced no ACK blocks (the gap walk skipped curr==next), so deduping changes
-  // nothing observable, and the set's descending order matches what std::sort produced. No data is dropped.
+  // m_receivedPacketNumbers is a std::set ordered by std::greater, so it is always sorted descending and
+  // deduplicated; no per-ACK std::sort is needed. A std::vector re-sorted on every ACK grows without
+  // bound and pays an O(N log N) sort each time. Insertion into the set is O(log N) and the emitted ACK
+  // is equivalent: duplicates produce no ACK blocks (the gap walk skips curr==next) and the descending
+  // order matches a sorted vector.
   SequenceNumber32 largestAcknowledged = *(m_subflows[pathId]->m_receivedPacketNumbers.begin ());
 
 
@@ -2647,9 +2614,8 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
   uint8_t pathId = sub.GetPathId();
 
   // Robustness guard: pathId comes off the wire (ACK subheader) and a malformed/corrupted frame can
-  // carry an out-of-range value (e.g. 23 on a single-path connection). m_subflows / m_txBuffer's
-  // per-path lists are sized to the number of active subflows, so indexing them with such a pathId is
-  // an out-of-bounds access (observed SIGSEGV in QuicSocketTxBuffer::BytesInFlight). Drop the frame
+  // carry an out-of-range value. m_subflows / m_txBuffer's per-path lists are sized to the number of
+  // active subflows, so indexing them with such a pathId is an out-of-bounds access. Drop the frame
   // instead of crashing the simulation.
   if (pathId >= m_subflows.size ())
     {
@@ -2715,10 +2681,9 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
                 m_subflows[pathId]->m_tcb, TcpSocketState::CA_LOSS);
             }
         }
-      // NOTE: this else-branch used to reset m_rtoCount when the ACK covered only
-      // PRE-RTO packets - i.e. exactly the stale/spurious acks that should NOT
-      // clear the backoff (RFC 9002 Sec. 6.2.1). Removed: the gated reset in
-      // OnPacketAcked (ack of post-epoch data) is the only backoff-clearing path.
+      // Do not reset m_rtoCount here on an ACK covering only pre-RTO packets: those stale/spurious
+      // acks must not clear the backoff (RFC 9002 Sec. 6.2.1). The gated reset in OnPacketAcked
+      // (ack of post-epoch data) is the only backoff-clearing path.
     }
 
   // Tail loss probe packet acknowledged - IETF Draft QUIC Recovery, Sec. 4.3.2
@@ -2766,13 +2731,11 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
       DoRetransmit (lostPackets,pathId);
     }
   /* else */
-  // Guard on what this block actually consumes: newly-SACKED packets. ackedBytes is a
-  // delta-BytesInFlight proxy; now that BytesInFlight correctly excludes lost-marked packets
-  // (RFC 9002 Sec. 7), an ACK whose gaps mark packets LOST without sacking anything new yields
-  // ackedBytes > 0 with an EMPTY ackedPackets, and the unguarded .at(0) crashed the simulation
-  // (std::out_of_range at t~21.8 s, 10-UE runs). Conversely a late ACK that sacks an
-  // already-lost-marked packet leaves biF unchanged but must still be processed (spurious-loss
-  // recovery) - matching the original semantics under the corrected accounting.
+  // Guard on what this block actually consumes: newly-SACKed packets. Since BytesInFlight excludes
+  // lost-marked packets (RFC 9002 Sec. 7), an ACK whose gaps mark packets lost without sacking
+  // anything new yields ackedBytes > 0 with an empty ackedPackets, so the unguarded .at(0) would be
+  // out of range. Conversely a late ACK that sacks an already-lost-marked packet leaves biF unchanged
+  // but must still be processed for spurious-loss recovery.
   if (!ackedPackets.empty ())
     {
       Ptr<QuicSocketTxItem> lastAcked = ackedPackets.at (0);
@@ -3248,9 +3211,9 @@ QuicSocketBase::ReceivedData (Ptr<Packet> p, const QuicHeader& quicHeader,
           SendPendingData (true);
         }
       
-      // QUIC_RXFIX (RFC 9000 Sec. 13.1): only ACK packets that were processed successfully.
-      // Legacy behavior queued the packet number BEFORE parsing, so a corrupted payload got
-      // ACKed, was never retransmitted, and left a permanent stream gap (the freeze).
+      // RFC 9000 Sec. 13.1: only ACK packets that were processed successfully. Queuing the packet
+      // number before parsing would ACK a corrupted payload that is never retransmitted, leaving a
+      // permanent stream gap.
       extern bool QuicRxFixEnabled ();
       if (QuicRxFixEnabled ())
         {
@@ -3720,10 +3683,9 @@ QuicSocketBase::OnReceivedAddAddressFrame (QuicSubheader &sub)
   Address peerAddr = InetSocketAddress(ipv4, port);
 
   // Robustness guard: pathId comes off the wire. GetAddress(pathId+1, 0) indexes the node's Ipv4
-  // interface list; on a single-path connection (no multipath configured) an unexpected/corrupted
-  // ADD_ADDRESS frame carries a pathId whose interface does not exist, and GetAddress then returns a
-  // null Ipv4Interface -> GetLocal() dereferences null -> SIGSEGV that kills the whole simulation
-  // (observed under BBR at sim~25 s). Drop the frame instead of crashing. This does not affect the
+  // interface list; on a single-path connection an unexpected/corrupted ADD_ADDRESS frame carries a
+  // pathId whose interface does not exist, and GetAddress then returns a null Ipv4Interface whose
+  // GetLocal() dereferences null. Drop the frame instead of crashing. This does not affect the
   // single-path data path (which never legitimately receives ADD_ADDRESS).
   Ptr<Ipv4> ipv4L3 = m_node ? m_node->GetObject<Ipv4> () : nullptr;
   if (ipv4L3 == nullptr || (uint32_t) (pathId + 1) >= ipv4L3->GetNInterfaces ())

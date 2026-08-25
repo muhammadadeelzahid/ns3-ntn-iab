@@ -86,11 +86,11 @@ class MpegPlayer
     }
 
     int m_state;
-    // Single outstanding PlayFrame event. ALL PlayFrame (re)scheduling goes through this EventId with a
-    // cancel-before-schedule, so there is only ever ONE pending PlayFrame. Without it, the underrun branch's
-    // keep-alive reschedule and ReceiveFrame's resume each started a chain, so every pause->resume cycle
-    // spawned an extra concurrent PlayFrame chain (frames consumed at 2x, 3x... -> runaway buffer drain and
-    // absurd interruption counts).
+    // Single outstanding PlayFrame event. All PlayFrame (re)scheduling goes through this EventId with a
+    // cancel-before-schedule, so there is only ever one pending PlayFrame. Otherwise the underrun
+    // branch's keep-alive reschedule and ReceiveFrame's resume each start a chain, so every
+    // pause->resume cycle spawns an extra concurrent PlayFrame chain (frames consumed at 2x, 3x... ->
+    // runaway buffer drain and inflated interruption counts).
     EventId m_playFrameEvent;
     Time m_interruption_time;
     int m_interrruptions;

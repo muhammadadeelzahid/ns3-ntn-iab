@@ -162,32 +162,9 @@ EpcEnbApplication::DoInitialUeMessage (uint64_t imsi, uint16_t rnti)
     m_rntiLocalImsiMap[rnti] = imsi;
   }
 
-
-  // auto rntiItChild = m_rntiImsiChildrenMap.find(rnti);
-  // if(rntiItChild != m_rntiImsiChildrenMap.end())
-  // {
-  //   if( !((std::find(rntiItChild->second.begin(), rntiItChild->second.end(), imsi)) != rntiItChild->second.end()))
-  //   {
-  //     // add the imsi to the list
-  //     rntiItChild->second.push_back(imsi);
-  //   }
-  // }
-  // else
-  // {
-  //   std::vector<uint64_t> imsiVec;
-  //   imsiVec.push_back(imsi);
-  //   m_rntiImsiChildrenMap.insert(std::make_pair(rnti, imsiVec));
-  // }
-  // // scan the list
-  // NS_LOG_INFO("EpcEnbApplication DoInitialUeMessage RNTI " << rnti << " IMSI " << 0 << " scan children list");
-  // for (auto imsiInRntiListIter : m_rntiImsiChildrenMap.find(rnti)->second)
-  // {
-  //   NS_LOG_INFO("Present IMSI " << imsiInRntiListIter);
-  // }
-
-                                            // IAB hack: the first and third field
-                                            // were the same in the original implementation
-                                            // Change the third to be the 0, which represents wired devices!
+                                            // IAB: the first and third field
+                                            // were the same in the original implementation.
+                                            // Set the third to 0, which represents wired devices.
   m_s1apSapEnbProvider->SendInitialUeMessage (imsi, rnti, 0, m_cellId); // TODO if more than one MME is used, extend this call
 }
 
@@ -323,9 +300,9 @@ EpcEnbApplication::DoPathSwitchRequestAcknowledge (uint64_t enbUeS1Id, uint64_t 
   uint64_t imsi = mmeUeS1Id;
 
   // Descendant-UE migration ack: the SGW downlink tunnel was already re-pointed to this donor by the
-  // MME. Do NOT proceed to SendUeContextRelease -- this imsi resolves to the IAB-MT's local RNTI
+  // MME. Do NOT proceed to context release -- this imsi resolves to the IAB-MT's local RNTI
   // (descendant traffic is relayed on the IAB-MT's bearer), and releasing that UeManager would tear
-  // down the freshly-migrated backhaul. The IAB-MT's OWN ack (its imsi is not in this set) is unaffected.
+  // down the freshly-migrated backhaul. The IAB-MT's own ack (its imsi is not in this set) is unaffected.
   if (m_migratedDescendantImsi.find (imsi) != m_migratedDescendantImsi.end ())
     {
       NS_LOG_LOGIC ("PathSwitch ack for migrated descendant imsi " << imsi << " - re-point applied, skipping context release");
@@ -528,7 +505,6 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
           if(imsiInRntiListIter == rntiIt->second.end())
           {
             // add the imsi to the list
-            // NS_LOG_INFO("add the imsi to the list");
             rntiIt->second.push_back(imsiChildIter);
           }
         }
@@ -539,7 +515,6 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
 
         // add the imsi of this device to the list
         initialMessageHeader.AddParent(0); // use 0 for wired
-        // NS_LOG_LOGIC("Number of parents " << initialMessageHeader.GetParentImsiList().size());
 
         packet->AddHeader(initialMessageHeader);
       }
@@ -578,8 +553,8 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
     if(gtpMessageType == GtpuHeader::X2 && packet->PeekHeader(x2Header))
     {
       // X2-over-backhaul relay is an unimplemented stub in this module. It is only reached once
-      // descendant UEs are active across a SECOND inter-donor handover (genuine IAB migration). Log the
-      // X2 message so we can identify it, and drop it (modelling X2 forwarding loss during the
+      // descendant UEs are active across a second inter-donor handover (IAB migration). Log the
+      // X2 message to identify it, then drop it (modelling X2 forwarding loss during the
       // break-before-make handover gap) rather than aborting the run.
       std::cout << "[MIG-X2] t=" << Simulator::Now ().GetSeconds () << "s donor cell=" << m_cellId
                 << " RecvFromLteSocket GTP-X2 over backhaul: rnti=" << rnti << " teid=" << teid
@@ -722,19 +697,6 @@ EpcEnbApplication::RecvFromS1uSocket (Ptr<Socket> socket)
   std::map<uint32_t, EpsFlowId_t>::iterator it = m_teidRbidMap.find (teid);
   if (it != m_teidRbidMap.end ())
     {
-
-      // uint16_t rnti = it->second.m_rnti;
-      // auto rntiChildrenIter = m_rntiImsiChildrenMap.find(rnti);
-      // uint16_t numChildren = 0;
-      // if(rntiChildrenIter != m_rntiImsiChildrenMap.end())
-      // {
-      //   numChildren = rntiChildrenIter->second.size();
-      // }
-
-      // NS_LOG_INFO(this << " RecvFromS1uSocket rnti " << 
-      //         rnti << " with " << numChildren << " children");
-
-
       SendToLteSocket (packet, it->second.m_rnti, it->second.m_bid);
     }
   else

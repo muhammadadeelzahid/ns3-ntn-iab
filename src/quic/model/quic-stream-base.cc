@@ -157,18 +157,8 @@ QuicStreamBase::Send (Ptr<Packet> frame)
         {
           if (!m_streamSendPendingDataEvent.IsRunning ())
             {
-              // std::cout<<"quic-stream-base.cc ----tst"<<std::endl;
-              //m_streamSendPendingDataEvent = Simulator::Schedule (TimeStep (1), &QuicStreamBase::SendPendingData, this);
-              // if (m_quicl5->vnReceived)
-              // {
-                // std::cout<<"****m_quicl5->vnReceived = 1";
-              //   SendPendingData();
-              //   m_quicl5->vnReceived = 0;
-
-              // }else{
+              // Alternative: Simulator::Schedule (TimeStep (1), &QuicStreamBase::SendPendingData, this);
                 m_streamSendPendingDataEvent = Simulator::ScheduleNow (&QuicStreamBase::SendPendingData, this);
-                // std::cout<<"quic-stream-base.cc ----sendpendingdata"<<std::endl;
-              // }
             }
         }
       return sent;
@@ -443,8 +433,6 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
       if (m_quicl5->ContainsTransportParameters () and m_streamId == 0)
         {
           QuicTransportParameters transport;
-          // std::cout<<frame->ToString()<<"\n";
-          // std::cout<<m_quicl5->ContainsTransportParameters ()<<"\n";
           frame->RemoveHeader (transport);
           m_quicl5->OnReceivedTransportParameters (transport);
         }
@@ -467,16 +455,12 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
       SetStreamStateRecvIf (m_streamStateRecv == RECV and m_fin, SIZE_KNOWN);
 
 
-    // temp_comment
       NS_LOG_DEBUG (Simulator::Now ().GetSeconds () << "\t"<< m_streamId <<"\t" << m_recvSize<<"\t"<<sub.GetOffset ()<< "\t" << m_rxBuffer->Size () << "\t");
 
-    //  std::cout<< Simulator::Now ().GetSeconds () << "--///--Received a frame on stream "<< m_streamId <<" with the size " << sub.GetLength ()<<" expected offset: "<<m_recvSize<<" actual offset:"<<sub.GetOffset ()<< " Buffer Size: " << m_rxBuffer->Size ()<<std::endl;
-
-      // In-order if the frame starts exactly at the read offset, or STRADDLES it
-      // (an overlapping retransmission re-chunked at the sender: its head repeats
-      // already-delivered bytes but its tail is the very data the stream is
-      // waiting for — without the trim-and-accept the stream would stall forever,
-      // since the sender saw the original ACKed and will never resend the tail).
+      // In-order if the frame starts exactly at the read offset, or straddles it (an overlapping
+      // retransmission re-chunked at the sender: its head repeats already-delivered bytes but its
+      // tail is the data the stream is waiting for). Without the trim-and-accept the stream would
+      // stall, since the sender saw the original ACKed and will never resend the tail.
       if (m_recvSize == sub.GetOffset ()
           || (sub.GetOffset () < m_recvSize
               && sub.GetOffset () + frame->GetSize () > m_recvSize))
@@ -541,7 +525,6 @@ QuicStreamBase::Recv (Ptr<Packet> frame, const QuicSubheader& sub, Address &addr
               NS_LOG_LOGIC ("Received window set to offset " << sub.GetMaxStreamData ());
             }
           NS_LOG_INFO ("Buffering unordered received frame - offset " << m_recvSize << ", frame offset " << sub.GetOffset ());
-          // std::cout<<"quic-stream-base.cc  Buffering unordered received frame of size " << sub.GetLength () <<" m_recvSize: "<<m_recvSize<< ", frame offset " << sub.GetOffset ()<<std::endl;
           if (!m_rxBuffer->Add (frame, sub, m_recvSize) && frame->GetSize () > 0)
             {
               // Insert failed: stale/covered duplicate (harmless), or RX buffer full

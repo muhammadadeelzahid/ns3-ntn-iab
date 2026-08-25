@@ -182,7 +182,7 @@ EpcTftClassifier::Classify (Ptr<Packet> p, EpcTft::Direction direction)
         {
           // Relayed X2 control packet (e.g. during an IAB backhaul handover, the X2 signalling
           // for the migrating node is tunnelled over the backhaul). Like S1AP, carry it on the
-          // default bearer. (Previously an unimplemented TODO that aborted on the 2nd handover.)
+          // default bearer.
           NS_LOG_INFO("This is an X2 packet, use the default bearer");
           return m_tftMap.begin()->first;
         }

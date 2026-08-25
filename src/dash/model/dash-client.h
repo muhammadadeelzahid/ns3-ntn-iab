@@ -109,13 +109,11 @@ class DashClient : public Application
 
     double GetSegmentFetchTime();
 
-    // Representation ladder (bps). Capped at ~4.2 Mbps (realistic 1080p top). RATIONALE (root-cause
-    // 2026-07-03): 100 Mbps backhaul / 10 UEs = 10 Mbps/UE fair share; the ABR top tier MUST sit below the
-    // fair share (with headroom) or BOLA chronically overshoots and offers ~1.5x capacity onto the shared
-    // mmWave access link. That sustained overload triggers loss bursts this ns-3 QUIC module's recovery
-    // cannot absorb (NewReno RTO never backs off cwnd; BBR pacing rate collapses to ~64 kbps), freezing
-    // QUIC flows while TCP (cwnd-halving RTO) survives. The old 15 Mbps top (1.5x fair share) was the root
-    // stressor. 10 UEs x 4.2 Mbps = 42 Mbps << 100 Mbps leaves ample headroom for mmWave variability.
+    // Representation ladder (bps). Capped at ~4.2 Mbps (realistic 1080p top). The top tier is kept
+    // below the per-UE fair share (100 Mbps backhaul / 10 UEs = 10 Mbps/UE) with headroom: a higher
+    // top tier lets the ABR chronically overshoot and offer well above capacity onto the shared mmWave
+    // access link, producing sustained overload and loss bursts. 10 UEs x 4.2 Mbps = 42 Mbps << 100
+    // Mbps leaves ample headroom for mmWave variability.
     std::vector<uint32_t> rates = {45000,    89000,    131000,   178000,  221000,  263000,  334000,
                                    396000,   522000,   595000,   791000,  1033000, 1245000, 1547000,
                                    2134000,  2484000,  3079000,  3527000, 3840000, 4220000};

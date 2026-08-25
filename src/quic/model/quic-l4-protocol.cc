@@ -96,7 +96,6 @@ QuicUdpBinding::GetTypeId (void)
                    MakePointerAccessor (&QuicUdpBinding::m_quicSocket),
                    MakePointerChecker<QuicSocketBase> ())
   ;
-  //NS_LOG_UNCOND("QuicUdpBinding");
   return tid;
 }
 
@@ -180,7 +179,6 @@ int
 QuicL4Protocol::UdpBind (Ptr<QuicSocketBase> socket)
 {
   NS_LOG_FUNCTION (this << socket);
-// std::cout<<"-------------QuicL4Protocol::UdpBind"<<std::endl;
   int res = -1;
   QuicUdpBindingList::iterator it;
   for (it = m_quicUdpBindingList.begin (); it != m_quicUdpBindingList.end (); ++it)
@@ -333,7 +331,6 @@ uint32_t
 QuicL4Protocol::GetTxAvailable (Ptr<QuicSocketBase> quicSocket) const
 {
   NS_LOG_FUNCTION (this);
-// std::cout<<"####QuicL4Protocol::GetTxAvailable()#####"<<std::endl;
   QuicUdpBindingList::const_iterator it;
   for (it = m_quicUdpBindingList.begin (); it != m_quicUdpBindingList.end (); ++it)
     {
@@ -495,10 +492,9 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
       else
         {
           // A packet arrived with the connection ID omitted but no transport
-          // parameter / endpoint demux is configured to resolve it. This must not
-          // abort the whole simulation (the original NS_FATAL_ERROR did). Drop the
-          // packet gracefully - the sender's loss detection will retransmit if the
-          // data was real. Consistent with the graceful Send-in-IDLE handling.
+          // parameter / endpoint demux is configured to resolve it. Drop the
+          // packet gracefully rather than aborting the simulation; the sender's
+          // loss detection will retransmit if the data was real.
           NS_LOG_WARN ("Dropping packet with omitted connection ID: cannot demux");
           return;
         }

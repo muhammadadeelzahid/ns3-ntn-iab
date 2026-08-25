@@ -184,9 +184,9 @@ main (int argc, char *argv[])
   double gnbHeight = 550000.0;
   double iabHeight = 10.0;
 
-  // Offsets as fractions of total area (adjust as needed)
-  double xOffset = xMax*0.36;  // ~30% from center to left/right
-  double yOffset = yMax*0.40;  // ~30% from center to top/bottom
+  // Offsets as fractions of total area
+  double xOffset = xMax*0.36;
+  double yOffset = yMax*0.40;
   //double gnbX = xMax/2.0;
   //double gnbY = yMax/2.0;
   // Center Donor Node

@@ -61,9 +61,8 @@ static void
 PacketSinkRx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> packet, const Address &from)
 {
   uint32_t packetSize = packet->GetSize();
-  
-  // Log packet reception from PacketSink
-  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
+
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize
                        << "\tTCP" << std::endl;
 }
 
@@ -200,8 +199,8 @@ main (int argc, char *argv[])
     
     // If throughputMax is specified, use it to set rate0a and rate0b
     if (throughputMax > 0.0) {
-        rate0a = throughputMax;  // Set minimum to the specified throughput
-        rate0b = throughputMax;  // Set maximum to the specified throughput
+        rate0a = throughputMax;
+        rate0b = throughputMax;
         NS_LOG_INFO("Throughput set to " << throughputMax << " Mbps. Rate range: " << rate0a << "-" << rate0b << " Mbps");
     }
 

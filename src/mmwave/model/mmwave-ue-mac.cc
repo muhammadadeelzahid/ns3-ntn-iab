@@ -1017,8 +1017,8 @@ MmWaveUeMac::SendRaPreamble(bool contention)
 
 	// 3GPP RA preamble retransmission: arm the response-window timer. If no RAR arrives, the timer
 	// retransmits (up to MAX_RA_PREAMBLE_TX) or, once exhausted, declares RA failure to the RRC.
-	// The 10 ms window covers the LEO backhaul round-trip (~3.6 ms at 550 km) with margin and lets
-	// us recover a preamble dropped during the handover reset transient on an otherwise-up link.
+	// The 10 ms window covers the LEO backhaul round-trip (~3.6 ms at 550 km) with margin and
+	// recovers a preamble dropped during the handover reset transient on an otherwise-up link.
 	m_noRaResponseEvent.Cancel ();
 	m_noRaResponseEvent = Simulator::Schedule (MilliSeconds (10), &MmWaveUeMac::RaResponseTimeout, this);
 }
@@ -1041,9 +1041,9 @@ MmWaveUeMac::RaResponseTimeout ()
 	{
 		// Preamble retransmissions exhausted: declare random-access failure to the RRC. For a
 		// handover this fires LteUeRrc's HandoverEndError/RandomAccessError traces, making a failed
-		// IAB backhaul handover DETECTABLE (so it can be logged/excluded) instead of hanging
-		// silently in CONNECTED_HANDOVER. (Module note: RRC re-establishment after such a failure
-		// is an upstream TODO, so there is no automatic recovery beyond this notification.)
+		// IAB backhaul handover detectable (so it can be logged/excluded) instead of hanging
+		// silently in CONNECTED_HANDOVER. RRC re-establishment after such a failure is not
+		// implemented upstream, so there is no automatic recovery beyond this notification.
 		NS_LOG_WARN ("RA failed after " << m_raPreambleTransmissions << " preamble attempts (rnti="
 		             << m_rnti << "): notifying RRC of random-access failure");
 		m_waitingForRaResponse = false;

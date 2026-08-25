@@ -318,10 +318,9 @@ DashClient::SendSegmentRequest(uint32_t segmentId, uint32_t bitrate, bool isRetr
     if (res < 0)
     {
         // Send can fail legitimately (e.g. the transport socket already closed after an idle timeout
-        // on a stalled connection, or a momentarily full send buffer). NS_FATAL_ERROR here turned one
-        // dead client into a dead SIMULATION (observed: QUIC's Send-in-IDLE abort at t=554 s killed a
-        // whole pilot run). Treat it like a lost request instead: the segment watchdog will retry once
-        // and eventually free the client (m_RequestPending=false) so the run and the other UEs go on.
+        // on a stalled connection, or a momentarily full send buffer). Treat it like a lost request
+        // rather than a fatal error: the segment watchdog will retry once and eventually free the
+        // client (m_RequestPending=false) so the run and the other UEs proceed.
         NS_LOG_WARN("DashClient " << m_id << ": segment request send failed (res=" << res
                     << ", size=" << packet->GetSize() << ") - leaving recovery to the watchdog");
         return res;
@@ -339,10 +338,9 @@ DashClient::SegmentRequestWatchdog()
         return;
     }
 
-    // Progress-aware watchdog. The previous version re-sent the segment request on every 500 ms tick
-    // regardless of whether the segment was actively downloading. Under multi-user load that turns a
-    // merely-slow segment (loss + slow recovery) into a duplicate full-segment resend at the server,
-    // which adds congestion and slows every other segment -> a positive-feedback stall spiral. Instead:
+    // Progress-aware watchdog. Re-sending the request on every tick would turn a merely-slow segment
+    // (loss + slow recovery) into a duplicate full-segment resend at the server, adding congestion and
+    // slowing every other segment into a positive-feedback stall spiral. Instead:
     //  - if the segment is making progress (more bytes than the last tick), it is just slow: keep
     //    waiting, do NOT re-request;
     //  - only if there is NO progress do we act: a single re-request when nothing at all has arrived
@@ -650,12 +648,8 @@ DashClient::MessageReceived(Packet message)
         LogBufferLevel(currDt);
 
         uint32_t old = m_bitRate;
-        //  double diff = m_lastDt >= 0 ? (currDt - m_lastDt).GetSeconds() : 0;
 
         Time bufferDelay;
-
-        // m_player.CalcNextSegment(m_bitRate, m_player.GetBufferEstimate(), diff,
-        // m_bitRate, bufferDelay);
 
         uint32_t prevBitrate = m_bitRate;
 

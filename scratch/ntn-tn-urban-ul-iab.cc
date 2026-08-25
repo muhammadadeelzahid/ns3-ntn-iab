@@ -185,9 +185,9 @@ main (int argc, char *argv[])
   double gnbHeight = 550000.0;
   double iabHeight = 20.0;
 
-  // Offsets as fractions of total area (adjust as needed)
-  double xOffset = xMax*0.36;  // ~30% from center to left/right
-  double yOffset = yMax*0.40;  // ~30% from center to top/bottom
+  // Offsets as fractions of total area
+  double xOffset = xMax*0.36;
+  double yOffset = yMax*0.40;
 
   // Center Donor Node
   Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);

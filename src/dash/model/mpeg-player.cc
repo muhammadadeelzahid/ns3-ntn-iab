@@ -203,13 +203,12 @@ MpegPlayer::PlayFrame(void)
             NS_LOG_INFO("Proactively requesting segment due to buffer underrun");
             Simulator::Schedule(MilliSeconds(0), &DashClient::RequestSegment, m_dashClient);
         }
-        // CRITICAL: keep the player alive during an underrun. Every other PlayFrame branch reschedules
-        // itself, but this one used to `return` without doing so - so if the buffer emptied while a
-        // segment request was still pending (RequestPending==true, common when QUIC stalls a segment),
-        // PlayFrame was never rescheduled and DIED. When that pending segment later failed and the
-        // watchdog freed the client (RequestPending=false), the underrun re-request above - which lives
-        // inside PlayFrame - could never fire again => the client wedged forever (the residual freeze).
-        // Rescheduling here lets the client re-request and recover on the next tick.
+        // Keep the player alive during an underrun by rescheduling. If the buffer empties while a
+        // segment request is still pending (RequestPending==true, common when QUIC stalls a segment),
+        // failing to reschedule here would let PlayFrame die: when that pending segment later fails and
+        // the watchdog frees the client (RequestPending=false), the underrun re-request above lives
+        // inside PlayFrame and could never fire again, wedging the client forever. Rescheduling lets the
+        // client re-request and recover on the next tick.
         m_playFrameEvent.Cancel();
         m_playFrameEvent = Simulator::Schedule(MilliSeconds(100), &MpegPlayer::PlayFrame, this);
         return;
@@ -253,19 +252,6 @@ MpegPlayer::PlayFrame(void)
     // Track total playback time: each frame adds MPEG_TIME_BETWEEN_FRAMES milliseconds
     m_totalPlaybackTime += MilliSeconds(MPEG_TIME_BETWEEN_FRAMES);
 
-    /*std::cerr << "res= " << http_header.GetResolution() << " tot="
-       << m_totalRate << " played=" << m_framesPlayed << std::endl;*/
-
-    // Time b_t = GetRealPlayTime (mpeg_header.GetPlaybackTime ()) + Seconds(m_frameBuffer.size() *
-    // MPEG_TIME_BETWEEN_FRAMES);
-
-    // if (m_bufferDelay > Time ("0s") && b_t < m_bufferDelay && m_dashClient)
-    //   {
-    //     NS_LOG_INFO("Requesting frame due low buffer time, b_t = " <<  b_t << " m_bufferDelay = "
-    //     <<  m_bufferDelay); m_dashClient->RequestSegment (); m_bufferDelay = Seconds (0);
-    //     // m_dashClient = NULL;
-    //   }
-
     NS_LOG_UNCOND(this << " " << Simulator::Now().GetSeconds()
                 << " PLAYING FRAME: "
                 << " PlayerId: " << m_dashClient->m_id << " VidId: " << http_header.GetVideoId()
@@ -276,13 +262,6 @@ MpegPlayer::PlayFrame(void)
                 << " interTime: " << m_interruption_time.GetSeconds()
                 << " queueLength: " << m_frameBuffer.size());
 
-    /*   std::cout << " frId: " << mpeg_header.GetFrameId()
-       << " playtime: " << mpeg_header.GetPlaybackTime()
-       << " target: " << (m_start_time + m_interruption_time +
-       mpeg_header.GetPlaybackTime()).GetSeconds()
-       << " now: " << Simulator::Now().GetSeconds()
-       << std::endl;
-       */
     m_playFrameEvent.Cancel();
     m_playFrameEvent = Simulator::Schedule(MilliSeconds(MPEG_TIME_BETWEEN_FRAMES), &MpegPlayer::PlayFrame, this);
 

@@ -200,11 +200,10 @@ QuicCongestionOps::OnPacketAcked (Ptr<TcpSocketState> tcb,
       OnRetransmissionTimeoutVerified (tcb);
     }
   tcbd->m_handshakeCount = 0;
-  // Reset the PTO backoff only on an ACK of a packet sent AFTER the current
-  // alarm epoch started (RFC 9002 Sec. 6.2.1). Resetting on ANY ack let stale
-  // acks of long-retransmitted packets clear the backoff on every firing, so
-  // the alarm machine-gunned retransmissions instead of backing off
-  // exponentially - the amplifier behind the zombie-retransmission storm.
+  // Reset the PTO backoff only on an ACK of a packet sent after the current
+  // alarm epoch started (RFC 9002 Sec. 6.2.1). Resetting on any ACK would let
+  // stale ACKs of long-retransmitted packets clear the backoff on every firing,
+  // defeating the exponential backoff.
   if (ackedPacket->m_packetNumber > tcbd->m_largestSentBeforeRto)
     {
       tcbd->m_tlpCount = 0;

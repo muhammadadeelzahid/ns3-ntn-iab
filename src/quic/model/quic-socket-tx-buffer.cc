@@ -642,19 +642,14 @@ uint32_t QuicSocketTxBuffer::Retransmission (SequenceNumber32 packetNumber, uint
             }
           else
             {
-              // A sent data packet can carry SEVERAL stream frames ([SH1|P1|SH2|P2],
-              // assembled by the scheduler's merge). Re-queuing it as one opaque blob
-              // corrupts the stream when the scheduler later SPLITS it to fit a packet:
-              // the split treats the embedded SH2|P2 as raw payload of frame 1, so the
-              // second subheader's bytes are sent AS STREAM DATA at frame 1's offsets.
-              // The receiver's in-order offset chain (m_recvSize) then advances along a
-              // shifted lattice, previously-buffered genuine frames become unreachable
-              // (GetDeliverable chains on exact offsets only), no retransmission can ever
-              // fill the residual hole (the server saw everything ACKed), and the flow
-              // stalls until MaxData exhausts (the observed AvailableWindow=0 freeze).
-              // Fix: disaggregate the lost packet into its constituent frames (same
-              // subheader walk as QuicL5Protocol::DisgregateRecv) and re-queue each
-              // frame as its own item — single-frame items split with correct offsets.
+              // A sent data packet can carry several stream frames ([SH1|P1|SH2|P2], assembled by
+              // the scheduler's merge). Re-queuing it as one opaque blob corrupts the stream when the
+              // scheduler later splits it to fit a packet: the split treats the embedded SH2|P2 as raw
+              // payload of frame 1, so the second subheader's bytes are sent as stream data at frame 1's
+              // offsets, the receiver's in-order offset chain advances along a shifted lattice, and the
+              // residual hole can never be retransmitted. Disaggregate the lost packet into its
+              // constituent frames (same subheader walk as QuicL5Protocol::DisgregateRecv) and re-queue
+              // each frame as its own item, so single-frame items split with correct offsets.
               Ptr<Packet> whole = item->m_packet->Copy ();
               while (whole->GetSize () > 0)
                 {
@@ -758,14 +753,13 @@ uint32_t QuicSocketTxBuffer::GetLost (uint8_t pathId)
 void QuicSocketTxBuffer::CleanSentList (uint8_t pathId)
 {
   NS_LOG_FUNCTION (this);
-  // Full sweep: prune every genuinely-delivered packet (m_sacked && !m_lost) from ANYWHERE in the
-  // list, not just the contiguous head. UPSTREAM BUG (signetlabdei/quic): the original loop stopped
-  // at the first lost/outstanding head item, so one such item pinned every SACKed packet behind it
-  // -> the sent list grew unbounded under persistent loss (NewReno OOM >128 GB at sim=600 s/10 UE).
-  // This bounds the list to genuinely-outstanding (lost or in-flight) packets. Behaviour-neutral:
-  // nothing depends on a SACKed item remaining resident (BytesInFlight excludes sacked; the delivery-
-  // rate sample fires once at the SACK transition and self-disarms; time-based loss detection, the
-  // only reader of a resident sacked item, is disabled in this config).
+  // Full sweep: prune every genuinely-delivered packet (m_sacked && !m_lost) from anywhere in the
+  // list, not just the contiguous head. A loop that stops at the first lost/outstanding head item
+  // lets one such item pin every SACKed packet behind it, so the sent list grows unbounded under
+  // persistent loss. This bounds the list to genuinely-outstanding (lost or in-flight) packets;
+  // nothing depends on a SACKed item remaining resident (BytesInFlight excludes sacked, the
+  // delivery-rate sample fires once at the SACK transition, and time-based loss detection is
+  // disabled in this config).
   auto sent_it = m_subflowSentList[pathId].begin ();
   while (sent_it != m_subflowSentList[pathId].end ())
     {
@@ -819,12 +813,11 @@ uint32_t QuicSocketTxBuffer::BytesInFlight (uint8_t pathId)
   for (auto sent_it = m_subflowSentList[pathId].begin ();
        sent_it != m_subflowSentList[pathId].end () and !m_subflowSentList[pathId].empty (); ++sent_it)
     {
-      // A packet that has been declared LOST is no longer in flight (RFC 9002 Sec. 7: on loss detection a
-      // packet is removed from bytes_in_flight). The upstream module only excluded m_sacked, so a
-      // declared-lost-but-not-yet-retransmitted packet kept inflating BytesInFlight -> AvailableWindow =
-      // min(cwnd,maxData) - biF stayed 0 -> the flow could not send its own retransmit/new data and froze
-      // with a healthy cwnd (the multi-user stall). Excluding m_lost lets the window reopen so recovery can
-      // proceed. Accounting-only conformance fix; applies to both QUIC CC variants (BBR/NewReno untouched).
+      // A packet declared lost is no longer in flight (RFC 9002 Sec. 7: on loss detection a packet is
+      // removed from bytes_in_flight). Excluding only m_sacked would let a declared-lost-but-not-yet-
+      // retransmitted packet keep inflating BytesInFlight, keeping AvailableWindow at 0 so the flow can
+      // neither retransmit nor send new data and freezes with a healthy cwnd. Excluding m_lost lets the
+      // window reopen so recovery can proceed.
       if (!(*sent_it)->m_isStream0 && (*sent_it)->m_isStream
           && !(*sent_it)->m_sacked && !(*sent_it)->m_lost)
         {

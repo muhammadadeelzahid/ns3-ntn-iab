@@ -56,10 +56,10 @@ NS_LOG_COMPONENT_DEFINE ("QuicL5Protocol");
 
 NS_OBJECT_ENSURE_REGISTERED (QuicL5Protocol);
 
-// QUIC_RXFIX (RFC 9000 Sec. 13.1): env-gated receiver fix. When enabled, a packet whose
-// payload hits an unparseable subheader (1) keeps the frames that parsed successfully
-// instead of discarding the whole packet, and (2) is NOT queued for ACK by the socket,
-// so normal loss detection retransmits it and corruption heals instead of freezing.
+// Env-gated receiver behavior (RFC 9000 Sec. 13.1). When enabled, a packet whose
+// payload hits an unparseable subheader keeps the frames that parsed successfully
+// instead of discarding the whole packet, and is not queued for ACK by the socket,
+// so normal loss detection retransmits the missing frames.
 bool
 QuicRxFixEnabled ()
 {
@@ -439,7 +439,6 @@ QuicL5Protocol::DisgregateRecv (Ptr<Packet> data)
   uint32_t dataSizeByte = data->GetSize ();
   std::vector< std::pair<Ptr<Packet>, QuicSubheader> > disgregated;
   NS_LOG_INFO ("DisgregateRecv for a packet with size " << dataSizeByte);
-  //data->Print(std::cout);
 
   m_lastDisgregateFailed = false;
 
@@ -458,8 +457,8 @@ QuicL5Protocol::DisgregateRecv (Ptr<Packet> data)
             {
               disgregated.clear ();
             }
-          // QUIC_RXFIX: keep the successfully parsed frames; the socket will skip ACKing
-          // this packet (RFC 9000 Sec. 13.1), so the sender retransmits the lost frames.
+          // Keep the successfully parsed frames; the socket skips ACKing this
+          // packet (RFC 9000 Sec. 13.1), so the sender retransmits the lost frames.
           return disgregated;
         }
 

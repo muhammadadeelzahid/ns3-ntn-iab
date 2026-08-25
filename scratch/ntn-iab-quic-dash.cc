@@ -62,9 +62,6 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuicDash");
 
-// Performance optimization: Set to false to disable expensive packet-level tracing/logging
-// This significantly speeds up simulations, especially for QUIC which generates more packets
-
 // Global file streams for each layer
 std::ofstream quicTxFile, quicRxFile;
 std::ofstream udpL4TxFile, udpL4RxFile;
@@ -90,9 +87,9 @@ std::map<uint64_t, uint32_t> g_imsiToNodeId;
 std::map<uint16_t, Ptr<NetDevice>> g_donorByCellId;
 Ptr<NetDevice> g_iabHoDevice;
 
-// Captured at handover trigger so the (later) HandoverEndOk callback can migrate the IAB-MT's
-// descendant UE bearers from the source donor to the target donor (genuine inter-donor IAB migration).
-// Modeled NTN handover-execution / sync delay [s]: extra interruption ADDED on top of the intrinsic
+// Captured at handover trigger so the later HandoverEndOk callback can migrate the IAB-MT's
+// descendant UE bearers from the source donor to the target donor (inter-donor IAB migration).
+// Modeled NTN handover-execution / sync delay [s]: extra interruption added on top of the intrinsic
 // RA gap (TA/Doppler re-acquisition + core-network S1 path switch per 3GPP TR 38.821). Defers the
 // descendant-UE migration so the interruption reaches the realistic LEO band (~50-300 ms). 0 = off.
 double g_hoExecDelay = 0.0;
@@ -115,8 +112,8 @@ std::map<uint64_t, Ptr<OutputStreamWrapper>> g_quicRxStreams;
 std::map<uint64_t, Ptr<OutputStreamWrapper>> g_quicCwndStreams;
 std::map<uint64_t, Ptr<OutputStreamWrapper>> g_quicRttStreams;
 // Specific (node,socket,metric) trace paths already connected, so a periodic rescan can hook
-// late-created sockets (clients start staggered up to ~2.35 s) without double-connecting an already
-// hooked source (which would duplicate every trace line).
+// late-created sockets (clients start staggered) without double-connecting an already hooked
+// source (which would duplicate every trace line).
 std::set<std::string> g_hookedQuicPaths;
 
 // Helper function to dump full packet in hex
@@ -312,7 +309,7 @@ GetOrCreateQuicTraceStream(std::map<uint64_t, Ptr<OutputStreamWrapper>>& streamM
 
   AsciiTraceHelper asciiTraceHelper;
   std::ostringstream fileName;
-  // e.g. serverQUIC-cwnd-change2-conn0.txt : per node AND per connection so multi-UE server
+  // e.g. serverQUIC-cwnd-change2-conn0.txt: per node and per connection so multi-UE server
   // connections don't share a file. Node-only basename kept as the prefix for compatibility.
   fileName << GetQuicTracePathPrefix(nodeId) << "QUIC-" << metricName << nodeId
            << "-conn" << connId << ".txt";
@@ -380,7 +377,7 @@ Traces(uint32_t serverId, std::string pathVersion, std::string finalPart, uint32
     NS_LOG_UNCOND("Node " << serverId << " (" << pathVersion << ") - RTT trace not available yet, will retry");
   }
   
-  // Retry logic: if any trace failed to connect and we haven't exceeded max retries, schedule retry
+  // Retry logic: if any trace failed to connect and the retry budget is not exhausted, reschedule.
   const uint32_t MAX_RETRIES = 10;
   const Time RETRY_INTERVAL = MilliSeconds(100);
   
@@ -447,13 +444,12 @@ QuicRttTraceWithContext(std::string context, Time oldRtt, Time newRtt)
 static void
 ConnectQuicLayerTracesWithRetry(uint32_t retryCount)
 {
-  // A wildcard SocketList/* connect only hooks sockets that already exist at call time, and the old
-  // code latched after the first success - so with staggered client starts (0.1 + i*0.25 s, last at
-  // ~2.35 s) only the earliest connection(s) got cwnd/RTT/Rx traces (breaking the per-connection Fig.B).
-  // Instead, periodically rescan every node's QUIC sockets and hook each (node,socket,metric) source
-  // exactly once (tracked in g_hookedQuicPaths to avoid duplicate trace lines), for long enough to
-  // cover the last client's handshake.
-  const uint32_t MAX_RETRIES = 60;            // 60 x 250 ms = 15 s window (>> last client start ~2.35 s)
+  // A wildcard SocketList/* connect only hooks sockets that already exist at call time. With staggered
+  // client starts (0.1 + i*0.25 s) hooking once would miss late connections. Instead, periodically
+  // rescan every node's QUIC sockets and hook each (node,socket,metric) source exactly once (tracked
+  // in g_hookedQuicPaths to avoid duplicate trace lines), for long enough to cover the last client's
+  // handshake.
+  const uint32_t MAX_RETRIES = 60;            // 60 x 250 ms = 15 s window (covers last client start)
   const Time RETRY_INTERVAL = MilliSeconds(250);
   const uint32_t MAX_SOCKETS_PER_NODE = 64;   // server hosts one QUIC socket per UE + a listener
 
@@ -559,7 +555,7 @@ void LogTime()
 }
 
 // Sample and print UE positions (std::cout so it is visible in the optimized build, where NS_LOG is
-// stripped) to document the random UE mobility - that the UEs actually move and stay within the disc.
+// stripped) to document the random UE mobility.
 void DumpUePositions (NodeContainer ues)
 {
   for (uint32_t i = 0; i < ues.GetN (); ++i)
@@ -581,8 +577,7 @@ void DumpUePositions (NodeContainer ues)
 // from the serving donor satellite to a target donor satellite via the standard
 // X2 handover path (LteEnbRrc::SendHandoverRequest). No A3 measurement algorithm
 // is used: per 3GPP TR 38.821, LEO NTN uses elevation/time-based Conditional
-// Handover, so the trigger time is pre-scheduled (see Phase 3 for the elevation
-// crossing computation).
+// Handover, so the trigger time is pre-scheduled at the elevation crossing.
 // ============================================================================
 void
 IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t targetCellId)
@@ -593,7 +588,7 @@ IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t target
 
   // Retune the IAB-MT backhaul to the target donor so the non-contention random access to
   // the target cell can complete. The standard LteUeRrc handover does not update these
-  // IAB-specific bindings, so we mirror what AttachIabToClosestEnb does for the new donor:
+  // IAB-specific bindings, so mirror what AttachIabToClosestEnb does for the new donor:
   //  (a) SetBackhaulTargetEnb  -> beamforming/channel target,
   //  (b) backhaul PHY RegisterToEnb -> so the IAB-MT listens to the target cell and receives
   //      the RAR (otherwise it keeps listening to the source donor and the RA never completes).
@@ -621,8 +616,8 @@ IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t target
 // Migrate the IAB-MT's descendant UE bearers from the source donor to the target donor, so their
 // downlink does not black-hole after the backhaul re-parents. Reads the relay state from the source
 // donor's EpcEnbApplication and re-installs it on the target donor's, which then drives a real S1 path
-// switch per UE (SGW/PGW re-tunnels each UE's downlink to the new donor). See EpcEnbApplication::
-// Export/ImportIabDescendants.
+// switch per UE (SGW/PGW re-tunnels each UE's downlink to the new donor). See
+// EpcEnbApplication::Export/ImportIabDescendants.
 void
 MigrateIabDescendants (Ptr<NetDevice> srcDonor, Ptr<NetDevice> tgtDonor,
                        uint16_t oldIabRnti, uint16_t newIabRnti, uint64_t iabImsi)
@@ -731,26 +726,23 @@ int
 main (int argc, char *argv[])
 {
 
-  // LogComponentDisable("DashClient", LOG_LEVEL_ALL);
-  
-  // Enable DASH logging for debugging
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_INFO);
   // LogComponentEnable("DashClient", LOG_LEVEL_INFO);
   // LogComponentEnable("DashServer", LOG_LEVEL_INFO);
   // LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
   // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
   
-  // Enable QUIC socket logging to see connection events and data flow
-  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet handling
-  // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
-  // LogComponentEnable("QuicL5Protocol", LOG_LEVEL_ALL);  // LOG_LEVEL_ALL to see detailed packet flow
-  // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);      // LOG_LEVEL_ALL to see stream data handling
-  
-  // Enable packet-level logging for debugging
-  // LogComponentEnable("Packet", LOG_LEVEL_DEBUG);        // LOG_LEVEL_DEBUG to see packet operations
-  // LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);     // LOG_LEVEL_DEBUG to see UDP operations
-  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG); // LOG_LEVEL_DEBUG to see UDP protocol
-  
+  // Optional QUIC socket logging.
+  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicL5Protocol", LOG_LEVEL_ALL);
+  // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);
+
+  // Optional packet-level logging.
+  // LogComponentEnable("Packet", LOG_LEVEL_DEBUG);
+  // LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);
+  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG);
+
     // LogComponentEnable("DashServer", LOG_LEVEL_INFO);
     // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
     // LogComponentEnable("QuicSocketTxBuffer", LOG_LEVEL_INFO);
@@ -925,9 +917,9 @@ main (int argc, char *argv[])
                                // handover interruption into the realistic NTN band and makes it visible.
   std::string abrAlgorithm = "ns3::FdashClient";  // DASH ABR controller: ns3::FdashClient or ns3::BolaClient
   bool enableTraces = false;   // Heavy RLC/MAC/PHY ASCII traces (DlRlcStats/RxPacketTrace ~12MB/run): off for the campaign
-  uint32_t rlcBufSize = 50;  // Increased from 10 to 50 MB to prevent RLC buffer overflows and packet drops
-  uint32_t interPacketInterval = 10000; 
-  uint32_t packetSize = 1400; //bytes // Decreased from 1500 to 1400 to avoid IP fragmentation (packet < MTU - headers)
+  uint32_t rlcBufSize = 50;  // RLC TX buffer [MB]; large enough to prevent overflows/drops on NTN links
+  uint32_t interPacketInterval = 10000;
+  uint32_t packetSize = 1400; // bytes; below MTU minus headers to avoid IP fragmentation
   bool ueMobility = true;      // UEs move randomly within a disc around the IAB (false = static placement)
   double ueSpeed = 1.5;        // UE random-waypoint speed [m/s] (pedestrian)
   double ueRadiusMax = 500.0;  // radius [m] of the circular boundary the UEs roam within, centred on the IAB
@@ -951,20 +943,8 @@ main (int argc, char *argv[])
   cmd.AddValue("ueSpeed", "UE random-waypoint speed [m/s]", ueSpeed);
   cmd.AddValue("ueRadiusMax", "Radius [m] of the UE mobility boundary around the IAB", ueRadiusMax);
 
-  //   if(rlcAm)
-  // {
-  //LogComponentEnable("LteRlcAm", LOG_LEVEL_LOGIC); 
-  // }
-  // else
-  // {
-  // LogComponentEnable("MmWaveFlexTtiMacScheduler", LOG_LEVEL_DEBUG);
-  // // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_DEBUG);
-  // }
   // Config::SetDefault("ns3::MmWavePhyMacCommon::UlSchedDelay", UintegerValue(1));
-  // Enable RLC buffer configuration to prevent buffer overflow on NTN links
+  // RLC buffer sizing to prevent buffer overflow on NTN links.
   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
   // Config::SetDefault ("ns3::LteRlcAm::PollRetransmitTimer", TimeValue(MilliSeconds(1.0)));
@@ -976,8 +956,7 @@ main (int argc, char *argv[])
   
   Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
 
-  // Set center frequency to 6 GHz for RMa scenario compatibility
-  // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
+  // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA).
 
 	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
 // 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
@@ -1007,100 +986,68 @@ main (int argc, char *argv[])
   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
   
   // QUIC-specific configuration.
-  // IdleTimeout was 30 s == the DASH target buffer (targetDt), so whenever a client filled its ~30 s
-  // playback buffer the server connection went idle and hit the idle-timeout Close - forcing a reconnect
-  // (+ handshake) when the buffer later drained, which stalls playback and churns sockets. For a persistent
-  // video-streaming session the connection must outlive buffer-full idle periods, so set the idle timeout
-  // well beyond the whole simulation (a real client would send keepalives).
+  // For a persistent video-streaming session the connection must outlive buffer-full idle periods.
+  // If the idle timeout were near the DASH target buffer, a client that filled its playback buffer
+  // would let the connection go idle and hit the idle-timeout Close, forcing a reconnect (+ handshake)
+  // when the buffer later drains, stalling playback and churning sockets. Set the idle timeout well
+  // beyond the whole simulation (a real client would send keepalives).
   Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(simDuration + 120.0)));
   
   // ============================================================================
-  // ACKNOWLEDGMENT GAP ELIMINATION PARAMETERS
+  // ACKNOWLEDGMENT / LOSS-DETECTION PARAMETERS
   // ============================================================================
-  // These parameters are optimized to eliminate gaps in acknowledgments and
-  // improve loss detection responsiveness
-  // Values are tuned for significant improvement while remaining realistic for NTN
-  
-  // 1. Increase maximum tracked gaps (from default 20 to 100) - SIGNIFICANT IMPROVEMENT
-  //    Allows many more gaps to be reported in ACK frames, improving loss detection
-  //    Realistic: NTN links may have burst losses, so tracking more gaps is beneficial
-  // 1. Increase maximum tracked gaps (from default 20 to 20) - RFC DEFAULT
-  //    Reverting to default for standard compliance
-  Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(100));
-  
-  // 2. Reduce maximum packets before ACK send (from default 20 to 1) - CRITICAL FOR FAST WINDOW GROWTH
-  //    ACK every packet ensures fastest possible window growth, essential when initial window (15KB)
-  //    is smaller than server's segment size (100 frames ~21KB). Each ACK doubles window in slow start.
-  //    Realistic: RFC 9000 allows ACK every packet, and this is necessary for handling large initial bursts
-  Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(2));
-  
-  // 3. Reduce delayed ACK timeout (from default 25ms to 5ms) - CRITICAL FOR HANDLING LARGE SEGMENTS
-  //    Faster ACKs allow congestion window to grow quickly, essential when server sends 100 frames (~21KB)
-  //    at once. With initial window of 15KB, fast ACKs are needed to grow window before TX buffer fills.
-  //    Realistic: 5ms is aggressive but necessary for NTN scenarios with large initial bursts
-  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(50)));
-  
-  // 4. Reduce ACK delay exponent (from default 3 to 1) - HELPS WITH FAST WINDOW GROWTH
-  //    Limits maximum encodable ACK delay, reducing delay variability and allowing faster window growth
-  //    With exponent=1, max ACK delay is 2^1 = 2ms, ensuring ACKs arrive quickly
-  //    Realistic: Standard QUIC allows values 0-20, so 1 is well within range and helps with large segments
-  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(2));
-  
-  // 5. ENABLE time-based loss detection - RFC 9002 COMPLIANT
-  //    RFC 9002 states implementations SHOULD use time-based loss detection
-  //    Time-based detection helps recover packets that packet-number-based detection might miss,
-  //    especially in scenarios with high reordering or variable RTT (common in NTN)
-  //    This provides a secondary loss detection mechanism for better packet recovery
-  Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(false));
-  
-  // 6. Keep minimum TLP timeout at default (10ms)
-  //    Not changing this - 10ms is appropriate for NTN scenarios
-  // Config::SetDefault("ns3::QuicSocketState::kMinTLPTimeout", TimeValue(MilliSeconds(1)));
+  // Tuned to reduce ACK gaps and improve loss-detection responsiveness while
+  // remaining realistic for NTN.
 
-  // 7. Keep minimum RTO timeout at default (200ms)
-  //    Not changing this - 200ms is appropriate for NTN scenarios
+  // Maximum tracked gaps reported in ACK frames. NTN links may have burst losses,
+  // so tracking more gaps improves loss detection.
+  Config::SetDefault("ns3::QuicSocketBase::MaxTrackedGaps", UintegerValue(100));
+
+  // Maximum packets received before an ACK is sent. Small value grows the window quickly when the
+  // initial window is smaller than the server's segment size. RFC 9000 allows ACK every packet.
+  Config::SetDefault("ns3::QuicSocketState::kMaxPacketsReceivedBeforeAckSend", UintegerValue(2));
+
+  // Delayed-ACK timeout. Faster ACKs let the congestion window grow quickly during large initial bursts.
+  Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(50)));
+
+  // ACK delay exponent (RFC 9000). Bounds the maximum encodable ACK delay; a small value reduces
+  // delay variability and helps window growth.
+  Config::SetDefault("ns3::QuicSocketBase::AckDelayExponent", UintegerValue(2));
+
+  // Time-based loss detection toggle (RFC 9002). Provides a secondary loss-detection mechanism useful
+  // under high reordering or variable RTT (common in NTN).
+  Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(false));
+
+  // Minimum TLP/RTO timeouts left at defaults (appropriate for NTN scenarios).
+  // Config::SetDefault("ns3::QuicSocketState::kMinTLPTimeout", TimeValue(MilliSeconds(1)));
   // Config::SetDefault("ns3::QuicSocketState::kMinRTOTimeout", TimeValue(MilliSeconds(10)));
-  
-  
+
+
   // ============================================================================
-  // LOSS DETECTION PARAMETERS (RFC 9002 compliant)
+  // LOSS DETECTION PARAMETERS (RFC 9002)
   // ============================================================================
-  // OPTIMIZED FOR OUT-OF-ORDER PACKET RECOVERY:
-  // These parameters have been tuned to improve recovery of lost packets in NTN scenarios
-  // with high latency and out-of-order delivery:
-  // 1. Time-based loss detection: ENABLED (provides secondary detection mechanism)
-  // 2. Reordering threshold: REDUCED to 1 (faster loss detection)
-  // 3. Max TLP: INCREASED to 20 (more tail loss probe attempts)
-  // 4. RTO timeout: REDUCED to 25ms (faster retransmissions)
-  // 5. TLP timeout: REDUCED to 3ms (faster tail loss detection)
-  // These changes work together to detect and recover lost packets more quickly
-  
-  // Reordering threshold for loss detection (RFC 9002 Section 6.1.1)
-  // Reduced to 1 to trigger immediate loss detection on the first out-of-order ACK.
-  // This is critical to recover tail losses when no further data packets are available to generate gaps.
-  // Lower threshold = faster loss detection = better recovery of out-of-order packets
-  // Trade-off: May cause false positives, but improves recovery in high-loss scenarios (NTN)
-  Config::SetDefault("ns3::QuicSocketState::kMaxTLPs", UintegerValue(5));  // Increased from 10 to 20 for more tail loss probe attempts
-  Config::SetDefault("ns3::QuicSocketState::kReorderingThreshold", UintegerValue(2));  // Reduced from 2 to 1 for faster loss detection
-  
-  // Time-based reordering fraction (RFC 9002 Section 6.1.2)
-  // Standard RFC 9002 value - keeps time-based detection conservative
-  // With time-based loss detection enabled, this controls how aggressive time-based detection is
-  // Standard value (9/8 = 1.125) means a packet is considered lost if it's been unacked
-  // for more than 1.125 * smoothed_rtt after a newer packet is acked
+  // Tuned to improve recovery of lost packets in NTN scenarios with high latency
+  // and out-of-order delivery.
+
+  // Max TLPs and reordering threshold (RFC 9002 Section 6.1.1). A low reordering threshold triggers
+  // loss detection on the first out-of-order ACK, which helps recover tail losses when no further data
+  // packets are available to generate gaps. Trade-off: may cause false positives, but improves recovery
+  // in high-loss scenarios (NTN).
+  Config::SetDefault("ns3::QuicSocketState::kMaxTLPs", UintegerValue(5));
+  Config::SetDefault("ns3::QuicSocketState::kReorderingThreshold", UintegerValue(2));
+
+  // Time-based reordering fraction (RFC 9002 Section 6.1.2). Standard value (9/8 = 1.125): a packet is
+  // considered lost if it has been unacked for more than 1.125 * smoothed_rtt after a newer packet is acked.
   Config::SetDefault("ns3::QuicSocketBase::kTimeReorderingFraction", DoubleValue(9.0/8.0));
-  
-  // Default initial RTT (RFC 9002 Section 6.2.2)
-  // Reduced from 333ms to 100ms to allow faster window growth in slow start
-  // Lower initial RTT means pacing rate calculation allows faster transmission initially
-  // This helps when server sends large segments before RTT samples are available
+
+  // Default initial RTT (RFC 9002 Section 6.2.2). A low initial RTT lets the pacing-rate calculation
+  // allow faster transmission before RTT samples are available (large initial segments).
   Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(50)));
   
   // ============================================================================
   // CONGESTION CONTROL PARAMETERS
   // ============================================================================
   
-  // QUIC Congestion Control Configuration
   // QUIC Congestion Control Configuration
   std::string ccAlgorithm = "ns3::QuicBbr";
   cmd.AddValue("ccAlgorithm", "QUIC Congestion Control Algorithm (ns3::QuicBbr or ns3::QuicCongestionControl)", ccAlgorithm);
@@ -1121,7 +1068,7 @@ main (int argc, char *argv[])
   // Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(QuicBbr::GetTypeId())); // Use BBR
   Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(true));
   
-  // Set initial slow start threshold (ssthresh) to 200KB
+  // Initial slow-start threshold (ssthresh).
   Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(UINT32_MAX));
 
   // Packet size configuration
@@ -1131,20 +1078,11 @@ main (int argc, char *argv[])
   // ============================================================================
   // FLOW CONTROL PARAMETERS
   // ============================================================================
-  // Reduce MaxDataInterval to send flow control updates more frequently
-  // This improves flow control responsiveness and prevents blocking
-  // Note: This is a counter (number of ACKs), not a time value
-  // Using 5 for very responsive flow control updates (every 5 ACKs)
-  // Realistic: Small overhead, significant improvement in flow control responsiveness
-  // ============================================================================
-  // FLOW CONTROL PARAMETERS (RFC COMPLIANCE)
-  // ============================================================================
-  // Connection/stream flow-control window = 64 MB, matched to the 64 MB socket/stream buffers. (An earlier
-  // attempt to bound the BBR burst-storm by shrinking this to 4 MB backfired: at 4 MB all 10 flows block on
-  // connection flow control near-simultaneously ~1 s in and the sim runs dry - NewReno needs the larger
-  // window for multi-user operation. The BBR storm is instead fixed at its source by the pacing-rate ceiling
-  // in QuicBbr::SetPacingRate, which is flow-control-size independent; NewReno does not pace and progresses
-  // fine at 64 MB - it completed a 10-UE/100 s run.)
+  // Connection/stream flow-control window = 64 MB, matched to the 64 MB socket/stream buffers. A smaller
+  // window (e.g. 4 MB) makes all flows block on connection flow control near-simultaneously and the sim
+  // run dry; NewReno needs the larger window for multi-user operation. The BBR burst-storm is instead
+  // bounded at its source by the pacing-rate ceiling in QuicBbr::SetPacingRate, which is independent of
+  // the flow-control window size.
   Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(64 * 1024 * 1024));
   Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(64 * 1024 * 1024));
 
@@ -1181,13 +1119,11 @@ main (int argc, char *argv[])
   // radio outage produces an observable congestion-window collapse and recovery. Default 100 Mbps is
   // representative of a single rural IAB LEO backhaul (5G-NR-NTN Ka-band ~100-300 Mbps; arXiv 2012.02136).
   Config::SetDefault("ns3::MmWavePointToPointEpcHelper::S1uLinkDataRate", DataRateValue(DataRate(backhaulRate)));
-  // S1-U MTU must exceed the largest tunneled datagram (the attribute's own doc warns the MTU
-  // needs headroom for GTP/UDP/IP overhead). The default 2000 silently IP-fragmented every
-  // full-size QUIC data+ACK datagram (~2399 B with tunnel headers) at the PGW, and ns-3's
-  // fragment reassembly corrupted bytes at the fragment seam -> receiver parse failures ->
-  // ACKed-but-undelivered stream gaps (the QUIC freeze). GTP transport networks use jumbo
-  // frames for exactly this reason. 9000 (jumbo): at 10 UEs, loss-lengthened ACK lists pushed rare
-  // datagrams past 3000 (16 residual PARSEFAILs in postfix task 7) - 9000 covers everything.
+  // S1-U MTU must exceed the largest tunneled datagram, with headroom for GTP/UDP/IP overhead. A small
+  // MTU (e.g. 2000) IP-fragments full-size QUIC data+ACK datagrams (~2399 B with tunnel headers) at the
+  // PGW; ns-3 fragment reassembly can corrupt bytes at the fragment seam, causing receiver parse
+  // failures and ACKed-but-undelivered stream gaps. GTP transport networks use jumbo frames for this
+  // reason; 9000 (jumbo) covers the largest datagrams including loss-lengthened ACK lists at 10 UEs.
   Config::SetDefault("ns3::MmWavePointToPointEpcHelper::S1uLinkMtu", UintegerValue(9000));
   NS_LOG_UNCOND("LEO backhaul (S1-U feeder) rate-limited to " << backhaulRate);
   
@@ -1291,38 +1227,11 @@ main (int argc, char *argv[])
   NS_LOG_UNCOND("Actually created " << enbNodes.GetN() << " eNB nodes");
   NS_LOG_UNCOND("================================\n");
 
-  // Video duration configuration
-  // double desiredVideoDuration = 0.0;  // Desired video duration in seconds
-  
-  // Calculate minimum simulation duration
-  // Video duration + buffer time for handshake, initial buffering, cleanup, and app stop buffer
-  // double minSimulationDuration = desiredVideoDuration*1.15;
-  
-  // Get current stopTime (line 1024)
   double desiredVideoDuration = simDuration;
-  double stopTime = desiredVideoDuration;  // Minimal time for testing
+  double stopTime = desiredVideoDuration;
   
-  // // Check if current stopTime is less than minimum, and adjust if needed
-  // if (stopTime < minSimulationDuration)
-  // {
-  //     NS_LOG_UNCOND("Adjusting simulation duration: " << stopTime << "s -> " 
-  //                  << minSimulationDuration << "s (required for video duration " 
-  //                  << desiredVideoDuration << "s)");
-  //     stopTime = minSimulationDuration;
-  // }
-  // else
-  // {
-  //     NS_LOG_UNCOND("Simulation duration: " << stopTime << "s (video duration: " 
-  //                  << desiredVideoDuration << "s, minimum required: " 
-  //                  << minSimulationDuration << "s)");
-  // }
-  // Install Mobility Model
-  
-  // Install WaypointMobilityModel for satellite (eNB)
-  // Start at original position (Overhead)
-  // Move in X direction at 7.56 km/s (realistic Starlink 550 km circular-orbit ground speed:
-  // v = sqrt(mu/r), mu=398600 km^3/s^2, r=6921 km => 7.59 km/s; adopt 7.56 km/s).
-
+  // Install WaypointMobilityModel for the satellite (eNB): start overhead and move in +X at 7.56 km/s
+  // (Starlink 550 km circular-orbit ground speed: v = sqrt(mu/r), mu=398600 km^3/s^2, r=6921 km => 7.59 km/s).
   double satVelocity = 7560.0; // m/s
   
   MobilityHelper enbmobility;
@@ -1369,38 +1278,6 @@ main (int argc, char *argv[])
   MobilityHelper uemobility;
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
-  // Random user generation code
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
-  
-  //     double x = xMax/2 + radius * std::cos(angle);
-  //     double y = yMax/2 + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
-  
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
-  
-  //     NS_LOG_UNCOND("UE " << i << " position: " << x << ", " << y << ", " << z);
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
-  // UE at original position (near center)
-  // double ueX = xMax/2.0 + 1000.0;
-  // double ueY = yMax/2.0 + 100.0;
-  // double ueZ = 1.7;
-
-  // uePosAlloc->Add(Vector(ueX, ueY, ueZ));
-
   // Place UEs evenly across IAB clusters, random within a circle around each IAB
   std::vector<Vector> allIabCenters = { posIab1, posIab2, posIab3, posIab4, posIab5, posIab6 };
   std::vector<Vector> clusterCenters;
@@ -1423,11 +1300,11 @@ main (int argc, char *argv[])
 
   if (ueMobility)
   {
-    // UEs move RANDOMLY within a disc of radius ueRadiusMax (default 500 m) centred on their IAB, at a
-    // pedestrian random-waypoint speed (ueSpeed). Implemented with WaypointMobilityModel: for each UE we
-    // pre-compute a random-waypoint track (uniform-area points inside the disc, straight legs at ueSpeed),
-    // so the mmWave channel sees real UE motion/Doppler. Deterministic per RngRun and byte-identical to the
-    // TCP scratch => the same UE tracks for the paired TCP-vs-QUIC comparison.
+    // UEs move randomly within a disc of radius ueRadiusMax (default 500 m) centred on their IAB, at a
+    // pedestrian random-waypoint speed (ueSpeed). Implemented with WaypointMobilityModel: each UE gets a
+    // pre-computed random-waypoint track (uniform-area points inside the disc, straight legs at ueSpeed),
+    // so the mmWave channel sees real UE motion/Doppler. Deterministic per RngRun, matching the TCP
+    // scratch so the paired TCP-vs-QUIC comparison uses the same UE tracks.
     NS_LOG_UNCOND("UE mobility: random-waypoint within " << ueRadiusMax << " m disc, speed " << ueSpeed << " m/s");
     uemobility.SetMobilityModel ("ns3::WaypointMobilityModel");
     uemobility.Install (ueNodes);
@@ -1507,7 +1384,7 @@ main (int argc, char *argv[])
   // Install QUIC stack on UE nodes (instead of Internet stack)
   quicHelper.InstallQuic (ueNodes);
 
-  // Build IMSI -> NodeId map for debugging RNTI issues
+  // Build IMSI -> NodeId map (used when resolving RNTI/IMSI in trace callbacks).
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
   {
     Ptr<Node> ueNode = ueNodes.Get (u);
@@ -1608,49 +1485,25 @@ main (int argc, char *argv[])
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   
-  // ============================================================================
-  // CRITICAL FIX FOR MULTIPLE USERS: QUIC Connection Stalling Issue
-  // ============================================================================
-  // PROBLEM: With 5 users, QUIC connections stall - only control packets are received,
-  // no data packets. This works fine with TCP but fails with QUIC.
-  //
-  // ROOT CAUSES IDENTIFIED:
-  // 1. Insufficient stagger delay: Clients starting too close together (0.1s apart)
-  //    causes QUIC handshakes to overlap, leading to congestion window exhaustion
-  // 2. Small buffers: 64MB buffers insufficient for multiple concurrent connections
-  //    competing for bandwidth
-  // 3. Connection timing: QUIC needs more time to establish connections than TCP
-  //
-  // FIXES APPLIED:
-  // 1. Increased client start stagger from 0.1s to 0.25s (see client start times below)
-  // 2. Increased socket/stream buffers from 64MB to 128MB
-  // 3. Ensured server starts early (0.1s) before any clients
-  // ============================================================================
-  
-
+  // Multi-user QUIC stability: clients are started with a stagger and the server starts before any
+  // client, so concurrent QUIC handshakes do not overlap and exhaust the congestion window (which
+  // otherwise leaves some UEs unable to establish a connection).
 
   // QUIC socket + stream buffers: 64 MB, matched to the TCP socket buffers (ns3::TcpSocket::Snd/RcvBufSize,
-  // also 64 MB) for a fair comparison. The code previously set 512 MB (contradicting its own comment, which
-  // warned "512 MB OOMs at 10 UEs"): harmless while flows froze early at the 15 Mbps ladder, but once the
-  // realistic 4.2 Mbps ladder let a fast NewReno flow actually run, the 512 MB (x4 layers x ~20 sockets)
-  // queued tens of GB and hit the 36 GB login-node vmem cap (std::bad_alloc at ~7 s). At 4.2 Mbps, 64 MB =
-  // ~120 s of buffering per layer (ample) and bounds worst-case RSS to ~5-7 GB (under the 16 GB SLURM cap).
+  // also 64 MB) for a fair comparison. At the realistic ~4.2 Mbps ladder, 64 MB is ~120 s of buffering per
+  // layer and bounds worst-case RSS well under the SLURM memory cap; a much larger value can OOM at 10 UEs.
   Config::SetDefault("ns3::QuicSocketBase::SocketSndBufSize", UintegerValue(64*1024*1024));
   Config::SetDefault("ns3::QuicSocketBase::SocketRcvBufSize", UintegerValue(64*1024*1024));
   Config::SetDefault ("ns3::QuicStreamBase::StreamSndBufSize", UintegerValue (64*1024*1024));
   Config::SetDefault ("ns3::QuicStreamBase::StreamRcvBufSize", UintegerValue (64*1024*1024));
 
-  // DASH over QUIC configuration - optimized for QoE and preventing interruptions
-  // Increased target buffering time for more aggressive buffering to prevent rebuffering
-  // For NTN scenarios with high latency and variable throughput, 45-60s is realistic
-  // 60s provides good balance: prevents interruptions while remaining realistic for real-world scenarios
-  double target_dt = targetDt;  // Target buffering time [s] (CLI-configurable; low value keeps DASH requesting continuously, useful to test data-plane recovery across a handover)
-  // DASH playback buffer: holds the targetDt (30 s, up to ~54 s with BOLA) of buffered video. With the
-  // 15 Mbps-capped ladder that is <=~100 MB, so 128 MB suffices (avoids frame rejection); matched to the
-  // TCP scratch.
+  // DASH over QUIC configuration.
+  double target_dt = targetDt;  // Target buffering time [s] (CLI-configurable; a low value keeps DASH requesting continuously, useful to test data-plane recovery across a handover)
+  // DASH playback buffer holding target_dt seconds of buffered video; 128 MB avoids frame rejection and
+  // matches the TCP scratch.
   uint32_t bufferSpace = 128*1024*1024;  // 128 MB DASH frame buffer (matches TCP scratch)
 
-  double window = 50;  // Throughput measurement window in milliseconds (increased from 10ms to 50ms for more stable measurements and smoother adaptation)
+  double window = 50;  // Throughput measurement window [ms]; larger window gives more stable measurements and smoother adaptation
 
   std::string algorithm = abrAlgorithm;  // DASH adaptation algorithm (--abrAlgorithm: FdashClient/BolaClient)
   
@@ -1749,8 +1602,7 @@ main (int argc, char *argv[])
     
   if (enableTraces) { mmwaveHelper->EnableTraces (); }  // Heavy RLC/MAC/PHY ASCII traces - off by default (campaign speed/disk)
   
-  // CRITICAL FIX: Server starts early to ensure it's ready before clients connect
-  // With QUIC, the server needs to be listening before clients initiate handshakes
+  // Server starts early so it is listening before clients initiate their QUIC handshakes.
   for (uint32_t i = 0; i < serverApps.GetN(); ++i)
   {
     serverApps.Get(i)->SetStartTime(Seconds(0.1));
@@ -1759,9 +1611,9 @@ main (int argc, char *argv[])
   }
   
   // Clients start after the server, staggered by 0.25 s each, so their QUIC handshakes (1-RTT over the
-  // satellite backhaul) do not all collide at t=0.1 s. Simultaneous handshakes + 10 concurrent slow-starts
-  // previously left some UEs unable to establish (e.g. ue never receives any segment) - see the root-cause
-  // note above. The per-client offset is identical in the TCP scratch to keep the comparison fair.
+  // satellite backhaul) do not all collide at t=0.1 s. Simultaneous handshakes plus many concurrent
+  // slow-starts can leave some UEs unable to establish. The per-client offset matches the TCP scratch
+  // to keep the comparison fair.
   for (uint32_t i = 0; i < clientApps.GetN(); ++i)
   {
     double clientStartTime = 0.1 + i * 0.25;
@@ -1782,16 +1634,15 @@ main (int argc, char *argv[])
 
   NS_LOG_UNCOND("\n=== Scheduling QUIC Trace Connections (DOWNLINK) ===");
   
-  // DOWNLINK: Clients are on UE nodes, Server is on remoteHost
+  // DOWNLINK: clients are on UE nodes, server is on remoteHost.
   // ---------------------------------------------------------------------------
   // QUIC cwnd/RTT/Rx trace hookup.
-  // The previous per-node Traces() hooked /SocketList/0, but on the QUIC server
-  // socket 0 is the *listening* socket (no congestion window); the data
-  // connection is a higher socket index, so those files came out empty.
-  // We use the context-based wildcard hookup (SocketList/*) instead, which
-  // matches the data sockets and writes per-node files (server<id>/client<id>),
-  // parsing the node id from the trace context. It is scheduled after the QUIC
-  // connections are established so the data sockets exist at connect time.
+  // On the QUIC server, socket 0 is the listening socket (no congestion window);
+  // the data connection is a higher socket index. Use the context-based wildcard
+  // hookup (SocketList/*), which matches the data sockets and writes per-node
+  // files (server<id>/client<id>), parsing the node id from the trace context.
+  // Scheduled after the QUIC connections are established so the data sockets
+  // exist at connect time.
   // ---------------------------------------------------------------------------
   g_quicServerNodeId = remoteHost->GetId();
   Simulator::Schedule(Seconds(0.5), &ConnectQuicLayerTracesWithRetry, 0);
@@ -1806,7 +1657,7 @@ main (int argc, char *argv[])
       NS_LOG_UNCOND("  Connected BBR stats trace to " << bbrMatches.GetN() << " QuicBbr instance(s)");
   });
   
-  // Add QUIC socket callback connections for debugging
+  // Add QUIC socket Tx/Rx callback connections.
   NS_LOG_UNCOND("\n=== Adding QUIC Socket Callback Connections ===");
   
   // Connect QUIC socket callbacks for all nodes
@@ -1833,25 +1684,7 @@ main (int argc, char *argv[])
   
   // Add packet buffer monitoring traces
   NS_LOG_UNCOND("\n=== Adding Packet Buffer Monitoring Traces ===");
-  
-  // // Monitor packet operations on all nodes
-  // for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
-  // {
-  //   Ptr<Node> node = *it;
-  //   uint32_t nodeId = node->GetId();
-    
-  //   // Connect packet traces for debugging
-  //   std::ostringstream packetTxPath;
-  //   packetTxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Tx";
-  //   Config::ConnectWithoutContextFailSafe(packetTxPath.str(), MakeCallback(&PacketBufferTraceCallback));
-    
-  //   std::ostringstream packetRxPath;
-  //   packetRxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Rx";
-  //   Config::ConnectWithoutContextFailSafe(packetRxPath.str(), MakeCallback(&PacketBufferTraceCallback));
-    
-  //   NS_LOG_UNCOND("  Added packet buffer traces for Node " << nodeId);
-  // }
-    
+
   std::string tracePrefix = "ntn_iab_quic_dash";  // Keep variable for log statements
   NS_LOG_UNCOND("\n=== Trace Configuration ===");
   NS_LOG_UNCOND("QUIC traces: Using quic-variants-comparison example approach");

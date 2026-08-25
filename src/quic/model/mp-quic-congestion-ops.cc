@@ -171,13 +171,8 @@ MpQuicCongestionOps::UpdateRtt (Ptr<TcpSocketState> tcb, Time latestRtt,
     {
       Time rttVarSample = Time (
         std::abs ((tcbd->m_smoothedRtt - latestRtt).GetDouble ()));
-      // BUG FIX (2026-07-09): these were INTEGER divisions -- 3/4==0, 1/4==0, 7/8==0, 1/8==0 in C++ --
-      // so m_smoothedRtt was zeroed on every update (0*sRtt + 0*latestRtt), which forced the
-      // first-sample branch above (m_rttVar = latestRtt/2) on the next call; with a congestion-delayed
-      // ~19.83 s sample that produced the observed corrupt m_rttVar = 9.9148 s, blowing the RTO
-      // (smoothedRtt + 4*rttVar, no upper clamp) to ~40 s and freezing the flow. The sibling
-      // QuicCongestionOps::UpdateRtt already uses the correct (3.0/4.0) etc. floating-point form
-      // (RFC 6298). This is a genuine coding bug, not a system-model limit.
+      // Use floating-point coefficients so the smoothed-RTT update is not
+      // truncated to zero by integer division (RFC 6298).
       tcbd->m_rttVar = (3.0 / 4.0) * tcbd->m_rttVar + (1.0 / 4.0) * rttVarSample;
       tcbd->m_smoothedRtt = (7.0 / 8.0) * tcbd->m_smoothedRtt + (1.0 / 8.0) * latestRtt;
     }

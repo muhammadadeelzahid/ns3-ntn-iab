@@ -192,16 +192,12 @@ QuicBbr::SetPacingRate (Ptr<QuicSocketState> tcb, double gain)
   NS_LOG_FUNCTION (this << tcb << gain);
   DataRate rate (gain * m_maxBwFilter.GetBest ().GetBitRate ());
   rate = std::min (rate, tcb->m_maxPacingRate);
-  // Numerical-stability CEILING (restored 2026-07-29; floor OFF / ceiling ON). Stands in for the
-  // physical link-rate limit that ns-3 pacing does not enforce: a spurious post-stall delivery-rate
-  // spike inflates the estimate into the Gb/s range and, unbounded, the sender storms and the sim
-  // wedges/OOMs (measured: ~1/3 of seeds wedged when this was removed). 50 Mbps is >10x the per-UE
-  // fair share of the 100 Mbps backhaul, so it never binds in sane regimes and does NOT affect
-  // QoE/goodput -- it only prevents the unphysical runaway.
+  // Numerical-stability ceiling standing in for the physical link-rate limit that
+  // ns-3 pacing does not enforce: a spurious delivery-rate spike can inflate the
+  // estimate into the Gb/s range and make the sender storm. 50 Mbps is well above
+  // the per-UE fair share, so it does not bind in normal regimes.
   static const DataRate kMaxPacingRate ("50Mbps");
   rate = std::min (rate, kMaxPacingRate);
-  // The 1 Mbps pacing FLOOR is deliberately NOT restored: it masked the real app-limited BBR collapse
-  // under study. Floor OFF (expose the collapse) + ceiling ON (keep numerics physical & stable).
   if (m_isPipeFilled || rate > tcb->m_pacingRate)
     {
       tcb->m_pacingRate = rate;
@@ -506,9 +502,9 @@ QuicBbr::SetCwnd (Ptr<QuicSocketState> tcb, const struct RateSample * rs)
     {
       m_packetConservation = false;
     }
-  // Numerical-stability cwnd cap (restored 2026-07-29): companion to the pacing ceiling. Without it
-  // targetCwnd = bw*rtt*gain self-amplifies to GB (observed 3.19 GB at 6 UEs) and wedges the sim.
-  // 4 MB is >40x the per-UE fair-share BDP, so it never binds in sane regimes (floor OFF, ceiling ON).
+  // Numerical-stability cwnd cap companion to the pacing ceiling: prevents
+  // targetCwnd = bw*rtt*gain from self-amplifying without bound. 4 MB is well
+  // above the per-UE fair-share BDP, so it does not bind in normal regimes.
   tcb->m_cWnd = std::min (tcb->m_cWnd.Get (), (uint32_t) (4 * 1024 * 1024));
 }
 
@@ -690,8 +686,8 @@ QuicBbr::CongestionStateSet (Ptr<TcpSocketState> tcb,
     {
       NS_LOG_DEBUG ("CongestionStateSet triggered to CA_RECOVERY :: " << newState);
       SaveCwnd (tcbd);
-      // Numerical-stability clamp (restored 2026-07-29): biF can reach the full 64 MB flow-control
-      // window; cap like SetCwnd so recovery cwnd cannot feed the estimate-spike runaway.
+      // Numerical-stability clamp matching SetCwnd, so the recovery cwnd cannot
+      // grow up to the full flow-control window and feed an estimate-spike runaway.
       tcbd->m_cWnd = std::min (tcbd->m_bytesInFlight.Get () + std::max (tcbd->m_lastAckedSackedBytes, tcbd->m_segmentSize),
                                (uint32_t) (4 * 1024 * 1024));
       m_packetConservation = true;

@@ -105,6 +105,10 @@ uint16_t g_hoOldIabRnti = 0;
 // data-plane migration, extending the downlink gap into the realistic LEO band (~50-300 ms) instead
 // of the ~20-40 ms floor. Default 0 disables the extra delay.
 double g_hoExecDelay = 0.0;
+// True between an IAB backhaul handover's trigger and its completion (EndOk/EndError). The
+// (src,tgt,oldRnti) tuple above is carried through these globals, so a second handover must not be
+// triggered while one is still pending; guarded in TriggerIabBackhaulHandover.
+bool g_hoPending = false;
 
 // Dump a full packet as a hex/ASCII table.
 void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
@@ -619,6 +623,9 @@ MigrateIabDescendants (Ptr<NetDevice> srcDonor, Ptr<NetDevice> tgtDonor,
     }
   std::vector<EpcEnbApplication::IabDescendantContext> ctx = srcApp->ExportIabDescendants (oldIabRnti);
   tgtApp->ImportIabDescendants (newIabRnti, iabImsi, ctx);
+  // Release the migrated descendants' relay state from the source donor now that the target has
+  // imported them and the SGW downlink is re-pointed, so the source keeps no stale/duplicate state.
+  srcApp->ReleaseIabDescendants (ctx);
 }
 
 void
@@ -642,6 +649,7 @@ IabHandoverEndOk (uint64_t imsi, uint16_t cellId, uint16_t rnti)
     {
       MigrateIabDescendants (g_hoSrcDonor, g_hoTgtDonor, g_hoOldIabRnti, rnti, imsi);
     }
+  g_hoPending = false;   // this handover's tuple has been consumed; a new handover may be triggered
 }
 
 // Fired if an IAB backhaul handover fails (random access to the target donor never completed after
@@ -654,6 +662,7 @@ IabHandoverEndError (uint64_t imsi, uint16_t cellId, uint16_t rnti)
             << "s HANDOVER FAILED: IAB MT imsi=" << imsi
             << " could not complete RA to target (was leaving cell " << cellId << ", rnti=" << rnti
             << ") - downstream UEs may lose service for this run" << std::endl;
+  g_hoPending = false;   // failed handover: clear so a subsequent handover can still be triggered
 }
 
 void
@@ -675,6 +684,13 @@ TriggerIabBackhaulHandover (Ptr<NetDevice> iabDev, Ptr<NetDevice> srcDonor, Ptr<
 
   if (srcRrc->HasUeManager (rnti))
     {
+      // The (src,tgt,oldRnti) tuple is carried through globals until HandoverEndOk consumes it, so
+      // handovers must not overlap. Abort clearly if a new one is triggered while one is pending
+      // (space handovers wider than one RA/EndOk latency, i.e. increase hoTime).
+      NS_ABORT_MSG_IF (g_hoPending,
+                       "IAB backhaul handover triggered while a previous one is still pending; "
+                       "increase hoTime so handovers do not overlap");
+      g_hoPending = true;
       // Capture (src donor, tgt donor, IAB-MT's pre-handover RNTI) so the HandoverEndOk callback can
       // migrate the descendant UE bearers once the IAB-MT's new RNTI on the target is known.
       g_hoSrcDonor = srcDonor;
@@ -771,6 +787,17 @@ main (int argc, char *argv[])
   cmd.AddValue("ueSpeed", "UE random-waypoint speed [m/s]", ueSpeed);
   cmd.AddValue("ueRadiusMax", "Radius [m] of the UE mobility boundary around the IAB", ueRadiusMax);
   cmd.Parse(argc, argv);
+
+  // Validate CLI so out-of-range values fail cleanly instead of crashing or blowing up memory.
+  NS_ABORT_MSG_IF (numSatellites < 1, "numSat must be >= 1 (>= 2 to enable backhaul handover)");
+  NS_ABORT_MSG_IF (hoTime < 0.0, "hoTime must be >= 0 (0 disables handover)");
+  NS_ABORT_MSG_IF (feederDelay < 0.0, "feederDelay must be >= 0");
+  NS_ABORT_MSG_IF (g_hoExecDelay < 0.0, "hoExecDelay must be >= 0");
+  NS_ABORT_MSG_IF (simDuration <= 0.0, "simDuration must be > 0");
+  NS_ABORT_MSG_IF (ueSpeed < 0.0, "ueSpeed must be >= 0");
+  NS_ABORT_MSG_IF (ueMobility && ueRadiusMax <= 0.0,
+                   "ueRadiusMax must be > 0 when ueMobility is enabled (0 collapses waypoints and "
+                   "generates ~simDuration/1e-3 waypoints per UE)");
 
   // RLC buffer configuration to prevent buffer overflow on NTN links.
   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));

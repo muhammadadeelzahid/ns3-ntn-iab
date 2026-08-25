@@ -306,9 +306,12 @@ EpcEnbApplication::DoPathSwitchRequestAcknowledge (uint64_t enbUeS1Id, uint64_t 
   if (m_migratedDescendantImsi.find (imsi) != m_migratedDescendantImsi.end ())
     {
       NS_LOG_LOGIC ("PathSwitch ack for migrated descendant imsi " << imsi << " - re-point applied, skipping context release");
-      // One-shot: consume the suppression now that this migration's ack has arrived, so a later
-      // genuine path switch for the same UE (e.g. after a subsequent handover) is not skipped.
-      m_migratedDescendantImsi.erase (imsi);
+      // Keep the suppression persistent. A relayed descendant never initiates its own path switch, so
+      // every path-switch ack resolving to its IMSI is a migration ack that must be skipped (the IMSI
+      // resolves to the IAB-MT's RNTI; letting it through calls PathSwitchRequestAcknowledge on the
+      // IAB-MT UeManager mid-reconfiguration -> fatal state error). A migration also produces multiple
+      // acks per descendant, so consuming the entry after the first would break the rest. The set is
+      // bounded by the number of distinct descendant IMSIs (idempotent re-insertion on re-migration).
       return;
     }
 

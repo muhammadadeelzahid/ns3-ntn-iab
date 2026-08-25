@@ -5,13 +5,13 @@ Produces TWO new files (leaves figA/figB untouched):
   fair/Analysis_artifacts/figD_rtt_ccdf.png           -- RTT complementary CDF (tail) per config
 Uses the same fair 28-seed set as Fig A.
 """
-import glob, os, numpy as np
+import glob, os, sys, numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-RESULTS = 'results'
-OUT = 'fair/Analysis_artifacts'
+RESULTS = sys.argv[1] if len(sys.argv) > 1 else 'results'
+OUT = sys.argv[2] if len(sys.argv) > 2 else 'fair/Analysis_artifacts'
 os.makedirs(OUT, exist_ok=True)
 HO = [131, 393]                      # handover instants (s)
 W = 30                               # +/- window (s) around a handover

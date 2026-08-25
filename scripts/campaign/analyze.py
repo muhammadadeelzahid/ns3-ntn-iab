@@ -15,7 +15,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-RESULTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "results")
+RESULTS = sys.argv[1] if len(sys.argv) > 1 else "results"
 HO_TIMES = [15.0, 30.0, 45.0]
 CONFIGS = ["quic_bbr", "quic_newreno", "tcp_bbr", "tcp_cubic", "tcp_newreno"]
 LABEL = {"quic_bbr": "QUIC-BBR", "quic_newreno": "QUIC-NewReno",

@@ -2,10 +2,11 @@
 """Fig B (rev): cwnd + RTT of the REPRESENTATIVE (median-cwnd) server connection per config.
 Replaces the old 'busiest connection' pick. Server-side (matches Table II RTT). Fair 28-seed set.
 NOTE: QUIC-BBR uses current data; regenerate after the no-cap re-run lands."""
-import glob, os, numpy as np
+import glob, os, sys, numpy as np
 import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
 
-RES='fair/results'; OUT='fair/Analysis_artifacts'; os.makedirs(OUT, exist_ok=True)
+RES = sys.argv[1] if len(sys.argv) > 1 else 'fair/results'
+OUT = sys.argv[2] if len(sys.argv) > 2 else 'fair/Analysis_artifacts'; os.makedirs(OUT, exist_ok=True)
 HO=[131,393]
 FAIR=[2,3,4,5,7,10,12,13,17,19,20,21,23,25,26,28,31,32,33,34,36,37,41,43,44,46,47,49]
 CONFIGS=[('quic_bbr','QUIC','QUIC-BBR','#1f77b4'),

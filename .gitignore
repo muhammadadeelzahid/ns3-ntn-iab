@@ -51,11 +51,7 @@ build/
 
 # Large experimental data & build snapshots — never commit
 build_snapshots/
-handover_campaign/*
-# …but keep the reproducibility figure/table generators
-!handover_campaign/make_leo_plots.py
-!handover_campaign/fig_b_repflow.py
-!handover_campaign/analyze.py
+handover_campaign/
 
 # Internal debug handoff notes — keep local
 /NEWRENO_PACING_FIX.md

@@ -3574,7 +3574,7 @@ def _plot_relay_sensitivity(rows_for_csv, output_dir):
 
 
 # ============================================================================
-# COMMAG-26-00357 revision: composite-QoE analysis of the LEO-handover campaign.
+# Revision: composite-QoE analysis of the LEO-handover campaign.
 # Reads our layout  <results>/<config>/run_<seed>/  (config in
 # {quic_bbr,quic_newreno,tcp_bbr,tcp_cubic,tcp_newreno}; each run has its own sim.log
 # plus per-connection server{QUIC,TCP}-cwnd-change*/rtt* traces). Reuses the existing
@@ -3765,7 +3765,7 @@ def main():
     parser.add_argument('--client_nodes', type=str, default=None,
                        help='Comma-separated list of client node IDs (e.g., "2,3,4") or range (e.g., "2:4" for 2,3,4). If provided, bitrate will be averaged across these users.')
     parser.add_argument('--handover', action='store_true',
-                       help='COMMAG revision: analyse the LEO-handover campaign (composite QoE + Table II + Fig A/B) from <results>/<config>/run_*/')
+                       help='Revision: analyse the LEO-handover campaign (composite QoE + Table II + Fig A/B) from <results>/<config>/run_*/')
     parser.add_argument('--results-dir', type=str, default=None,
                        help='Path to the handover campaign results dir (default: <cwd>/results)')
     parser.add_argument('--ho-times', type=str, default='90,180,270',

@@ -565,7 +565,7 @@ void PacketBufferTraceCallback(Ptr<const Packet> packet) {
 void
 IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t targetCellId)
 {
-  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+  std::cout << "IAB handover t=" << Simulator::Now ().GetSeconds ()
             << "s HANDOVER START: IAB MT imsi=" << imsi << " rnti=" << rnti
             << " leaving cell " << cellId << " -> target physCell " << targetCellId << std::endl;
 
@@ -585,13 +585,13 @@ IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t target
           iab->SetBackhaulTargetEnb (it->second);
           Ptr<MmWavePhyMacCommon> cfg = tgtDonor->GetPhy ()->GetConfigurationParameters ();
           iab->GetBackhaulPhy ()->RegisterToEnb (targetCellId, cfg);
-          std::cout << "[IAB-HO]   retuned + registered IAB-MT backhaul PHY to donor cellId "
+          std::cout << "IAB handover   retuned + registered IAB-MT backhaul PHY to donor cellId "
                     << targetCellId << std::endl;
         }
     }
   else
     {
-      std::cout << "[IAB-HO]   WARN: no donor device for target cellId " << targetCellId
+      std::cout << "IAB handover   WARN: no donor device for target cellId " << targetCellId
                 << " - beamforming NOT retuned" << std::endl;
     }
 }
@@ -607,14 +607,14 @@ MigrateIabDescendants (Ptr<NetDevice> srcDonor, Ptr<NetDevice> tgtDonor,
 {
   if (!srcDonor || !tgtDonor)
     {
-      std::cout << "[MIG] ERROR: missing src/tgt donor at handover end - cannot migrate descendants" << std::endl;
+      std::cout << "IAB migration ERROR: missing src/tgt donor at handover end - cannot migrate descendants" << std::endl;
       return;
     }
   Ptr<EpcEnbApplication> srcApp = srcDonor->GetNode ()->GetApplication (0)->GetObject<EpcEnbApplication> ();
   Ptr<EpcEnbApplication> tgtApp = tgtDonor->GetNode ()->GetApplication (0)->GetObject<EpcEnbApplication> ();
   if (!srcApp || !tgtApp)
     {
-      std::cout << "[MIG] ERROR: could not retrieve donor EpcEnbApplication - descendants NOT migrated" << std::endl;
+      std::cout << "IAB migration ERROR: could not retrieve donor EpcEnbApplication - descendants NOT migrated" << std::endl;
       return;
     }
   std::vector<EpcEnbApplication::IabDescendantContext> ctx = srcApp->ExportIabDescendants (oldIabRnti);
@@ -624,7 +624,7 @@ MigrateIabDescendants (Ptr<NetDevice> srcDonor, Ptr<NetDevice> tgtDonor,
 void
 IabHandoverEndOk (uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
-  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+  std::cout << "IAB handover t=" << Simulator::Now ().GetSeconds ()
             << "s HANDOVER END OK: IAB MT imsi=" << imsi
             << " now connected to cell " << cellId << " rnti=" << rnti << std::endl;
 
@@ -633,7 +633,7 @@ IabHandoverEndOk (uint64_t imsi, uint16_t cellId, uint16_t rnti)
   // downlink stays interrupted until TA re-acquisition and the S1 path switch complete (realistic NTN).
   if (g_hoExecDelay > 0.0)
     {
-      std::cout << "[IAB-HO]   deferring descendant migration by hoExecDelay="
+      std::cout << "IAB handover   deferring descendant migration by hoExecDelay="
                 << g_hoExecDelay * 1e3 << " ms (modeled NTN sync + path-switch interruption)" << std::endl;
       Simulator::Schedule (Seconds (g_hoExecDelay), &MigrateIabDescendants,
                            g_hoSrcDonor, g_hoTgtDonor, g_hoOldIabRnti, rnti, imsi);
@@ -650,7 +650,7 @@ IabHandoverEndOk (uint64_t imsi, uint16_t cellId, uint16_t rnti)
 void
 IabHandoverEndError (uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
-  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+  std::cout << "IAB handover t=" << Simulator::Now ().GetSeconds ()
             << "s HANDOVER FAILED: IAB MT imsi=" << imsi
             << " could not complete RA to target (was leaving cell " << cellId << ", rnti=" << rnti
             << ") - downstream UEs may lose service for this run" << std::endl;
@@ -668,7 +668,7 @@ TriggerIabBackhaulHandover (Ptr<NetDevice> iabDev, Ptr<NetDevice> srcDonor, Ptr<
   uint16_t tgtCellId = tgt->GetCellId ();
   Ptr<LteEnbRrc> srcRrc = src->GetRrc ();
 
-  std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds ()
+  std::cout << "IAB handover t=" << Simulator::Now ().GetSeconds ()
             << "s: trigger IAB backhaul handover, MT rnti=" << rnti
             << " serving(backhaulRrc cellId)=" << iab->GetBackhaulRrc ()->GetCellId ()
             << " from donor cell " << src->GetCellId () << " -> target cell " << tgtCellId << std::endl;
@@ -684,7 +684,7 @@ TriggerIabBackhaulHandover (Ptr<NetDevice> iabDev, Ptr<NetDevice> srcDonor, Ptr<
     }
   else
     {
-      std::cout << "[IAB-HO] ERROR: no UeManager for IAB MT rnti " << rnti
+      std::cout << "IAB handover ERROR: no UeManager for IAB MT rnti " << rnti
                 << " at source donor cell " << src->GetCellId ()
                 << " (IAB not connected?) - handover NOT triggered" << std::endl;
     }
@@ -697,7 +697,7 @@ PrintIabServingCell (Ptr<NetDevice> iabDev, std::string tag)
   Ptr<MmWaveIabNetDevice> iab = iabDev->GetObject<MmWaveIabNetDevice> ();
   if (iab && iab->GetBackhaulRrc ())
     {
-      std::cout << "[IAB-HO] t=" << Simulator::Now ().GetSeconds () << "s " << tag
+      std::cout << "IAB handover t=" << Simulator::Now ().GetSeconds () << "s " << tag
                 << ": IAB-MT backhaul RRC cellId=" << iab->GetBackhaulRrc ()->GetCellId ()
                 << " rnti=" << iab->GetBackhaulRrc ()->GetRnti ()
                 << " state=" << iab->GetBackhaulRrc ()->GetState () << std::endl;
@@ -715,7 +715,7 @@ DumpUePositions (NodeContainer ues)
       if (m)
         {
           Vector p = m->GetPosition ();
-          std::cout << "[UE-POS] t=" << Simulator::Now ().GetSeconds () << " ue=" << ues.Get (i)->GetId ()
+          std::cout << "UE position t=" << Simulator::Now ().GetSeconds () << " ue=" << ues.Get (i)->GetId ()
                     << " x=" << p.x << " y=" << p.y << std::endl;
         }
     }
@@ -1181,7 +1181,7 @@ main (int argc, char *argv[])
   if (enbmmWaveDevs.GetN () > 1)
   {
     mmwaveHelper->AddX2Interface (enbNodes);
-    NS_LOG_UNCOND("[IAB-HO] X2 interfaces set up between " << enbNodes.GetN() << " donor satellites");
+    NS_LOG_UNCOND("IAB handover X2 interfaces set up between " << enbNodes.GetN() << " donor satellites");
   }
   // Build the donor cellId -> device map and connect handover traces on the IAB backhaul RRC.
   for (uint32_t s = 0; s < enbmmWaveDevs.GetN (); ++s)
@@ -1216,7 +1216,7 @@ main (int argc, char *argv[])
                            iabmmWaveDevs.Get (0), enbmmWaveDevs.Get (k - 1), enbmmWaveDevs.Get (k));
       Simulator::Schedule (Seconds (t + 0.5), &PrintIabServingCell, iabmmWaveDevs.Get (0),
                            std::string ("HO") + std::to_string (k) + "+0.5");
-      NS_LOG_UNCOND("[IAB-HO] Scheduled handover " << k << " at t=" << t
+      NS_LOG_UNCOND("IAB handover Scheduled handover " << k << " at t=" << t
                     << "s (donor " << (k - 1) << " -> donor " << k << ")");
     }
   }

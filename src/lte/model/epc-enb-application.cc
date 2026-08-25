@@ -556,7 +556,7 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
       // descendant UEs are active across a second inter-donor handover (IAB migration). Log the
       // X2 message to identify it, then drop it (modelling X2 forwarding loss during the
       // break-before-make handover gap) rather than aborting the run.
-      std::cout << "[MIG-X2] t=" << Simulator::Now ().GetSeconds () << "s donor cell=" << m_cellId
+      std::cout << "IAB X2 forwarding t=" << Simulator::Now ().GetSeconds () << "s donor cell=" << m_cellId
                 << " RecvFromLteSocket GTP-X2 over backhaul: rnti=" << rnti << " teid=" << teid
                 << " x2MsgType=" << (uint32_t) x2Header.GetMessageType ()
                 << " x2ProcCode=" << (uint32_t) x2Header.GetProcedureCode ()

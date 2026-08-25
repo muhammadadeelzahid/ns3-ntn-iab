@@ -139,7 +139,7 @@ MpegPlayer::ReceiveFrame(Ptr<Packet> message)
 
     if (m_state == MPEG_PLAYER_PAUSED)
     {
-        NS_LOG_UNCOND("[MPEG_PLAYER] Play resumed at t=" << Simulator::Now().GetSeconds() 
+        NS_LOG_UNCOND("MpegPlayer Play resumed at t=" << Simulator::Now().GetSeconds() 
                       << "s. Player ID=" << (m_dashClient ? m_dashClient->m_id : -1)
                       << " Pause duration=" << (Simulator::Now() - m_lastpaused).GetSeconds() 
                       << "s. Total interruption time=" << m_interruption_time.GetSeconds() << "s");
@@ -183,7 +183,7 @@ MpegPlayer::PlayFrame(void)
     }
     if (m_frameBuffer.empty())
     {
-        NS_LOG_UNCOND("[MPEG_PLAYER] No frames to play at t=" << Simulator::Now().GetSeconds() 
+        NS_LOG_UNCOND("MpegPlayer No frames to play at t=" << Simulator::Now().GetSeconds() 
                       << "s. Player ID=" << (m_dashClient ? m_dashClient->m_id : -1)
                       << " State changing to PAUSED. Interruptions=" << m_interrruptions);
         // Count/timestamp the interruption ONLY on the transition into a stall, not on every 100 ms
@@ -280,7 +280,7 @@ MpegPlayer::FinalizeInterruptionTime()
     // This handles the case where the simulation ends while the player is paused
     // Note: State might be MPEG_PLAYER_DONE if StopApplication() was called, but we still need
     // to account for the interruption time if the player was paused when it was marked as DONE
-    NS_LOG_UNCOND("[MPEG PLAYER] FinalizeInterruptionTime called. State: " << m_state 
+    NS_LOG_UNCOND("MpegPlayer FinalizeInterruptionTime called. State: " << m_state 
                   << " (MPEG_PLAYER_PAUSED=" << MPEG_PLAYER_PAUSED 
                   << ", MPEG_PLAYER_DONE=" << MPEG_PLAYER_DONE 
                   << "), interruptions: " << m_interrruptions 
@@ -295,15 +295,15 @@ MpegPlayer::FinalizeInterruptionTime()
         // If state is DONE, we use the time when it was marked as DONE (which should be close to Now())
         // but we still want to account for the time from when it was paused
         Time finalInterruptionTime = Simulator::Now() - m_lastpaused;
-        NS_LOG_UNCOND("[MPEG PLAYER] Player was paused/done. m_lastpaused: " << m_lastpaused.GetSeconds() 
+        NS_LOG_UNCOND("MpegPlayer Player was paused/done. m_lastpaused: " << m_lastpaused.GetSeconds() 
                       << "s, Now: " << Simulator::Now().GetSeconds() 
                       << "s, finalInterruptionTime: " << finalInterruptionTime.GetSeconds() << "s");
         m_interruption_time += finalInterruptionTime;
-        NS_LOG_UNCOND("[MPEG PLAYER] Updated interruption_time: " << m_interruption_time.GetSeconds() << "s");
+        NS_LOG_UNCOND("MpegPlayer Updated interruption_time: " << m_interruption_time.GetSeconds() << "s");
     }
     else
     {
-        NS_LOG_UNCOND("[MPEG PLAYER] Condition not met. State: " << m_state 
+        NS_LOG_UNCOND("MpegPlayer Condition not met. State: " << m_state 
                       << ", interruptions: " << m_interrruptions 
                       << " (expected state to be PAUSED=" << MPEG_PLAYER_PAUSED 
                       << " or DONE=" << MPEG_PLAYER_DONE << " and interruptions > 0)");

@@ -171,6 +171,13 @@ public:
   void ImportIabDescendants (uint16_t newIabMtRnti, uint64_t iabImsi,
                              const std::vector<IabDescendantContext> & descendants);
 
+  /**
+   * Remove, from THIS (the source) donor, the relay state of the descendants just migrated to a
+   * target donor. Call after the target's ImportIabDescendants so the source donor does not retain
+   * stale TEID/RNTI/IMSI entries (unbounded growth + possible mis-route of late in-flight downlink).
+   */
+  void ReleaseIabDescendants (const std::vector<IabDescendantContext> & descendants);
+
 
 private:
 
@@ -307,6 +314,11 @@ private:
   // UeManager (relayed traffic rides the IAB-MT's RNTI), and releasing it would tear down the
   // freshly-migrated backhaul. The SGW re-point already took effect in the MME before the ack.
   std::set<uint64_t> m_migratedDescendantImsi;
+
+  // Running count of uplink packets dropped for an unknown RNTI (expected only transiently during an
+  // IAB handover before the path switch). Exposed for diagnostics: a large/growing value outside
+  // handover windows indicates a genuine association bug rather than the modelled handover gap.
+  uint32_t m_unknownRntiDropCount = 0;
 
   uint16_t m_cellId;
 

@@ -172,6 +172,7 @@ private:
 	// Random-access preamble retransmission (standard 3GPP RA behaviour), so that a preamble
 	// lost during the handover reset transient is retried on the now-stable link.
 	EventId m_noRaResponseEvent;
+	Time m_raResponseWindow;              // RA response window before preamble retransmission (RaResponseWindow attribute)
 	bool m_raContention;                  // whether the in-progress RA is contention-based
 	uint32_t m_raPreambleTransmissions;   // number of preamble (re)transmissions for the current RA
 	static uint8_t g_raPreambleId;

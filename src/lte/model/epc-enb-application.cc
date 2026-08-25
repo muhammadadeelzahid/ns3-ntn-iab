@@ -306,6 +306,9 @@ EpcEnbApplication::DoPathSwitchRequestAcknowledge (uint64_t enbUeS1Id, uint64_t 
   if (m_migratedDescendantImsi.find (imsi) != m_migratedDescendantImsi.end ())
     {
       NS_LOG_LOGIC ("PathSwitch ack for migrated descendant imsi " << imsi << " - re-point applied, skipping context release");
+      // One-shot: consume the suppression now that this migration's ack has arrived, so a later
+      // genuine path switch for the same UE (e.g. after a subsequent handover) is not skipped.
+      m_migratedDescendantImsi.erase (imsi);
       return;
     }
 
@@ -411,7 +414,32 @@ EpcEnbApplication::ImportIabDescendants (uint16_t newIabMtRnti, uint64_t iabImsi
   m_s1SapUser->NotifyNumIabPerRnti (params);
 }
 
-void 
+void
+EpcEnbApplication::ReleaseIabDescendants (const std::vector<IabDescendantContext> & descendants)
+{
+  // Remove migrated descendants' relay state from THIS (source) donor once they have been imported
+  // at the target donor and the SGW downlink has been re-pointed. Without this the source donor's
+  // maps accumulate stale entries across repeated handovers, and a late in-flight downlink for a
+  // migrated TEID could still be mis-routed here. Mirrors the erase idiom in DoUeContextRelease.
+  for (std::vector<IabDescendantContext>::const_iterator d = descendants.begin (); d != descendants.end (); ++d)
+    {
+      std::map<uint32_t, EpsFlowId_t>::iterator rbIt = m_teidRbidMap.find (d->teid);
+      if (rbIt != m_teidRbidMap.end ())
+        {
+          m_rbidRemoteImsiMap.erase (rbIt->second);
+          m_teidRbidMap.erase (rbIt);
+        }
+      m_teidRemoteMap.erase (d->teid);
+      m_teidRemoteImsiMap.erase (d->teid);
+      if (d->imsi != 0)
+        {
+          m_imsiLocalRbidMap.erase (d->imsi);
+          m_imsiRntiMap.erase (d->imsi);
+        }
+    }
+}
+
+void
 EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
 {
   NS_LOG_FUNCTION (this);  
@@ -442,8 +470,12 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
     // donor before the X2 path switch has populated this map. Rather than aborting, drop
     // the packet: this models the brief handover interruption (loss) gap. Once the path
     // switch completes (DoPathSwitchRequest), the mapping is installed and traffic resumes.
+    // Count the drops so a genuine (non-handover) association bug is not silently masked: a
+    // large or steadily-growing count outside handover windows signals a real problem.
+    ++m_unknownRntiDropCount;
     NS_LOG_WARN ("EpcEnbApplication: dropping uplink packet with unknown RNTI " << rnti
-                 << " (likely in-flight during IAB handover, before path switch)");
+                 << " (likely in-flight during IAB handover, before path switch); total unknown-RNTI drops="
+                 << m_unknownRntiDropCount);
     return;
   }
   else

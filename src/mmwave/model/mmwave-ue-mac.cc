@@ -222,6 +222,13 @@ MmWaveUeMac::GetTypeId (void)
                  BooleanValue (false),
                  MakeBooleanAccessor (&MmWaveUeMac::m_interRatHoCapable),
                  MakeBooleanChecker ())
+		    .AddAttribute ("RaResponseWindow",
+                 "Random-access response window: time to wait for a RAR before retransmitting the "
+                 "preamble (applies to every RA procedure, including initial attach). Widen this for "
+                 "NTN configurations whose worst-case RAR latency exceeds the default.",
+                 TimeValue (MilliSeconds (10)),
+                 MakeTimeAccessor (&MmWaveUeMac::m_raResponseWindow),
+                 MakeTimeChecker ())
 	;
 	return tid;
 }
@@ -1017,10 +1024,11 @@ MmWaveUeMac::SendRaPreamble(bool contention)
 
 	// 3GPP RA preamble retransmission: arm the response-window timer. If no RAR arrives, the timer
 	// retransmits (up to MAX_RA_PREAMBLE_TX) or, once exhausted, declares RA failure to the RRC.
-	// The 10 ms window covers the LEO backhaul round-trip (~3.6 ms at 550 km) with margin and
-	// recovers a preamble dropped during the handover reset transient on an otherwise-up link.
+	// The window (RaResponseWindow attribute, default 10 ms) covers the LEO backhaul round-trip
+	// (~3.6 ms at 550 km) with margin and recovers a preamble dropped during the handover reset
+	// transient. It applies to every RA procedure, including initial attach.
 	m_noRaResponseEvent.Cancel ();
-	m_noRaResponseEvent = Simulator::Schedule (MilliSeconds (10), &MmWaveUeMac::RaResponseTimeout, this);
+	m_noRaResponseEvent = Simulator::Schedule (m_raResponseWindow, &MmWaveUeMac::RaResponseTimeout, this);
 }
 
 void
@@ -1122,8 +1130,12 @@ MmWaveUeMac::DoReset ()
 	}
 	m_rnti = 0;
 
-	// m_noRaResponseReceivedEvent.Cancel ();
-	// m_rachConfigured = false;
+	// Cancel any in-flight random-access response timer so it cannot fire on the reset MAC
+	// (e.g. a reset during handover), which would otherwise retransmit a preamble on a MAC
+	// with m_rnti=0 or raise a spurious random-access failure.
+	m_noRaResponseEvent.Cancel ();
+	m_waitingForRaResponse = false;
+	m_raPreambleTransmissions = 0;
 	m_miUlHarqProcessesPacket.clear();
 	m_miUlHarqProcessesPacketTimer.clear();
 	m_freshUlBsr = false;

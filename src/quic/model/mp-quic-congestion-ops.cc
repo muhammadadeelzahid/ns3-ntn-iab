@@ -196,8 +196,14 @@ MpQuicCongestionOps::OnPacketAcked (Ptr<TcpSocketState> tcb,
       OnRetransmissionTimeoutVerified (tcb);
     }
   tcbd->m_handshakeCount = 0;
-  tcbd->m_tlpCount = 0;
-  tcbd->m_rtoCount = 0;
+  // Clear the TLP/RTO backoff only on an ACK covering a packet sent after the RTO epoch
+  // (RFC 9002 Sec. 6.2.1), matching QuicCongestionOps::OnPacketAcked. A stale ACK of a
+  // pre-epoch packet must not defeat the exponential backoff.
+  if (ackedPacket->m_packetNumber > tcbd->m_largestSentBeforeRto)
+    {
+      tcbd->m_tlpCount = 0;
+      tcbd->m_rtoCount = 0;
+    }
 }
 
 bool

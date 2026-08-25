@@ -492,11 +492,12 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
       else
         {
           // A packet arrived with the connection ID omitted but no transport
-          // parameter / endpoint demux is configured to resolve it. Drop the
-          // packet gracefully rather than aborting the simulation; the sender's
-          // loss detection will retransmit if the data was real.
+          // parameter / endpoint demux is configured to resolve it. Skip this
+          // packet and keep draining the socket; the sender's loss detection
+          // will retransmit if the data was real. Using continue (not return)
+          // avoids starving other connections' packets queued on the same socket.
           NS_LOG_WARN ("Dropping packet with omitted connection ID: cannot demux");
-          return;
+          continue;
         }
 
       QuicUdpBindingList::iterator it;

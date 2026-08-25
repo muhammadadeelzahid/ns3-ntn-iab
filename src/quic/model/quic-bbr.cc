@@ -64,6 +64,19 @@ QuicBbr::GetTypeId (void)
                    TimeValue (MilliSeconds (200)),
                    MakeTimeAccessor (&QuicBbr::m_probeRttDuration),
                    MakeTimeChecker ())
+    .AddAttribute ("MaxPacingRateCap",
+                   "Numerical-stability ceiling on the BBR pacing rate, standing in for the physical "
+                   "link rate that ns-3 pacing does not enforce. Default 50 Mbps; raise for "
+                   "higher-capacity links.",
+                   DataRateValue (DataRate ("50Mbps")),
+                   MakeDataRateAccessor (&QuicBbr::m_maxPacingRateCap),
+                   MakeDataRateChecker ())
+    .AddAttribute ("MaxCwndBytes",
+                   "Numerical-stability ceiling on the congestion window in bytes, preventing "
+                   "bw*rtt*gain from self-amplifying without bound. Default 4 MB.",
+                   UintegerValue (4 * 1024 * 1024),
+                   MakeUintegerAccessor (&QuicBbr::m_maxCwndBytes),
+                   MakeUintegerChecker<uint32_t> ())
     .AddTraceSource ("BbrState", "Current state of the BBR state machine",
                      MakeTraceSourceAccessor (&QuicBbr::m_state),
                      "ns3::QuicBbr::BbrStatesTracedValueCallback")
@@ -194,10 +207,9 @@ QuicBbr::SetPacingRate (Ptr<QuicSocketState> tcb, double gain)
   rate = std::min (rate, tcb->m_maxPacingRate);
   // Numerical-stability ceiling standing in for the physical link-rate limit that
   // ns-3 pacing does not enforce: a spurious delivery-rate spike can inflate the
-  // estimate into the Gb/s range and make the sender storm. 50 Mbps is well above
-  // the per-UE fair share, so it does not bind in normal regimes.
-  static const DataRate kMaxPacingRate ("50Mbps");
-  rate = std::min (rate, kMaxPacingRate);
+  // estimate into the Gb/s range and make the sender storm. Configurable via the
+  // MaxPacingRateCap attribute (default 50 Mbps, above the per-UE fair share).
+  rate = std::min (rate, m_maxPacingRateCap);
   if (m_isPipeFilled || rate > tcb->m_pacingRate)
     {
       tcb->m_pacingRate = rate;
@@ -503,9 +515,9 @@ QuicBbr::SetCwnd (Ptr<QuicSocketState> tcb, const struct RateSample * rs)
       m_packetConservation = false;
     }
   // Numerical-stability cwnd cap companion to the pacing ceiling: prevents
-  // targetCwnd = bw*rtt*gain from self-amplifying without bound. 4 MB is well
-  // above the per-UE fair-share BDP, so it does not bind in normal regimes.
-  tcb->m_cWnd = std::min (tcb->m_cWnd.Get (), (uint32_t) (4 * 1024 * 1024));
+  // targetCwnd = bw*rtt*gain from self-amplifying without bound. Configurable via
+  // the MaxCwndBytes attribute (default 4 MB, above the per-UE fair-share BDP).
+  tcb->m_cWnd = std::min (tcb->m_cWnd.Get (), m_maxCwndBytes);
 }
 
 void
@@ -689,7 +701,7 @@ QuicBbr::CongestionStateSet (Ptr<TcpSocketState> tcb,
       // Numerical-stability clamp matching SetCwnd, so the recovery cwnd cannot
       // grow up to the full flow-control window and feed an estimate-spike runaway.
       tcbd->m_cWnd = std::min (tcbd->m_bytesInFlight.Get () + std::max (tcbd->m_lastAckedSackedBytes, tcbd->m_segmentSize),
-                               (uint32_t) (4 * 1024 * 1024));
+                               m_maxCwndBytes);
       m_packetConservation = true;
     }
 }

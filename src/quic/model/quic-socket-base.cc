@@ -1811,25 +1811,23 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
   // Escalate independently of the alarm-type/RTO bookkeeping: if the flow is window-pinned
   // (AvailableWindow < one segment while biF>0) and has made no delivery progress across >=3 consecutive
   // alarm firings, collapse cwnd, mark the whole sent list lost (biF->0) and re-queue it, then restart -
-  // mirroring TCP's RTO. Keyed per (socket,path) via a static map (no header change).
+  // mirroring TCP's RTO. State (m_stuckLastBiF/m_stuckNoProgress) lives on the per-path subflow.
   {
-    static std::map<std::pair<void*, uint8_t>, std::pair<uint32_t, uint32_t> > s_stuck; // key -> (lastBiF, noProgressCount)
     uint32_t biFNow = BytesInFlight (pathId);
     bool pinned = (biFNow > 0 && AvailableWindow (pathId) < GetSegSize ()
                    && !m_drainingPeriodEvent.IsRunning ());
-    std::pair<void*, uint8_t> key ((void*) this, pathId);
-    std::pair<uint32_t, uint32_t> &st = s_stuck[key];
-    if (pinned && biFNow >= st.first)
+    Ptr<MpQuicSubFlow> stFlow = m_subflows[pathId];
+    if (pinned && biFNow >= stFlow->m_stuckLastBiF)
       {
-        st.second++;
+        stFlow->m_stuckNoProgress++;
       }
     else
       {
-        st.second = 0;
+        stFlow->m_stuckNoProgress = 0;
       }
-    st.first = biFNow;
+    stFlow->m_stuckLastBiF = biFNow;
     static const bool s_noFlushStuck = (getenv ("QUIC_NO_FLUSH") != nullptr);
-    if (pinned && st.second >= 3 && !s_noFlushStuck)
+    if (pinned && stFlow->m_stuckNoProgress >= 3 && !s_noFlushStuck)
       {
         if (!m_quicCongestionControlLegacy)
           {
@@ -1852,8 +1850,8 @@ QuicSocketBase::ReTxTimeout (uint8_t pathId)
             SequenceNumber32 next = ++m_subflows[pathId]->m_tcb->m_nextTxSequence;
             m_txBuffer->Retransmission (next, pathId);
           }
-        st.second = 0;
-        st.first = BytesInFlight (pathId);
+        stFlow->m_stuckNoProgress = 0;
+        stFlow->m_stuckLastBiF = BytesInFlight (pathId);
         SendPendingData (m_connected);
       }
   }
@@ -2771,7 +2769,17 @@ QuicSocketBase::OnReceivedAckFrame (QuicSubheader &sub)
           NS_LOG_INFO ("Update the variables in the congestion control (legacy), ackedBytes "
                        << ackedBytes << " ackedSegments " << ackedSegments);
           // new acks are ordered from the highest packet number to the smalles
-          
+
+          // Clear the RTO backoff only on an ACK covering a packet sent after the RTO epoch
+          // (RFC 9002 Sec. 6.2.1). The native path does this in OnPacketAcked; the legacy path
+          // has no such call, so without this m_rtoCount would climb forever and the
+          // persistent-congestion flush would fire permanently.
+          if (m_subflows[pathId]->m_tcb->m_rtoCount > 0
+              && m_subflows[pathId]->m_tcb->m_largestSentBeforeRto.GetValue () < largestAcknowledged)
+            {
+              m_subflows[pathId]->m_tcb->m_rtoCount = 0;
+            }
+
 
           NS_LOG_LOGIC ("Updating RTT estimate");
           // If the largest acked is newly acked, update the RTT.

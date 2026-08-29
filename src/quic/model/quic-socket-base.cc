@@ -3039,6 +3039,17 @@ QuicSocketBase::ReceivedData (Ptr<Packet> p, const QuicHeader& quicHeader,
 
   //For multipath Implementation
   uint8_t pathId = quicHeader.GetPathId();
+  // pathId is an untrusted 8-bit header field; m_subflows is sized to the number of
+  // established paths (1 for single-path). A malformed/misparsed packet can carry a
+  // pathId beyond that range, so bound-check before any m_subflows[pathId] access to
+  // avoid an out-of-bounds vector read. Dropping such a packet is RFC-consistent: a
+  // packet referencing an unknown path cannot be processed.
+  if (pathId >= m_subflows.size ())
+    {
+      NS_LOG_WARN (this << " dropping packet: pathId=" << (uint32_t) pathId
+                        << " out of range (" << m_subflows.size () << " subflow(s))");
+      return;
+    }
   m_currentPathId = pathId;
   m_currentFromAddress = address;
 

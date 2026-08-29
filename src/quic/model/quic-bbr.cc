@@ -64,6 +64,19 @@ QuicBbr::GetTypeId (void)
                    TimeValue (MilliSeconds (200)),
                    MakeTimeAccessor (&QuicBbr::m_probeRttDuration),
                    MakeTimeChecker ())
+    .AddAttribute ("MaxPacingRateCap",
+                   "Numerical-stability ceiling on the BBR pacing rate, standing in for the physical "
+                   "link rate that ns-3 pacing does not enforce. Default 50 Mbps; raise for "
+                   "higher-capacity links.",
+                   DataRateValue (DataRate ("50Mbps")),
+                   MakeDataRateAccessor (&QuicBbr::m_maxPacingRateCap),
+                   MakeDataRateChecker ())
+    .AddAttribute ("MaxCwndBytes",
+                   "Numerical-stability ceiling on the congestion window in bytes, preventing "
+                   "bw*rtt*gain from self-amplifying without bound. Default 4 MB.",
+                   UintegerValue (4 * 1024 * 1024),
+                   MakeUintegerAccessor (&QuicBbr::m_maxCwndBytes),
+                   MakeUintegerChecker<uint32_t> ())
     .AddTraceSource ("BbrState", "Current state of the BBR state machine",
                      MakeTraceSourceAccessor (&QuicBbr::m_state),
                      "ns3::QuicBbr::BbrStatesTracedValueCallback")
@@ -192,6 +205,11 @@ QuicBbr::SetPacingRate (Ptr<QuicSocketState> tcb, double gain)
   NS_LOG_FUNCTION (this << tcb << gain);
   DataRate rate (gain * m_maxBwFilter.GetBest ().GetBitRate ());
   rate = std::min (rate, tcb->m_maxPacingRate);
+  // Numerical-stability ceiling standing in for the physical link-rate limit that
+  // ns-3 pacing does not enforce: a spurious delivery-rate spike can inflate the
+  // estimate into the Gb/s range and make the sender storm. Configurable via the
+  // MaxPacingRateCap attribute (default 50 Mbps, above the per-UE fair share).
+  rate = std::min (rate, m_maxPacingRateCap);
   if (m_isPipeFilled || rate > tcb->m_pacingRate)
     {
       tcb->m_pacingRate = rate;
@@ -496,6 +514,10 @@ QuicBbr::SetCwnd (Ptr<QuicSocketState> tcb, const struct RateSample * rs)
     {
       m_packetConservation = false;
     }
+  // Numerical-stability cwnd cap companion to the pacing ceiling: prevents
+  // targetCwnd = bw*rtt*gain from self-amplifying without bound. Configurable via
+  // the MaxCwndBytes attribute (default 4 MB, above the per-UE fair-share BDP).
+  tcb->m_cWnd = std::min (tcb->m_cWnd.Get (), m_maxCwndBytes);
 }
 
 void
@@ -676,7 +698,10 @@ QuicBbr::CongestionStateSet (Ptr<TcpSocketState> tcb,
     {
       NS_LOG_DEBUG ("CongestionStateSet triggered to CA_RECOVERY :: " << newState);
       SaveCwnd (tcbd);
-      tcbd->m_cWnd = tcbd->m_bytesInFlight.Get () + std::max (tcbd->m_lastAckedSackedBytes, tcbd->m_segmentSize);
+      // Numerical-stability clamp matching SetCwnd, so the recovery cwnd cannot
+      // grow up to the full flow-control window and feed an estimate-spike runaway.
+      tcbd->m_cWnd = std::min (tcbd->m_bytesInFlight.Get () + std::max (tcbd->m_lastAckedSackedBytes, tcbd->m_segmentSize),
+                               m_maxCwndBytes);
       m_packetConservation = true;
     }
 }
@@ -819,8 +844,13 @@ QuicBbr::OnPacketAcked (Ptr<TcpSocketState> tcb, Ptr<QuicSocketTxItem> ackedPack
       OnRetransmissionTimeoutVerified (tcb);
     }
   tcbd->m_handshakeCount = 0;
-  tcbd->m_tlpCount = 0;
-  tcbd->m_rtoCount = 0;
+  // Reset the PTO backoff only on an ACK of a packet sent AFTER the current
+  // alarm epoch started (RFC 9002 Sec. 6.2.1) - see QuicCongestionOps::OnPacketAcked.
+  if (ackedPacket->m_packetNumber > tcbd->m_largestSentBeforeRto)
+    {
+      tcbd->m_tlpCount = 0;
+      tcbd->m_rtoCount = 0;
+    }
 }
 
 void

@@ -109,10 +109,14 @@ class DashClient : public Application
 
     double GetSegmentFetchTime();
 
+    // Representation ladder (bps). Capped at ~4.2 Mbps (realistic 1080p top). The top tier is kept
+    // below the per-UE fair share (100 Mbps backhaul / 10 UEs = 10 Mbps/UE) with headroom: a higher
+    // top tier lets the ABR chronically overshoot and offer well above capacity onto the shared mmWave
+    // access link, producing sustained overload and loss bursts. 10 UEs x 4.2 Mbps = 42 Mbps << 100
+    // Mbps leaves ample headroom for mmWave variability.
     std::vector<uint32_t> rates = {45000,    89000,    131000,   178000,  221000,  263000,  334000,
                                    396000,   522000,   595000,   791000,  1033000, 1245000, 1547000,
-                                   2134000,  2484000,  3079000,  3527000, 3840000, 4220000, 9500000,
-                                   15000000, 30000000, 66000000, 85000000};
+                                   2134000,  2484000,  3079000,  3527000, 3840000, 4220000};
 
     uint32_t m_bufferSpace;
     MpegPlayer m_player; // The MpegPlayer object
@@ -120,6 +124,7 @@ class DashClient : public Application
     std::map<Time, Time> m_bufferState;
     uint32_t m_rateChanges;
     Time m_target_dt;
+    double m_maxBufferS;  // Hard playback-buffer cap [s] (dash.js BufferController model; 0 = unlimited)
     std::deque<std::pair<Time, double>> m_bitrateQueue;
     double m_bitrateSum = 0;
 
@@ -192,6 +197,8 @@ class DashClient : public Application
     uint32_t m_pendingSegmentId = 0;
     uint32_t m_pendingBitRate = 0;
     bool m_pendingRetryUsed = false;
+    uint32_t m_lastWatchdogBytes = 0;  // bytes received as of the previous watchdog tick (progress detection)
+    uint32_t m_watchdogStuckTicks = 0; // consecutive watchdog ticks with no progress
 
     EventId m_keepAliveTimer;
     EventId m_connectWatchdogTimer;

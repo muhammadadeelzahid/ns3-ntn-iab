@@ -67,9 +67,8 @@ Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, P
 {
   uint32_t nodeId = qsb->GetNode()->GetId();
   uint32_t packetSize = p->GetSize();
-  
-  // Log with node and packet information
-  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
+
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize
                        << "\tNode:" << nodeId << std::endl;
 }
 
@@ -171,8 +170,8 @@ main (int argc, char *argv[])
     std::string ccAlgorithm = "newreno";
     int mselect = 3;
     int seed = 1;
-    int ccType = QuicSocketBase::QuicNewReno;  // Will be set from ccAlgorithm
-    TypeId ccTypeId = QuicCongestionOps::GetTypeId ();  // Will be set based on ccType
+    int ccType = QuicSocketBase::QuicNewReno;
+    TypeId ccTypeId = QuicCongestionOps::GetTypeId ();
     double throughputMax = 0.0;  // Maximum achievable throughput (Mbps)
     CommandLine cmd;
 
@@ -199,8 +198,8 @@ main (int argc, char *argv[])
     
     // If throughputMax is specified, use it to set rate0a and rate0b
     if (throughputMax > 0.0) {
-        rate0a = throughputMax;  // Set minimum to the specified throughput
-        rate0b = throughputMax;  // Set maximum to the specified throughput
+        rate0a = throughputMax;
+        rate0b = throughputMax;
         NS_LOG_INFO("Throughput set to " << throughputMax << " Mbps. Rate range: " << rate0a << "-" << rate0b << " Mbps");
     }
 

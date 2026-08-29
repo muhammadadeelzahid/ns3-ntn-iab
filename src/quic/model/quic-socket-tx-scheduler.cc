@@ -206,7 +206,6 @@ Ptr<QuicSocketTxItem>
 QuicSocketTxScheduler::GetNewSegment (uint32_t numBytes, uint8_t pathId)
 {
   NS_LOG_FUNCTION (this << numBytes);
-  // std::cout<<"I got pathId: "<<pathId<<" and Q: "<<Q<<std::endl;
   bool firstSegment = true;
   Ptr<Packet> currentPacket = 0;
   Ptr<QuicSocketTxItem> currentItem = 0;
@@ -235,8 +234,6 @@ QuicSocketTxScheduler::GetNewSegment (uint32_t numBytes, uint8_t pathId)
           currentPacket->PeekHeader (qsb);
           NS_LOG_INFO ("Packet: stream " << qsb.GetStreamId () << ", offset " << qsb.GetOffset ());
 
-          // std::cout<<"Packet: stream " << qsb.GetStreamId () << ", offset " << qsb.GetOffset ()<<std::endl;
-
           QuicSocketTxItem::MergeItems (*outItem, *currentItem);
           outItemSize += currentItem->m_packet->GetSize ();
 
@@ -264,7 +261,6 @@ QuicSocketTxScheduler::GetNewSegment (uint32_t numBytes, uint8_t pathId)
           else
             {
               NS_LOG_INFO ("Split packet on stream " << qsb.GetStreamId () << ", sending " << newPacketSizeInt << " bytes from offset " << qsb.GetOffset ());
-              
               currentPacket->RemoveHeader (qsb);
               uint32_t newPacketSize = (uint32_t)newPacketSizeInt;
 
@@ -300,8 +296,6 @@ QuicSocketTxScheduler::GetNewSegment (uint32_t numBytes, uint8_t pathId)
               firstPartPacket->Print (std::cerr);
 
               NS_LOG_INFO ("Split packet, putting second part back in application buffer - stream " << newQsbToBuffer.GetStreamId () << ", storing from offset " << newQsbToBuffer.GetOffset ());
-
-              // std::cout<< ", storing from offset " << newQsbToBuffer.GetOffset ()<< std::endl;
 
               Ptr<Packet> secondPartPacket = currentItem->m_packet->CreateFragment (
                 newPacketSize, newLength);

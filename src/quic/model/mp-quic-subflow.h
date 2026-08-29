@@ -28,6 +28,7 @@
 #include <queue>
 #include <list>
 #include <set>
+#include <functional>
 
 #include "ns3/object.h"
 #include "ns3/uinteger.h"
@@ -96,9 +97,17 @@ public:
 
     // Pacing timer
     Timer m_pacingTimer       {Timer::REMOVE_ON_DESTROY};   //!< Pacing Event
-    std::vector<SequenceNumber32> m_receivedPacketNumbers;  //!< Received packet number vector
+    // Descending, deduplicated set of received packet numbers, giving O(log N)
+    // insertion without re-sorting on every ACK. Reset with .clear() at connection open/close.
+    std::set<SequenceNumber32, std::greater<SequenceNumber32> > m_receivedPacketNumbers;  //!< Received packet numbers
 
     uint32_t m_rounds;
+
+    // Progress-based stuck-flow detection state (per path). Lives on the subflow so it is created and
+    // destroyed with the socket, rather than in a process-wide static map keyed on the raw socket
+    // pointer (which grows unbounded and can carry stale state to a new socket at a reused address).
+    uint32_t m_stuckLastBiF     {0};   //!< BytesInFlight at the previous alarm firing
+    uint32_t m_stuckNoProgress  {0};   //!< consecutive alarm firings with no delivery progress
 
 private:
   TracedCallback<uint32_t, uint32_t> m_cWndTrace;

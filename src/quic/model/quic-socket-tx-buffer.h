@@ -249,6 +249,22 @@ public:
   uint32_t BytesInFlight (uint8_t pathId);
 
   /**
+   * Bytes currently held in the sent list (diagnostic)
+   */
+  uint32_t GetSentSize (uint8_t pathId) const
+  {
+    return m_sentSizeList[pathId];
+  }
+
+  /**
+   * Item count of the sent list (diagnostic)
+   */
+  uint32_t GetSentCount (uint8_t pathId) const
+  {
+    return m_subflowSentList[pathId].size ();
+  }
+
+  /**
    * Return the number of frames for stream 0 is in the buffer
    *
    * \return the number of frames for stream 0 is in the buffer
@@ -282,6 +298,26 @@ public:
    * \return true if the packet is in the send buffer
    */
   bool MarkAsLost (const SequenceNumber32 seq, uint8_t pathId);
+
+  /**
+   * Mark the oldest outstanding (not yet sacked, not yet lost) packet on a path as lost so that a
+   * window-limited RTO/TLP probe can retransmit real in-flight data (which is not gated by the
+   * congestion/flow-control window) instead of an empty ack-only packet.
+   * \param pathId the path identifier
+   * \return true if an outstanding packet was found and marked lost
+   */
+  bool MarkHeadAsLost (uint8_t pathId);
+
+  /**
+   * Mark ALL outstanding (not yet sacked, not yet lost) packets on a path as lost. Used when
+   * persistent congestion is declared (RFC 9002 Sec. 7.6: consecutive RTOs with no intervening ACK):
+   * with no ACKs arriving, nothing else can ever declare these packets lost (all other loss marking
+   * is ACK-driven), so BytesInFlight stays pinned at cwnd and the flow can never send again. Marking
+   * the whole sent list lost mirrors TCP's RTO response (mark sent list lost + restart from the head).
+   * \param pathId the path identifier
+   * \return the number of packets marked lost
+   */
+  uint32_t MarkAllOutstandingAsLost (uint8_t pathId);
 
   /**
    * Put the lost packets at the beginning of the application buffer to retransmit them

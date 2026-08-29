@@ -58,7 +58,6 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabMpquic");
 
-// Trace callbacks similar to quic-variants-comparison
 static void
 CwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
 {
@@ -82,12 +81,10 @@ Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, P
 {
   uint32_t nodeId = qsb->GetNode()->GetId();
   uint32_t packetSize = p->GetSize();
-  
-  // Log with node and connection information
-  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
+
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize
                        << "\tNode:" << nodeId << std::endl;
-  
-  // Print to console for real-time monitoring
+
   NS_LOG_UNCOND("Rx: Node " << nodeId
                 << " received " << packetSize << " bytes at " 
                 << Simulator::Now().GetSeconds() << "s");
@@ -113,12 +110,11 @@ PacketLoss (Ptr<OutputStreamWrapper> stream, uint32_t packetNumber, uint32_t pac
 // Global map to track packet loss files per node
 static std::map<uint32_t, std::string> packetLossFiles;
 
-// Wrapper callback that will be used to capture packet loss events
+// Wrapper callback that captures packet loss events
 static void
 PacketLossWrapper (uint32_t packetNumber, uint32_t packetSize, uint8_t pathId)
 {
-  // Try to determine nodeId from the packetNumber context
-  // For now, we'll write to all registered files
+  // Write to all registered per-node loss files
   for (auto& pair : packetLossFiles)
   {
     uint32_t nodeId = pair.first;
@@ -196,9 +192,8 @@ Traces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
   // Connect packet loss trace - write to a dedicated loss file
   std::ostringstream pathLoss;
   pathLoss << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/PacketLoss";
-  
-  // Try to connect the trace source
-  Config::ConnectWithoutContext (pathLoss.str ().c_str (), 
+
+  Config::ConnectWithoutContext (pathLoss.str ().c_str (),
                                  MakeCallback (&PacketLossWrapper));
   NS_LOG_UNCOND("Packet loss trace connected for node " << nodeId);
 
@@ -306,7 +301,7 @@ main (int argc, char *argv[])
   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
 
-  // Enable QUIC logs to investigate packet flow stopping
+  // QUIC logging
   // LogComponentEnable("QuicClient",  (LOG_LEVEL_ALL));
   // LogComponentEnable("QuicServer",  (LOG_LEVEL_ALL));
   // LogComponentEnable("QuicSocketBase",  (LOG_LEVEL_ALL));
@@ -515,7 +510,7 @@ main (int argc, char *argv[])
   // Match TCP delayed ACK timing
   Config::SetDefault("ns3::QuicSocketState::kDelayedAckTimeout", TimeValue(MilliSeconds(25)));
   // QUIC Congestion Control Configuration
-  Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::OLIA)); // Use New Reno
+  Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::OLIA));
   
   Config::SetDefault("ns3::QuicSocketBase::InitialSlowStartThreshold", UintegerValue(INT32_MAX));
   // Match TCP segment size (packetSize) and MTU (1500)
@@ -628,7 +623,7 @@ main (int argc, char *argv[])
  
   enbNodes.Create(1);
   iabNodes.Create(numRelays);
-  ueNodes.Create(10);  // Create 2 UE nodes for 2 streams
+  ueNodes.Create(10);
   // Install Mobility Model
   
   Ptr<ListPositionAllocator> enbPositionAlloc = CreateObject<ListPositionAllocator> ();
@@ -690,7 +685,7 @@ main (int argc, char *argv[])
   uePosAlloc->Add(Vector(ueX, ueY, ueZ));
   
 
-// Additional user positioning code (no longer needed)
+// Alternative multi-cluster user positioning
 // uint32_t totalUes = ueNodes.GetN();        // e.g., 20
 // uint32_t clusterCount = clusterCenters.size(); // 7 clusters
 // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster

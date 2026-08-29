@@ -731,8 +731,12 @@ protected:
 
   /**
    * \brief Handle retransmission after loss
+   *
+   * Re-queues all lost data, but injects at most maxPackets probe packets
+   * immediately (RFC 9002 Sec. 6.2: a PTO sends one or two datagrams, not the
+   * whole backlog). The remainder drains window-paced via SendPendingData.
    */
-  void DoRetransmit (std::vector<Ptr<QuicSocketTxItem> > lostPackets, uint8_t pathId);
+  void DoRetransmit (std::vector<Ptr<QuicSocketTxItem> > lostPackets, uint8_t pathId, uint32_t maxPackets = 2);
 
   /**
    * \brief Extract at most maxSize bytes from the TxBuffer at sequence packetNumber, add the
@@ -898,6 +902,7 @@ protected:
   Ptr<TcpCongestionOps> m_congestionControl;      //!< Congestion control
   TracedValue<Time> m_lastRtt;                                 //!< Latest measured RTT
   bool m_quicCongestionControlLegacy;             //!< Quic Congestion control if true, TCP Congestion control if false
+  bool m_ccIsBbr = false;                         //!< true if CC is QuicBbr (BBR sets its own paced rate; the non-BBR/NewReno path is paced by SendDataPacket to prevent single-instant send bursts)
   bool m_queue_ack;                               //!< Indicates a request for a queue ACK if true
   uint32_t m_numPacketsReceivedSinceLastAckSent;  //!< Number of packets received since last ACK sent
   uint32_t m_lastMaxData;                                                 //!< Last MaxData ACK

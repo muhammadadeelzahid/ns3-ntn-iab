@@ -117,7 +117,8 @@ QuicCongestionOps::OnAckReceived (Ptr<TcpSocketState> tcb,
   // If the largest acked is newly acked, update the RTT.
   if (lastAcked->m_packetNumber == tcbd->m_largestAckedPacket)
     {
-      tcbd->m_lastRtt = Now () - lastAcked->m_lastSent;
+      Time rttSample = Now () - lastAcked->m_lastSent;
+      tcbd->m_lastRtt = rttSample;
       UpdateRtt (tcbd, tcbd->m_lastRtt, Time (ack.GetAckDelay ()));
     }
 
@@ -199,8 +200,15 @@ QuicCongestionOps::OnPacketAcked (Ptr<TcpSocketState> tcb,
       OnRetransmissionTimeoutVerified (tcb);
     }
   tcbd->m_handshakeCount = 0;
-  tcbd->m_tlpCount = 0;
-  tcbd->m_rtoCount = 0;
+  // Reset the PTO backoff only on an ACK of a packet sent after the current
+  // alarm epoch started (RFC 9002 Sec. 6.2.1). Resetting on any ACK would let
+  // stale ACKs of long-retransmitted packets clear the backoff on every firing,
+  // defeating the exponential backoff.
+  if (ackedPacket->m_packetNumber > tcbd->m_largestSentBeforeRto)
+    {
+      tcbd->m_tlpCount = 0;
+      tcbd->m_rtoCount = 0;
+    }
 }
 
 bool

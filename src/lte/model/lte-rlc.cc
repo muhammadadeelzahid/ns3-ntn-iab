@@ -32,6 +32,8 @@
 #include "ns3/lte-rlc-sap.h"
 // #include "ff-mac-sched-sap.h"
 
+#include <algorithm>
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("LteRlc");

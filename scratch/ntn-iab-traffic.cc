@@ -104,7 +104,7 @@
  
  // Global configuration for adaptive feedback
  bool g_enableAdaptiveFeedback = true;
- double g_feedbackInterval = 1; // dummy value
+ double g_feedbackInterval = 1;
  uint8_t one_ue = 0; 
  // Global file stream for adaptive feedback logging
  Ptr<OutputStreamWrapper> g_adaptiveFeedbackLog;
@@ -250,9 +250,7 @@
      NS_LOG_UNCOND("Bytes Received: " << metrics.bytesReceived);
      NS_LOG_UNCOND("OLD Parameters - FPS: " << oldFps << ", DataRate: " << oldDataRate << " Mbps");
      NS_LOG_UNCOND("================================================");
-     
-     // Note: We'll log the parameter changes after adaptation
-     
+
      // Call ReceiveLoopbackInformation to adapt the traffic generator
      NS_LOG_UNCOND("Calling ReceiveLoopbackInformation for UE " << ueIndex << "...");
      uint32_t packetReceived = 0;
@@ -431,14 +429,6 @@
                          << packet->GetSize() << "\t"
                          << "TCP" << std::endl;
  }
- 
- // // Generic Rx trace to count bytes per UE (works for both UDP and TCP server apps)
- // static void GenericRxTraceWithUe(uint32_t ueIndex, Ptr<const Packet> packet, const Address& from)
- // {
- //     (void)from; // unused
- //     auto &counter = g_genericBytesRx[ueIndex];
- //     counter += packet->GetSize();
- // }
  
  // Periodic throughput calculator for generic traffic (uses PacketSink for both UDP and TCP)
  static void GenericThroughputLoop()
@@ -1115,7 +1105,7 @@
    //   posIab1, posIab2, posIab3, posIab4, posIab5, posIab6, posWired // 6 IABs + donor
    // };
  
- // Additional user positioning code (no longer needed)
+ // Alternative cluster-based user positioning (disabled)
  // uint32_t totalUes = ueNodes.GetN();        // e.g., 20
  // uint32_t clusterCount = clusterCenters.size(); // 7 clusters
  // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster

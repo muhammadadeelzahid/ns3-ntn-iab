@@ -81,7 +81,7 @@ static std::map<uint32_t, std::string> tcpPacketLossFiles;
      outFile.close();
  }
 
-// TCP Trace callbacks similar to QUIC implementation
+// TCP trace callbacks
 static void
 TcpCwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
 {
@@ -98,13 +98,11 @@ static void
 PacketSinkRx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> packet, const Address &from)
 {
   uint32_t packetSize = packet->GetSize();
-  
-  // Log packet reception from PacketSink
-  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
+
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize
                        << "\tTCP" << std::endl;
-  
-  // Print to console for real-time monitoring
-  NS_LOG_UNCOND("TCP Rx: received " << packetSize << " bytes at " 
+
+  NS_LOG_UNCOND("TCP Rx: received " << packetSize << " bytes at "
                 << Simulator::Now().GetSeconds() << "s");
 }
 
@@ -534,7 +532,7 @@ TcpSocketTraces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
    uePosAlloc->Add(Vector(ueX, ueY, ueZ));
    
  
- // Additional user positioning code (no longer needed)
+ // Alternative multi-cluster user positioning
  // uint32_t totalUes = ueNodes.GetN();        // e.g., 20
  // uint32_t clusterCount = clusterCenters.size(); // 7 clusters
  // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster

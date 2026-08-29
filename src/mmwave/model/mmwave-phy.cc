@@ -276,7 +276,12 @@ MmWavePhy::SetMacPdu (Ptr<Packet> p)
             }
           else
             {
-              NS_FATAL_ERROR ("Packet burst map entry already exists with key: " << tag.Encode());
+              // During an inter-donor IAB migration the scheduler can transiently place two MAC PDUs
+              // on the same (frame, subframe, slot, layer). Merge the second PDU into the existing
+              // burst rather than aborting or dropping, so both are transmitted together without
+              // introducing an artificial loss signal.
+              NS_LOG_WARN ("Packet burst map entry already exists with key: " << tag.Encode()
+                           << " - merging PDU into existing burst (IAB migration, concurrent relayed flows)");
             }
           it->second->AddPacket (p);
         }

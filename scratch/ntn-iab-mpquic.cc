@@ -55,7 +55,7 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuic");
 
-// Trace callbacks similar to quic-variants-comparison
+// Trace callbacks for congestion window and RTT logging
 static void
 CwndChange (Ptr<OutputStreamWrapper> stream, uint32_t oldCwnd, uint32_t newCwnd)
 {
@@ -84,7 +84,6 @@ Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, P
   *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
                        << "\tNode:" << nodeId << std::endl;
   
-  // Print to console for real-time monitoring
   NS_LOG_UNCOND("Rx: Node " << nodeId
                 << " received " << packetSize << " bytes at " 
                 << Simulator::Now().GetSeconds() << "s");
@@ -137,19 +136,16 @@ void
 ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
     NS_LOG_UNCOND("Connecting IMSI: " << imsi << " to ConnectionEstablished trace");
-    // Open the file in append mode to log data
     std::ofstream outFile("connection_established.txt", std::ios_base::app);
     if (!outFile.is_open())
     {
         NS_LOG_ERROR("Can't open output file!");
         return;
     }
-    // Log IMSI, CellId, RNTI, and simulation time
     double currentTime = Simulator::Now().GetSeconds();
     outFile << "Time: " << currentTime << "s, UE IMSI: " << imsi 
             << ", connected to CellId: " << cellId 
             << ", RNTI: " << rnti << "\n";
-    // Close the file
     outFile.close();
 }
 int
@@ -179,20 +175,20 @@ main (int argc, char *argv[])
   // LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   // LogComponentEnable("QuicStreamBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
 
-  // Enable QUIC logs to investigate packet flow stopping
-  LogComponentEnable("QuicClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see client sending issues
-  LogComponentEnable("QuicServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see server reception issues
-  LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see socket state changes
-  LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see protocol layer issues
-  // LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see socket buffer issues
-  // LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see protocol layer issues
-  // LogComponentEnable("QuicL5Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see application layer issues
-  // LogComponentEnable("QuicStreamBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see stream-specific issues
-  
-  // // Enable additional QUIC frame parsing and header logging
-  // LogComponentEnable("QuicSubheader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see frame parsing issues
-  // LogComponentEnable("QuicHeader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see packet header issues
-  // LogComponentEnable("QuicSocket",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // To see socket-level issues
+  // QUIC layer logging
+  LogComponentEnable("QuicClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicL5Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicStreamBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+
+  // // Additional QUIC frame parsing and header logging
+  // LogComponentEnable("QuicSubheader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicHeader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
+  // LogComponentEnable("QuicSocket",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   
   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
@@ -598,7 +594,7 @@ main (int argc, char *argv[])
   uePosAlloc->Add(Vector(ueX, ueY, ueZ));
   
 
-// Additional user positioning code (no longer needed)
+// Alternative clustered UE positioning
 // uint32_t totalUes = ueNodes.GetN();        // e.g., 20
 // uint32_t clusterCount = clusterCenters.size(); // 7 clusters
 // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster

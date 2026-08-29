@@ -36,8 +36,10 @@
 #include <ns3/epc-s1ap-header.h>
 #include <ns3/epc-x2-header.h>
 #include <ns3/packet-socket.h>
+#include "ns3/simulator.h"
 
 #include <algorithm>
+#include <iostream>
 
 
 namespace ns3 {
@@ -177,31 +179,9 @@ EpcIabApplication::DoInitialUeMessage (uint64_t imsi, uint16_t rnti)
   // this is the first hop for the S1 InitialUeMessage
   // no need to add the node as a parent, this will be done in the EpcS1Ap class
 
-  // auto rntiItChild = m_rntiImsiChildrenMap.find(rnti);
-  // if(rntiItChild != m_rntiImsiChildrenMap.end())
-  // {
-  //   if( !((std::find(rntiItChild->second.begin(), rntiItChild->second.end(), m_imsi)) != rntiItChild->second.end()))
-  //   {
-  //     // add the imsi to the list
-  //     rntiItChild->second.push_back(m_imsi);
-  //   }
-  // }
-  // else
-  // {
-  //   std::vector<uint64_t> imsiVec;
-  //   imsiVec.push_back(m_imsi);
-  //   m_rntiImsiChildrenMap.insert(std::make_pair(rnti, imsiVec));
-  // }
-  // // scan the list
-  // NS_LOG_INFO("EpcIabApplication DoInitialUeMessage RNTI " << rnti << " IMSI " << m_imsi << " scan children list");
-  // for (auto imsiInRntiListIter : m_rntiImsiChildrenMap.find(rnti)->second)
-  // {
-  //   NS_LOG_INFO("Present IMSI " << imsiInRntiListIter);
-  // }
-
-                                                    // IAB hack: the first and third field
-                                                    // were the same in the original implementation
-                                                    // Change the third to be the imsi of this device!
+                                                    // IAB: the first and third field
+                                                    // were the same in the original implementation.
+                                                    // Set the third to the imsi of this device.
   m_s1apSapEnbProvider->SendInitialUeMessage (imsi, rnti, m_imsi, m_cellId); // TODO if more than one MME is used, extend this call
 }
 
@@ -438,7 +418,6 @@ EpcIabApplication::RecvFromLteSocket (Ptr<Socket> socket) // receive a packet fr
 
         // add the imsi of this device to the list
         initialMessageHeader.AddParent(m_imsi);
-        // NS_LOG_LOGIC("EpcIabApplication - Number of parents " << initialMessageHeader.GetParentImsiList().size());
         packet->AddHeader(initialMessageHeader);
       }
       else if(packet->PeekHeader(setupRespHeader))
@@ -484,7 +463,12 @@ EpcIabApplication::RecvFromLteSocket (Ptr<Socket> socket) // receive a packet fr
     EpcX2Header x2Header;
     if(gtpMessageType == GtpuHeader::X2 && packet->PeekHeader(x2Header))
     {
-      NS_FATAL_ERROR("TODO");
+      std::cout << "IAB X2 forwarding t=" << Simulator::Now ().GetSeconds () << "s IAB RecvFromLteSocket(access)"
+                << " GTP-X2: rnti=" << rnti << " teid=" << teid
+                << " x2MsgType=" << (uint32_t) x2Header.GetMessageType ()
+                << " x2ProcCode=" << (uint32_t) x2Header.GetProcedureCode ()
+                << " - DROPPING (X2-over-backhaul TODO)" << std::endl;
+      packet = 0;
       return;
     }
 
@@ -638,31 +622,24 @@ EpcIabApplication::RecvFromS1uSocket (Ptr<Socket> socket) // receive a packet fr
 
     packet = 0;
 
-    // NS_LOG_DEBUG(tag);
-    m_s1apSocket->Send(newPck); 
+    m_s1apSocket->Send(newPck);
     return;
   }
   else if(gtpMessageType == GtpuHeader::X2 && packet->PeekHeader(x2Header))
   {
-    NS_FATAL_ERROR("Not implemented");
+    std::cout << "IAB X2 forwarding t=" << Simulator::Now ().GetSeconds () << "s IAB RecvFromS1uSocket(backhaul)"
+              << " GTP-X2: teid=" << teid
+              << " x2MsgType=" << (uint32_t) x2Header.GetMessageType ()
+              << " x2ProcCode=" << (uint32_t) x2Header.GetProcedureCode ()
+              << " - DROPPING (X2-over-backhaul TODO)" << std::endl;
+    packet = 0;
+    return;
   }
 
 
   std::map<uint32_t, EpsFlowId_t>::iterator it = m_teidRbidMap.find (teid);
   if (it != m_teidRbidMap.end ())
     {
-
-      // uint16_t rnti = it->second.m_rnti;
-      // auto rntiChildrenIter = m_rntiImsiChildrenMap.find(rnti);
-      // uint16_t numChildren = 0;
-      // if(rntiChildrenIter != m_rntiImsiChildrenMap.end())
-      // {
-      //   numChildren = rntiChildrenIter->second.size();
-      // }
-
-      // NS_LOG_INFO(this << " RecvFromS1uSocket rnti " << 
-      //         rnti << " with " << numChildren << " children");
-
       SendToLteSocket (packet, it->second.m_rnti, it->second.m_bid);
     }
   else

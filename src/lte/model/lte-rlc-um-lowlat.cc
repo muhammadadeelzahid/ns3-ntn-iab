@@ -30,6 +30,8 @@
 #include "ns3/simulator.h"
 #include "ns3/log.h"
 
+#include <iostream>
+
 #include "ns3/lte-rlc-header.h"
 #include "ns3/lte-rlc-sdu-status-tag.h"
 #include "ns3/lte-rlc-tag.h"
@@ -1295,7 +1297,7 @@ LteRlcUmLowLat::ExpireRbsTimer (void)
 void
 LteRlcUmLowLat::TriggerReceivePdcpPdu(Ptr<Packet> p)
 {
-  if(!isMc) 
+  if(!isMc)
   {
     NS_LOG_INFO(this << " RlcUmLowLat forwards packet to PDCP (either from MmWave or LTE stack)");
     m_rlcSapUser->ReceivePdcpPdu(p);

@@ -171,8 +171,10 @@ MpQuicCongestionOps::UpdateRtt (Ptr<TcpSocketState> tcb, Time latestRtt,
     {
       Time rttVarSample = Time (
         std::abs ((tcbd->m_smoothedRtt - latestRtt).GetDouble ()));
-      tcbd->m_rttVar = 3 / 4 * tcbd->m_rttVar + 1 / 4 * rttVarSample;
-      tcbd->m_smoothedRtt = 7 / 8 * tcbd->m_smoothedRtt + 1 / 8 * latestRtt;
+      // Use floating-point coefficients so the smoothed-RTT update is not
+      // truncated to zero by integer division (RFC 6298).
+      tcbd->m_rttVar = (3.0 / 4.0) * tcbd->m_rttVar + (1.0 / 4.0) * rttVarSample;
+      tcbd->m_smoothedRtt = (7.0 / 8.0) * tcbd->m_smoothedRtt + (1.0 / 8.0) * latestRtt;
     }
 
 }
@@ -194,8 +196,14 @@ MpQuicCongestionOps::OnPacketAcked (Ptr<TcpSocketState> tcb,
       OnRetransmissionTimeoutVerified (tcb);
     }
   tcbd->m_handshakeCount = 0;
-  tcbd->m_tlpCount = 0;
-  tcbd->m_rtoCount = 0;
+  // Clear the TLP/RTO backoff only on an ACK covering a packet sent after the RTO epoch
+  // (RFC 9002 Sec. 6.2.1), matching QuicCongestionOps::OnPacketAcked. A stale ACK of a
+  // pre-epoch packet must not defeat the exponential backoff.
+  if (ackedPacket->m_packetNumber > tcbd->m_largestSentBeforeRto)
+    {
+      tcbd->m_tlpCount = 0;
+      tcbd->m_rtoCount = 0;
+    }
 }
 
 bool

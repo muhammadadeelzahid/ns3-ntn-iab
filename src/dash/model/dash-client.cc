@@ -26,6 +26,7 @@
 #include <ns3/inet6-socket-address.h>
 #include <ns3/log.h>
 #include <ns3/simulator.h>
+#include <ns3/double.h>
 #include <ns3/tcp-socket-factory.h>
 #include <ns3/uinteger.h>
 #include <sstream>
@@ -80,6 +81,14 @@ DashClient::GetTypeId(void)
                                           TimeValue(Seconds(0)),  // 0 = unlimited
                                           MakeTimeAccessor(&DashClient::m_maxVideoDuration),
                                           MakeTimeChecker())
+                            .AddAttribute("MaxBufferS",
+                                          "Hard playback-buffer capacity in seconds (models the dash.js "
+                                          "BufferController; 0 = unlimited). Decoupled from the ABR's "
+                                          "internal buffer target so the actual buffer can be swept "
+                                          "independently of BOLA's bufferTime.",
+                                          DoubleValue(0.0),  // 0 = unlimited
+                                          MakeDoubleAccessor(&DashClient::m_maxBufferS),
+                                          MakeDoubleChecker<double>())
                             .AddTraceSource("Tx",
                                             "A new packet is created and is sent",
                                             MakeTraceSourceAccessor(&DashClient::m_txTrace),
@@ -96,6 +105,7 @@ DashClient::DashClient()
       m_player(this->GetObject<DashClient>(), m_bufferSpace),
       m_rateChanges(0),
       m_target_dt("35s"),
+      m_maxBufferS(0.0),
       m_bitrateEstimate(0.0),
       m_segmentId(0),
       m_socket(0),
@@ -281,6 +291,8 @@ DashClient::RequestSegment()
     SendSegmentRequest(requestSegmentId, m_bitRate, false);
     m_requestTime = Simulator::Now();
     m_segment_bytes = 0;
+    m_lastWatchdogBytes = 0;
+    m_watchdogStuckTicks = 0;
 
     m_segmentWatchdogTimer.Cancel();
     m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
@@ -305,7 +317,13 @@ DashClient::SendSegmentRequest(uint32_t segmentId, uint32_t bitrate, bool isRetr
     int res = m_socket->Send(packet);
     if (res < 0)
     {
-        NS_FATAL_ERROR("Oh oh. Couldn't send packet! res=" << res << " size=" << packet->GetSize());
+        // Send can fail legitimately (e.g. the transport socket already closed after an idle timeout
+        // on a stalled connection, or a momentarily full send buffer). Treat it like a lost request
+        // rather than a fatal error: the segment watchdog will retry once and eventually free the
+        // client (m_RequestPending=false) so the run and the other UEs proceed.
+        NS_LOG_WARN("DashClient " << m_id << ": segment request send failed (res=" << res
+                    << ", size=" << packet->GetSize() << ") - leaving recovery to the watchdog");
+        return res;
     }
 
     m_txTrace(packet);
@@ -320,16 +338,49 @@ DashClient::SegmentRequestWatchdog()
         return;
     }
 
-    if (!m_pendingRetryUsed)
+    // Progress-aware watchdog. Re-sending the request on every tick would turn a merely-slow segment
+    // (loss + slow recovery) into a duplicate full-segment resend at the server, adding congestion and
+    // slowing every other segment into a positive-feedback stall spiral. Instead:
+    //  - if the segment is making progress (more bytes than the last tick), it is just slow: keep
+    //    waiting, do NOT re-request;
+    //  - only if there is NO progress do we act: a single re-request when nothing at all has arrived
+    //    (the request itself was likely lost), otherwise just keep waiting for the in-flight data;
+    //  - as a last resort, after a long stall with no progress, free the client so it can recover
+    //    (instead of leaving m_RequestPending stuck true forever).
+    bool progressing = (m_segment_bytes > m_lastWatchdogBytes);
+    m_lastWatchdogBytes = m_segment_bytes;
+
+    if (progressing)
+    {
+        m_watchdogStuckTicks = 0;
+        m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
+                                                     &DashClient::SegmentRequestWatchdog, this);
+        return;
+    }
+
+    m_watchdogStuckTicks++;
+
+    // Nothing received yet: the request may have been lost in a handover/loss burst — retry it once.
+    if (m_segment_bytes == 0 && !m_pendingRetryUsed)
     {
         m_pendingRetryUsed = true;
         SendSegmentRequest(m_pendingSegmentId, m_pendingBitRate, true);
-        // single-shot retry with one extra safety window
         m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
-                                                     &DashClient::SegmentRequestWatchdog,
-                                                     this);
+                                                     &DashClient::SegmentRequestWatchdog, this);
         return;
     }
+
+    // Some data arrived then progress stalled, or the lone retry already went out. Keep waiting for the
+    // in-flight segment (it usually completes), but bound the wait so a truly dead segment frees the
+    // client (~5 s of no progress) rather than wedging it permanently.
+    if (m_watchdogStuckTicks < 10)
+    {
+        m_segmentWatchdogTimer = Simulator::Schedule(MilliSeconds(500),
+                                                     &DashClient::SegmentRequestWatchdog, this);
+        return;
+    }
+
+    m_RequestPending = false; // give up on this segment; allow the buffer-underrun path to re-request
 }
 
 void
@@ -597,12 +648,8 @@ DashClient::MessageReceived(Packet message)
         LogBufferLevel(currDt);
 
         uint32_t old = m_bitRate;
-        //  double diff = m_lastDt >= 0 ? (currDt - m_lastDt).GetSeconds() : 0;
 
         Time bufferDelay;
-
-        // m_player.CalcNextSegment(m_bitRate, m_player.GetBufferEstimate(), diff,
-        // m_bitRate, bufferDelay);
 
         uint32_t prevBitrate = m_bitRate;
 
@@ -611,6 +658,20 @@ DashClient::MessageReceived(Packet message)
         if (prevBitrate != m_bitRate)
         {
             m_rateChanges++;
+        }
+
+        // BufferController-style hard cap (models dash.js's separate buffer target). Holds the actual
+        // playback buffer at m_maxBufferS regardless of the ABR's internal buffer target, so the
+        // buffer capacity can be swept independently of BOLA's bufferTime. When the buffer plus one
+        // segment would exceed the cap, defer the next fetch until it has drained back to the cap.
+        if (m_maxBufferS > 0.0)
+        {
+            const double segDur = (MPEG_FRAMES_PER_SEGMENT * MPEG_TIME_BETWEEN_FRAMES) / 1000.0;
+            double capDelay = currDt.GetSeconds() + segDur - m_maxBufferS;
+            if (capDelay > bufferDelay.GetSeconds())
+            {
+                bufferDelay = Seconds(capDelay);
+            }
         }
 
         if (bufferDelay == Seconds(0))

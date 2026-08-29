@@ -35,7 +35,9 @@
 #include "eps-bearer-tag.h"
 #include "ns3/epc-s1ap-header.h"
 #include "ns3/epc-x2-header.h"
+#include "ns3/simulator.h"
 #include <algorithm>
+#include <iostream>
 
 namespace ns3 {
 
@@ -160,32 +162,9 @@ EpcEnbApplication::DoInitialUeMessage (uint64_t imsi, uint16_t rnti)
     m_rntiLocalImsiMap[rnti] = imsi;
   }
 
-
-  // auto rntiItChild = m_rntiImsiChildrenMap.find(rnti);
-  // if(rntiItChild != m_rntiImsiChildrenMap.end())
-  // {
-  //   if( !((std::find(rntiItChild->second.begin(), rntiItChild->second.end(), imsi)) != rntiItChild->second.end()))
-  //   {
-  //     // add the imsi to the list
-  //     rntiItChild->second.push_back(imsi);
-  //   }
-  // }
-  // else
-  // {
-  //   std::vector<uint64_t> imsiVec;
-  //   imsiVec.push_back(imsi);
-  //   m_rntiImsiChildrenMap.insert(std::make_pair(rnti, imsiVec));
-  // }
-  // // scan the list
-  // NS_LOG_INFO("EpcEnbApplication DoInitialUeMessage RNTI " << rnti << " IMSI " << 0 << " scan children list");
-  // for (auto imsiInRntiListIter : m_rntiImsiChildrenMap.find(rnti)->second)
-  // {
-  //   NS_LOG_INFO("Present IMSI " << imsiInRntiListIter);
-  // }
-
-                                            // IAB hack: the first and third field
-                                            // were the same in the original implementation
-                                            // Change the third to be the 0, which represents wired devices!
+                                            // IAB: the first and third field
+                                            // were the same in the original implementation.
+                                            // Set the third to 0, which represents wired devices.
   m_s1apSapEnbProvider->SendInitialUeMessage (imsi, rnti, 0, m_cellId); // TODO if more than one MME is used, extend this call
 }
 
@@ -319,6 +298,23 @@ EpcEnbApplication::DoPathSwitchRequestAcknowledge (uint64_t enbUeS1Id, uint64_t 
   NS_LOG_FUNCTION (this);
 
   uint64_t imsi = mmeUeS1Id;
+
+  // Descendant-UE migration ack: the SGW downlink tunnel was already re-pointed to this donor by the
+  // MME. Do NOT proceed to context release -- this imsi resolves to the IAB-MT's local RNTI
+  // (descendant traffic is relayed on the IAB-MT's bearer), and releasing that UeManager would tear
+  // down the freshly-migrated backhaul. The IAB-MT's own ack (its imsi is not in this set) is unaffected.
+  if (m_migratedDescendantImsi.find (imsi) != m_migratedDescendantImsi.end ())
+    {
+      NS_LOG_LOGIC ("PathSwitch ack for migrated descendant imsi " << imsi << " - re-point applied, skipping context release");
+      // Keep the suppression persistent. A relayed descendant never initiates its own path switch, so
+      // every path-switch ack resolving to its IMSI is a migration ack that must be skipped (the IMSI
+      // resolves to the IAB-MT's RNTI; letting it through calls PathSwitchRequestAcknowledge on the
+      // IAB-MT UeManager mid-reconfiguration -> fatal state error). A migration also produces multiple
+      // acks per descendant, so consuming the entry after the first would break the rest. The set is
+      // bounded by the number of distinct descendant IMSIs (idempotent re-insertion on re-migration).
+      return;
+    }
+
   std::map<uint64_t, uint16_t>::iterator imsiIt = m_imsiRntiMap.find (imsi);
   NS_ASSERT_MSG (imsiIt != m_imsiRntiMap.end (), "unknown IMSI");
   uint16_t rnti = imsiIt->second;
@@ -327,7 +323,126 @@ EpcEnbApplication::DoPathSwitchRequestAcknowledge (uint64_t enbUeS1Id, uint64_t 
   m_s1SapUser->PathSwitchRequestAcknowledge (params);
 }
 
-void 
+// ============================================================================
+// Genuine 3GPP inter-donor IAB migration: descendant data-plane migration.
+// When an IAB-MT re-parents from a source donor to a target donor, only its own
+// bearer is path-switched by the standard handover. The UEs reached *through* the
+// IAB-MT do not hand over, so the target donor has no relay state for them and the
+// SGW still tunnels their downlink to the source donor -> black hole. These two
+// methods export that relay state from the source donor and re-install it on the
+// target donor, then drive a real S1 path switch per descendant so the SGW/PGW
+// re-tunnel each UE's downlink to the target donor.
+// ============================================================================
+std::vector<EpcEnbApplication::IabDescendantContext>
+EpcEnbApplication::ExportIabDescendants (uint16_t iabMtRnti)
+{
+  std::vector<IabDescendantContext> out;
+  // Enumerate by remote TEID: every relayed downlink flow whose backhaul radio bearer is the IAB-MT's
+  // local RNTI is a descendant of this IAB-MT. (m_rntiImsiChildrenMap holds only nested-IAB children,
+  // not UEs, so it cannot be used here.)
+  for (std::map<uint32_t, bool>::iterator it = m_teidRemoteMap.begin (); it != m_teidRemoteMap.end (); ++it)
+    {
+      if (!it->second)
+        continue;
+      uint32_t teid = it->first;
+      std::map<uint32_t, EpsFlowId_t>::iterator rbIt = m_teidRbidMap.find (teid);
+      if (rbIt == m_teidRbidMap.end () || rbIt->second.m_rnti != iabMtRnti)
+        continue;
+      IabDescendantContext d;
+      d.teid = teid;
+      d.bid  = rbIt->second.m_bid;
+      d.imsi = 0;
+      std::map<uint32_t, uint64_t>::iterator imIt = m_teidRemoteImsiMap.find (teid);
+      if (imIt != m_teidRemoteImsiMap.end ())
+        d.imsi = imIt->second;
+      d.isIab = false;
+      std::map<uint64_t, bool>::iterator iabIt = m_imsiIabMap.find (d.imsi);
+      if (iabIt != m_imsiIabMap.end ())
+        d.isIab = iabIt->second;
+      out.push_back (d);
+    }
+  return out;
+}
+
+void
+EpcEnbApplication::ImportIabDescendants (uint16_t newIabMtRnti, uint64_t iabImsi,
+                                         const std::vector<IabDescendantContext> & descendants)
+{
+  // 1. Classify the IAB-MT itself at this (target) donor so uplink relayed through it is recognized
+  //    (RecvFromLteSocket dereferences m_imsiIabMap for the local imsi of the sending RNTI).
+  m_rntiLocalImsiMap[newIabMtRnti] = iabImsi;
+  m_imsiIabMap[iabImsi] = true;
+  m_imsiRntiMap[iabImsi] = newIabMtRnti;
+
+  uint32_t nIabChildren = 0;
+
+  for (std::vector<IabDescendantContext>::const_iterator d = descendants.begin (); d != descendants.end (); ++d)
+    {
+      EpsFlowId_t rbid (newIabMtRnti, d->bid, false); // relayed flow rides the IAB-MT's backhaul bearer
+
+      // 2. Rebuild the relay maps keyed to the IAB-MT's new local RNTI on this donor.
+      m_imsiIabMap[d->imsi]        = d->isIab;
+      m_imsiRntiMap[d->imsi]       = newIabMtRnti;
+      m_imsiLocalRbidMap[d->imsi]  = rbid;
+      m_rbidRemoteImsiMap[rbid]    = d->imsi;
+      m_teidRbidMap[d->teid]       = rbid;
+      m_teidRemoteMap[d->teid]     = true;
+      m_teidRemoteImsiMap[d->teid] = d->imsi; // so the NEXT handover can export from this donor
+      m_migratedDescendantImsi.insert (d->imsi);
+      if (d->isIab)
+        {
+          nIabChildren++;
+          m_rntiImsiChildrenMap[newIabMtRnti].push_back (d->imsi);
+        }
+
+      // 3. Real S1 path switch: re-tunnel this UE's downlink from the SGW/PGW to THIS donor. The MME
+      //    updates UeInfo->cellId and sends ModifyBearerRequest so the SGW points the downlink GTP
+      //    tunnel (same TEID) at this donor's S1-U address. The resulting ack is suppressed for
+      //    descendants in DoPathSwitchRequestAcknowledge (it would otherwise release the IAB-MT).
+      std::list<EpcS1apSapMme::ErabSwitchedInDownlinkItem> erabList;
+      EpcS1apSapMme::ErabSwitchedInDownlinkItem erab;
+      erab.erabId = d->bid;
+      erab.enbTransportLayerAddress = m_enbS1uAddress;
+      erab.enbTeid = d->teid;
+      erabList.push_back (erab);
+      m_s1apSapEnbProvider->SendPathSwitchRequest (newIabMtRnti, d->imsi, m_cellId, erabList);
+    }
+
+  // 4. Mirror the original attach behaviour: notify the scheduler of the IAB-MT's nested-IAB child
+  //    count (0 for a leaf relay serving only UEs). The handler null-checks the UeManager.
+  EpcEnbS1SapUser::NotifyNumIabPerRntiParameters params;
+  params.rnti = newIabMtRnti;
+  params.numIab = nIabChildren;
+  params.iab = true;
+  m_s1SapUser->NotifyNumIabPerRnti (params);
+}
+
+void
+EpcEnbApplication::ReleaseIabDescendants (const std::vector<IabDescendantContext> & descendants)
+{
+  // Remove migrated descendants' relay state from THIS (source) donor once they have been imported
+  // at the target donor and the SGW downlink has been re-pointed. Without this the source donor's
+  // maps accumulate stale entries across repeated handovers, and a late in-flight downlink for a
+  // migrated TEID could still be mis-routed here. Mirrors the erase idiom in DoUeContextRelease.
+  for (std::vector<IabDescendantContext>::const_iterator d = descendants.begin (); d != descendants.end (); ++d)
+    {
+      std::map<uint32_t, EpsFlowId_t>::iterator rbIt = m_teidRbidMap.find (d->teid);
+      if (rbIt != m_teidRbidMap.end ())
+        {
+          m_rbidRemoteImsiMap.erase (rbIt->second);
+          m_teidRbidMap.erase (rbIt);
+        }
+      m_teidRemoteMap.erase (d->teid);
+      m_teidRemoteImsiMap.erase (d->teid);
+      if (d->imsi != 0)
+        {
+          m_imsiLocalRbidMap.erase (d->imsi);
+          m_imsiRntiMap.erase (d->imsi);
+        }
+    }
+}
+
+void
 EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
 {
   NS_LOG_FUNCTION (this);  
@@ -354,7 +469,17 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
 
   if(imsiLocalIt == m_rntiLocalImsiMap.end())
   {
-    NS_FATAL_ERROR("Unknown IMSI/RNTI association");
+    // During an IAB-MT backhaul handover, the migrating node may transmit on the target
+    // donor before the X2 path switch has populated this map. Rather than aborting, drop
+    // the packet: this models the brief handover interruption (loss) gap. Once the path
+    // switch completes (DoPathSwitchRequest), the mapping is installed and traffic resumes.
+    // Count the drops so a genuine (non-handover) association bug is not silently masked: a
+    // large or steadily-growing count outside handover windows signals a real problem.
+    ++m_unknownRntiDropCount;
+    NS_LOG_WARN ("EpcEnbApplication: dropping uplink packet with unknown RNTI " << rnti
+                 << " (likely in-flight during IAB handover, before path switch); total unknown-RNTI drops="
+                 << m_unknownRntiDropCount);
+    return;
   }
   else
   {
@@ -415,7 +540,6 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
           if(imsiInRntiListIter == rntiIt->second.end())
           {
             // add the imsi to the list
-            // NS_LOG_INFO("add the imsi to the list");
             rntiIt->second.push_back(imsiChildIter);
           }
         }
@@ -426,7 +550,6 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
 
         // add the imsi of this device to the list
         initialMessageHeader.AddParent(0); // use 0 for wired
-        // NS_LOG_LOGIC("Number of parents " << initialMessageHeader.GetParentImsiList().size());
 
         packet->AddHeader(initialMessageHeader);
       }
@@ -464,7 +587,16 @@ EpcEnbApplication::RecvFromLteSocket (Ptr<Socket> socket)
     EpcX2Header x2Header;
     if(gtpMessageType == GtpuHeader::X2 && packet->PeekHeader(x2Header))
     {
-      NS_FATAL_ERROR("TODO");
+      // X2-over-backhaul relay is an unimplemented stub in this module. It is only reached once
+      // descendant UEs are active across a second inter-donor handover (IAB migration). Log the
+      // X2 message to identify it, then drop it (modelling X2 forwarding loss during the
+      // break-before-make handover gap) rather than aborting the run.
+      std::cout << "IAB X2 forwarding t=" << Simulator::Now ().GetSeconds () << "s donor cell=" << m_cellId
+                << " RecvFromLteSocket GTP-X2 over backhaul: rnti=" << rnti << " teid=" << teid
+                << " x2MsgType=" << (uint32_t) x2Header.GetMessageType ()
+                << " x2ProcCode=" << (uint32_t) x2Header.GetProcedureCode ()
+                << " - DROPPING (X2-over-backhaul TODO)" << std::endl;
+      packet = 0;
       return;
     }
 
@@ -550,6 +682,7 @@ EpcEnbApplication::DoForwardIabS1apReply (Ptr<Packet> packet)
         // store the TEID information
         m_teidRbidMap[erabIt->sgwTeid] = localRbid;
         m_teidRemoteMap[erabIt->sgwTeid] = true;
+        m_teidRemoteImsiMap[erabIt->sgwTeid] = mmeUeS1apId; // reliable teid -> remote UE imsi (for migration)
       }
       packet->AddHeader(reqHeader);
   }
@@ -599,19 +732,6 @@ EpcEnbApplication::RecvFromS1uSocket (Ptr<Socket> socket)
   std::map<uint32_t, EpsFlowId_t>::iterator it = m_teidRbidMap.find (teid);
   if (it != m_teidRbidMap.end ())
     {
-
-      // uint16_t rnti = it->second.m_rnti;
-      // auto rntiChildrenIter = m_rntiImsiChildrenMap.find(rnti);
-      // uint16_t numChildren = 0;
-      // if(rntiChildrenIter != m_rntiImsiChildrenMap.end())
-      // {
-      //   numChildren = rntiChildrenIter->second.size();
-      // }
-
-      // NS_LOG_INFO(this << " RecvFromS1uSocket rnti " << 
-      //         rnti << " with " << numChildren << " children");
-
-
       SendToLteSocket (packet, it->second.m_rnti, it->second.m_bid);
     }
   else

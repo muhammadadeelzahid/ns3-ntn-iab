@@ -48,3 +48,17 @@ build/
 /.cproject
 /.project
 .vscode
+
+# Large experimental data & build snapshots — never commit
+build_snapshots/
+handover_campaign/
+
+# Internal debug handoff notes — keep local
+/NEWRENO_PACING_FIX.md
+/PTO_ACK_DEBUG.md
+/QUIC_DEBUG_HANDOFF.md
+# Article/manuscript sources — kept local, not part of the code repository
+latex-article/
+
+# Locked reference results for pre/post-bugfix comparison — kept local
+reference_baseline/

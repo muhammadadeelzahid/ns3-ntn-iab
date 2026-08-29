@@ -96,7 +96,6 @@ QuicUdpBinding::GetTypeId (void)
                    MakePointerAccessor (&QuicUdpBinding::m_quicSocket),
                    MakePointerChecker<QuicSocketBase> ())
   ;
-  //NS_LOG_UNCOND("QuicUdpBinding");
   return tid;
 }
 
@@ -180,7 +179,6 @@ int
 QuicL4Protocol::UdpBind (Ptr<QuicSocketBase> socket)
 {
   NS_LOG_FUNCTION (this << socket);
-// std::cout<<"-------------QuicL4Protocol::UdpBind"<<std::endl;
   int res = -1;
   QuicUdpBindingList::iterator it;
   for (it = m_quicUdpBindingList.begin (); it != m_quicUdpBindingList.end (); ++it)
@@ -333,7 +331,6 @@ uint32_t
 QuicL4Protocol::GetTxAvailable (Ptr<QuicSocketBase> quicSocket) const
 {
   NS_LOG_FUNCTION (this);
-// std::cout<<"####QuicL4Protocol::GetTxAvailable()#####"<<std::endl;
   QuicUdpBindingList::const_iterator it;
   for (it = m_quicUdpBindingList.begin (); it != m_quicUdpBindingList.end (); ++it)
     {
@@ -462,6 +459,7 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
           NS_LOG_WARN ("ForwardUp: dropping truncated packet (size=" << rawSize << " < " << QUIC_HEADER_MIN_BYTES << ")");
           continue;
         }
+
       QuicHeader header;
       packet->RemoveHeader (header);
       uint32_t payloadSize = packet->GetSize ();
@@ -493,8 +491,13 @@ QuicL4Protocol::ForwardUp (Ptr<Socket> sock)
         }*/
       else
         {
-          NS_FATAL_ERROR ("The Connection ID can only be omitted by means of m_omit_connection_id transport parameter"
-                          " if source and destination IP address and port are sufficient to identify a connection");
+          // A packet arrived with the connection ID omitted but no transport
+          // parameter / endpoint demux is configured to resolve it. Skip this
+          // packet and keep draining the socket; the sender's loss detection
+          // will retransmit if the data was real. Using continue (not return)
+          // avoids starving other connections' packets queued on the same socket.
+          NS_LOG_WARN ("Dropping packet with omitted connection ID: cannot demux");
+          continue;
         }
 
       QuicUdpBindingList::iterator it;

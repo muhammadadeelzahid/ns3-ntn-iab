@@ -564,6 +564,50 @@ bool QuicSocketTxBuffer::MarkAsLost (const SequenceNumber32 seq, uint8_t pathId)
   return found;
 }
 
+bool QuicSocketTxBuffer::MarkHeadAsLost (uint8_t pathId)
+{
+  NS_LOG_FUNCTION (this << (uint32_t) pathId);
+  if (pathId >= m_subflowSentList.size ())
+    {
+      return false;
+    }
+  // The sent list is ordered oldest-first; mark the first packet that is still genuinely
+  // outstanding (neither selectively acked nor already flagged lost).
+  for (auto sent_it = m_subflowSentList[pathId].begin ();
+       sent_it != m_subflowSentList[pathId].end (); ++sent_it)
+    {
+      if (!(*sent_it)->m_sacked && !(*sent_it)->m_lost)
+        {
+          (*sent_it)->m_lost = true;
+          NS_LOG_INFO ("Marked oldest outstanding packet " << (*sent_it)->m_packetNumber
+                       << " as lost for forced retransmission");
+          return true;
+        }
+    }
+  return false;
+}
+
+uint32_t QuicSocketTxBuffer::MarkAllOutstandingAsLost (uint8_t pathId)
+{
+  NS_LOG_FUNCTION (this << (uint32_t) pathId);
+  if (pathId >= m_subflowSentList.size ())
+    {
+      return 0;
+    }
+  uint32_t marked = 0;
+  for (auto sent_it = m_subflowSentList[pathId].begin ();
+       sent_it != m_subflowSentList[pathId].end (); ++sent_it)
+    {
+      if (!(*sent_it)->m_sacked && !(*sent_it)->m_lost)
+        {
+          (*sent_it)->m_lost = true;
+          ++marked;
+        }
+    }
+  NS_LOG_INFO ("Persistent congestion: marked " << marked << " outstanding packets as lost");
+  return marked;
+}
+
 uint32_t QuicSocketTxBuffer::Retransmission (SequenceNumber32 packetNumber, uint8_t pathId)
 {
   NS_LOG_FUNCTION (this);
@@ -576,22 +620,21 @@ uint32_t QuicSocketTxBuffer::Retransmission (SequenceNumber32 packetNumber, uint
       Ptr<QuicSocketTxItem> item = *sent_it;
       if (item->m_lost)
         {
-          // Add lost packet contents to app buffer
-          Ptr<QuicSocketTxItem> retx = CreateObject<QuicSocketTxItem> ();
-          retx->m_packetNumber = packetNumber++;
-          retx->m_isStream = item->m_isStream;
-          retx->m_isStream0 = item->m_isStream0;
-          retx->m_packet = Create<Packet>();
-          NS_LOG_INFO (
-            "Retx packet " << item->m_packetNumber << " as " << retx->m_packetNumber.GetValue ());
-          // std::cout<<"retx\t"<<(int)pathId<<"\t"<<item->m_packetNumber << "\t" << retx->m_packetNumber.GetValue ()<< std::endl;
-          QuicSocketTxItem::MergeItems (*retx, *item);
-          retx->m_lost = false;
-          retx->m_retrans = true;
-          toRetx += retx->m_packet->GetSize ();
-          m_sentSizeList[pathId] -= retx->m_packet->GetSize ();
-          if (retx->m_isStream0)
+          if (item->m_isStream0)
             {
+              // Add lost packet contents to app buffer
+              Ptr<QuicSocketTxItem> retx = CreateObject<QuicSocketTxItem> ();
+              retx->m_packetNumber = packetNumber++;
+              retx->m_isStream = item->m_isStream;
+              retx->m_isStream0 = item->m_isStream0;
+              retx->m_packet = Create<Packet>();
+              NS_LOG_INFO (
+                "Retx packet " << item->m_packetNumber << " as " << retx->m_packetNumber.GetValue ());
+              QuicSocketTxItem::MergeItems (*retx, *item);
+              retx->m_lost = false;
+              retx->m_retrans = true;
+              toRetx += retx->m_packet->GetSize ();
+              m_sentSizeList[pathId] -= retx->m_packet->GetSize ();
               NS_LOG_INFO ("Lost stream 0 packet, re-inserting in list");
               m_streamZeroList.insert (m_streamZeroList.begin (), retx);
               m_streamZeroSize += retx->m_packet->GetSize ();
@@ -599,7 +642,57 @@ uint32_t QuicSocketTxBuffer::Retransmission (SequenceNumber32 packetNumber, uint
             }
           else
             {
-              m_scheduler->Add (retx, true);
+              // A sent data packet can carry several stream frames ([SH1|P1|SH2|P2], assembled by
+              // the scheduler's merge). Re-queuing it as one opaque blob corrupts the stream when the
+              // scheduler later splits it to fit a packet: the split treats the embedded SH2|P2 as raw
+              // payload of frame 1, so the second subheader's bytes are sent as stream data at frame 1's
+              // offsets, the receiver's in-order offset chain advances along a shifted lattice, and the
+              // residual hole can never be retransmitted. Disaggregate the lost packet into its
+              // constituent frames (same subheader walk as QuicL5Protocol::DisgregateRecv) and re-queue
+              // each frame as its own item, so single-frame items split with correct offsets.
+              Ptr<Packet> whole = item->m_packet->Copy ();
+              while (whole->GetSize () > 0)
+                {
+                  QuicSubheader sub;
+                  uint32_t shSize = whole->RemoveHeader (sub);
+                  if (shSize == 0)
+                    {
+                      break;
+                    }
+                  uint32_t frameLen = whole->GetSize ();
+                  if (sub.IsStream ())
+                    {
+                      uint8_t ft = sub.GetFrameType ();
+                      bool lengthBit = (ft == QuicSubheader::STREAM010
+                                        || ft == QuicSubheader::STREAM011
+                                        || ft == QuicSubheader::STREAM110
+                                        || ft == QuicSubheader::STREAM111);
+                      if (lengthBit)
+                        {
+                          frameLen = std::min ((uint32_t) sub.GetLength (), whole->GetSize ());
+                        }
+                    }
+                  else
+                    {
+                      // control frame: all information is in the subheader
+                      frameLen = 0;
+                    }
+                  Ptr<Packet> framePkt = whole->CreateFragment (0, frameLen);
+                  whole->RemoveAtStart (frameLen);
+                  framePkt->AddHeader (sub);
+                  Ptr<QuicSocketTxItem> retxFrame = CreateObject<QuicSocketTxItem> ();
+                  retxFrame->m_packetNumber = packetNumber++;
+                  retxFrame->m_isStream = sub.IsStream ();
+                  retxFrame->m_isStream0 = false;
+                  retxFrame->m_packet = framePkt;
+                  retxFrame->m_lost = false;
+                  retxFrame->m_retrans = true;
+                  NS_LOG_INFO ("Retx frame off " << sub.GetOffset () << " len " << frameLen
+                               << " from lost packet " << item->m_packetNumber);
+                  toRetx += framePkt->GetSize ();
+                  m_scheduler->Add (retxFrame, true);
+                }
+              m_sentSizeList[pathId] -= item->m_packet->GetSize ();
             }
         }
     }
@@ -660,18 +753,27 @@ uint32_t QuicSocketTxBuffer::GetLost (uint8_t pathId)
 void QuicSocketTxBuffer::CleanSentList (uint8_t pathId)
 {
   NS_LOG_FUNCTION (this);
+  // Full sweep: prune every genuinely-delivered packet (m_sacked && !m_lost) from anywhere in the
+  // list, not just the contiguous head. A loop that stops at the first lost/outstanding head item
+  // lets one such item pin every SACKed packet behind it, so the sent list grows unbounded under
+  // persistent loss. This bounds the list to genuinely-outstanding (lost or in-flight) packets;
+  // nothing depends on a SACKed item remaining resident (BytesInFlight excludes sacked, the
+  // delivery-rate sample fires once at the SACK transition, and time-based loss detection is
+  // disabled in this config).
   auto sent_it = m_subflowSentList[pathId].begin ();
-  // All packets up to here are ACKed (already sent to the receiver app)
-  while (!m_subflowSentList[pathId].empty () && (*sent_it)->m_sacked && !(*sent_it)->m_lost)
+  while (sent_it != m_subflowSentList[pathId].end ())
     {
-      // Remove ACKed packet from sent vector
       Ptr<QuicSocketTxItem> item = *sent_it;
-      item->m_acked = true;
-      m_sentSizeList[pathId] -= item->m_packet->GetSize ();
-      m_subflowSentList[pathId].erase (sent_it);
-      // NS_LOG_LOGIC (
-      //   "Packet " << (*sent_it)->m_packetNumber << " received and ACKed. Removing from sent buffer");
-      sent_it = m_subflowSentList[pathId].begin ();
+      if (item->m_sacked && !item->m_lost)
+        {
+          item->m_acked = true;
+          m_sentSizeList[pathId] -= item->m_packet->GetSize ();
+          sent_it = m_subflowSentList[pathId].erase (sent_it);   // erase returns the next iterator
+        }
+      else
+        {
+          ++sent_it;
+        }
     }
 }
 
@@ -711,8 +813,13 @@ uint32_t QuicSocketTxBuffer::BytesInFlight (uint8_t pathId)
   for (auto sent_it = m_subflowSentList[pathId].begin ();
        sent_it != m_subflowSentList[pathId].end () and !m_subflowSentList[pathId].empty (); ++sent_it)
     {
+      // A packet declared lost is no longer in flight (RFC 9002 Sec. 7: on loss detection a packet is
+      // removed from bytes_in_flight). Excluding only m_sacked would let a declared-lost-but-not-yet-
+      // retransmitted packet keep inflating BytesInFlight, keeping AvailableWindow at 0 so the flow can
+      // neither retransmit nor send new data and freezes with a healthy cwnd. Excluding m_lost lets the
+      // window reopen so recovery can proceed.
       if (!(*sent_it)->m_isStream0 && (*sent_it)->m_isStream
-          && !(*sent_it)->m_sacked)
+          && !(*sent_it)->m_sacked && !(*sent_it)->m_lost)
         {
           inFlight += (*sent_it)->m_packet->GetSize ();
         }

@@ -180,7 +180,11 @@ EpcTftClassifier::Classify (Ptr<Packet> p, EpcTft::Direction direction)
         }
         else if(gtpMessageType == GtpuHeader::X2 && pCopy2->PeekHeader(x2Header))
         {
-          NS_FATAL_ERROR("TODO");
+          // Relayed X2 control packet (e.g. during an IAB backhaul handover, the X2 signalling
+          // for the migrating node is tunnelled over the backhaul). Like S1AP, carry it on the
+          // default bearer.
+          NS_LOG_INFO("This is an X2 packet, use the default bearer");
+          return m_tftMap.begin()->first;
         }
         else
         {

@@ -87,7 +87,6 @@ int main(int argc, char *argv[])
         Ptr<MmWaveUeNetDevice> mmwaveUeDevice = DynamicCast<MmWaveUeNetDevice>(ueDevice);
         if (!mmwaveUeDevice)
         {
-            // NS_LOG_ERROR("Failed to cast NetDevice to MmWaveUeNetDevice for UE " << i);
             return 1;
         }
         uint64_t imsi = mmwaveUeDevice->GetImsi();

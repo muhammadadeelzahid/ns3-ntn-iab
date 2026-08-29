@@ -365,6 +365,8 @@ protected:
 private:
   TracedValue<BbrMode_t>   m_state        {BbrMode_t::BBR_STARTUP};           //!< Current state of BBR state machine
   MaxBandwidthFilter_t   m_maxBwFilter;                          //!< Maximum bandwidth filter
+  DataRate    m_maxPacingRateCap           {DataRate ("50Mbps")};//!< Numerical-stability ceiling on pacing rate (MaxPacingRateCap attribute)
+  uint32_t    m_maxCwndBytes                {4 * 1024 * 1024};    //!< Numerical-stability ceiling on cwnd in bytes (MaxCwndBytes attribute)
   uint32_t    m_bandwidthWindowLength       {0};                 //!< A constant specifying the length of the BBR.BtlBw max filter window, default 10 packet-timed round trips.
   double      m_pacingGain                  {0};                 //!< The dynamic pacing gain factor
   double      m_cWndGain                    {0};                 //!< The dynamic congestion window gain factor

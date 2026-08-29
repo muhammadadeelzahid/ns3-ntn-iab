@@ -358,7 +358,7 @@ main (int argc, char *argv[])
   uePosAlloc->Add(Vector(ueX, ueY, ueZ));
   
 
-// Additional user positioning code (no longer needed)
+// Alternative cluster-based user positioning (disabled)
 // uint32_t totalUes = ueNodes.GetN();        // e.g., 20
 // uint32_t clusterCount = clusterCenters.size(); // 7 clusters
 // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster

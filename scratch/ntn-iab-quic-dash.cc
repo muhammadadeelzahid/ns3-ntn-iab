@@ -51,7 +51,6 @@
 #include "ns3/quic-header.h"
 #include "ns3/quic-bbr.h"
 #include "ns3/dash-module.h"
-#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <mutex>
@@ -62,18 +61,10 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuicDash");
 
-// Global file streams for each layer
-std::ofstream quicTxFile, quicRxFile;
-std::ofstream udpL4TxFile, udpL4RxFile;
-std::ofstream ipv4L3TxFile, ipv4L3RxFile;
-std::ofstream p2pTxFile, p2pRxFile;
-
-// DASH trace files (similar to QuicServerRx.txt)
 std::map<uint32_t, std::ofstream*> g_dashClientTxFiles;  // DASH client requests (Tx)
 std::map<uint32_t, std::ofstream*> g_dashClientRxFiles;  // DASH client video received via socket
 std::ofstream g_dashServerRxFile;  // DASH server requests received
 
-// Counters for DASH
 std::map<uint32_t, uint32_t> g_dashClientTxPackets;
 std::map<uint32_t, uint64_t> g_dashClientTxBytes;
 std::map<uint32_t, uint32_t> g_dashClientRxPackets;
@@ -119,51 +110,6 @@ std::map<uint64_t, Ptr<OutputStreamWrapper>> g_quicRttStreams;
 // late-created sockets (clients start staggered) without double-connecting an already hooked
 // source (which would duplicate every trace line).
 std::set<std::string> g_hookedQuicPaths;
-
-// Helper function to dump full packet in hex
-void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
-{
-  file << prefix << " Size=" << packet->GetSize() << " bytes" << std::endl;
-  
-  // Create a copy to avoid modifying the original packet
-  Ptr<Packet> copy = packet->Copy();
-  
-  file << "Full packet hex dump:" << std::endl;
-  
-  uint8_t buffer[16];
-  uint32_t offset = 0;
-  
-  while (copy->GetSize() > 0)
-  {
-    uint32_t bytesToRead = std::min(16u, (uint32_t)copy->GetSize());
-    copy->CopyData(buffer, bytesToRead);
-    
-    // Print offset
-    file << std::hex << std::setw(8) << std::setfill('0') << offset << ": ";
-    
-    // Print hex bytes
-    for (uint32_t i = 0; i < 16; i++)
-    {
-      if (i < bytesToRead)
-        file << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i] << " ";
-      else
-        file << "   ";
-    }
-    
-    // Print ASCII representation
-    file << " |";
-    for (uint32_t i = 0; i < bytesToRead; i++)
-    {
-      char c = buffer[i];
-      file << (isprint(c) ? c : '.');
-    }
-    file << "|" << std::endl;
-    
-    copy->RemoveAtStart(bytesToRead);
-    offset += bytesToRead;
-  }
-  file << std::endl;
-}
 
 // DASH Client Tx Trace (when client sends segment request)
 void DashClientTxTrace(uint32_t nodeId, Ptr<const Packet> packet)
@@ -229,50 +175,6 @@ void DashServerRxTrace(Ptr<const Packet> packet, const Address& from)
                      << g_dashServerRxBytes << "\t"
                      << addr.GetIpv4() << "\t"
                      << addr.GetPort() << std::endl;
-}
-
-// QUIC Socket Base Tx callback
-void QuicSocketTxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
-{
-  
-  NS_LOG_UNCOND("QuicSocketTxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber());
-  
-  // Log detailed packet information
-  NS_LOG_UNCOND("QuicSocketTxCallback Packet details - Size: " << packet->GetSize() 
-            << ", Header size: " << header.GetSerializedSize()
-            << ", Payload size: " << (packet->GetSize() - header.GetSerializedSize()));
-  
-  if (!quicTxFile.is_open())
-  {
-    quicTxFile.open("quic_socket_tx.txt", std::ios::out);
-    NS_LOG_UNCOND("QUIC SOCKET TX file opened");
-  }
-  DumpPacketHex(quicTxFile, packet, "QUIC_SOCKET_TX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
-  quicTxFile.flush();
-}
-
-// QUIC Socket Base Rx callback
-void QuicSocketRxCallback(Ptr<const Packet> packet, const QuicHeader& header, Ptr<const QuicSocketBase> socket)
-{
-  
-  NS_LOG_UNCOND("QuicSocketRxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, packet_number: " << header.GetPacketNumber());
-  
-  // Log detailed packet information
-  NS_LOG_UNCOND("QuicSocketRxCallback Packet details - Size: " << packet->GetSize() 
-            << ", Header size: " << header.GetSerializedSize()
-            << ", Payload size: " << (packet->GetSize() - header.GetSerializedSize()));
-  
-  if (!quicRxFile.is_open())
-  {
-    quicRxFile.open("quic_socket_rx.txt", std::ios::out);
-    NS_LOG_UNCOND("QUIC SOCKET RX file opened");
-  }
-  DumpPacketHex(quicRxFile, packet, "QUIC_SOCKET_RX PacketNumber=" + std::to_string(header.GetPacketNumber().GetValue()));
-  quicRxFile.flush();
 }
 
 static void
@@ -536,22 +438,6 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
     outFile.close();
 }
 
-void PacketDropCallback(Ptr<const Packet> packet) {
-  NS_LOG_UNCOND("PacketDropCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() << " bytes");
-}
-
-// Custom packet trace callback to track buffer operations
-void PacketBufferTraceCallback(Ptr<const Packet> packet) {
-  
-  NS_LOG_UNCOND("PacketBufferTraceCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() << " bytes");
-  
-  // Log detailed buffer information
-  NS_LOG_UNCOND("PacketBufferTraceCallback Buffer details - Size: " << packet->GetSize() 
-            << ", Available: " << packet->GetSize());
-}
-
 void LogTime()
 {
   NS_LOG_UNCOND("Simulator Time: " << Simulator::Now().GetSeconds());
@@ -574,15 +460,12 @@ void DumpUePositions (NodeContainer ues)
     }
 }
 
-// ============================================================================
-// IAB backhaul handover (3GPP inter-donor IAB-MT migration, NTN elevation-CHO)
-// ----------------------------------------------------------------------------
+// IAB backhaul handover (3GPP inter-donor IAB-MT migration, NTN elevation-CHO).
 // Manually triggers re-parenting of the IAB-node's backhaul (its MT, an LteUeRrc)
 // from the serving donor satellite to a target donor satellite via the standard
 // X2 handover path (LteEnbRrc::SendHandoverRequest). No A3 measurement algorithm
 // is used: per 3GPP TR 38.821, LEO NTN uses elevation/time-based Conditional
 // Handover, so the trigger time is pre-scheduled at the elevation crossing.
-// ============================================================================
 void
 IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t targetCellId)
 {
@@ -743,177 +626,6 @@ main (int argc, char *argv[])
 {
 
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_INFO);
-  // LogComponentEnable("DashClient", LOG_LEVEL_INFO);
-  // LogComponentEnable("DashServer", LOG_LEVEL_INFO);
-  // LogComponentEnable("MpegPlayer", LOG_LEVEL_INFO);
-  // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
-  
-  // Optional QUIC socket logging.
-  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicL5Protocol", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);
-
-  // Optional packet-level logging.
-  // LogComponentEnable("Packet", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("UdpSocket", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_DEBUG);
-
-    // LogComponentEnable("DashServer", LOG_LEVEL_INFO);
-    // LogComponentEnable("HttpParser", LOG_LEVEL_INFO);
-    // LogComponentEnable("QuicSocketTxBuffer", LOG_LEVEL_INFO);
-    // LogComponentEnable("QuicSocketRxBuffer", LOG_LEVEL_INFO);
-    // LogComponentEnable("QuicL4Protocol", LOG_LEVEL_ALL);
-    // LogComponentEnable("QuicStreamBase", LOG_LEVEL_ALL);
-    // LogComponentEnable("QuicStream", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicCongestionControl", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicSocketBase", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicBbr", LOG_LEVEL_ALL); // Uncomment if QuicBbr has its own log component
-  // LogComponentEnable("MpQuicScheduler", LOG_LEVEL_ALL);
-  // LogComponentEnableAll (LOG_PREFIX_TIME);
-  // LogComponentEnableAll (LOG_PREFIX_FUNC);
-  // LogComponentEnableAll (LOG_PREFIX_NODE);
-  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUeMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_ALL);
-  // LogComponentEnable("EpcIabApplication", LOG_ALL);
-  // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveHelper", LOG_LEVEL_FUNCTION);  
-  // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcMmeApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
-  // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWaveUePhy", ns3::LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWavePointToPointEpcHelper", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcS1ap", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcTftClassifier", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcGtpuHeader", LOG_LEVEL_INFO);
-  // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
-  // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
-  // LogComponentEnable("UdpClient", LOG_ALL);
-  // LogComponentEnable("UdpServer", LOG_ALL);
-  // LogComponentEnable("QuicClient", LOG_ALL);
-  // LogComponentEnable("QuicServer", LOG_ALL);
-  // LogComponentEnable("QuicSubheader", LOG_ALL);
-  // LogComponentEnable("QuicSocket", LOG_ALL);
-  // LogComponentEnable("QuicL4Protocol", LOG_ALL);
-  // LogComponentEnable("UdpSocket", LOG_ALL);
-  // LogComponentEnable("UdpL4Protocol", LOG_ALL);
-  // LogComponentEnable("Ipv4L3Protocol", LOG_ALL);
-  // LogComponentEnable("Ipv4RoutingProtocol", LOG_ALL);
-  // LogComponentEnable("MmWaveEnbNetDevice", LOG_ALL);
-  // LogComponentEnable("MmWaveUeNetDevice", LOG_ALL);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_ALL);
-  // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUeMac", LOG_ALL);
-  // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
-  // LogComponentEnable("mmWaveInterference", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveChunkProcessor", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveChunkProcessor", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWavePhy", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("SingleModelSpectrumChannel", LOG_LEVEL_INFO);
-  // LogComponentEnable("MultiModelSpectrumChannel", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWaveMiErrorModel", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcIabApplication", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlcAm", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlcUm", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlcUmLowLat", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlc", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LtePdcp", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteUeRrc", LOG_LEVEL_ALL);
-
-  // LogComponentDisableAll(LOG_LEVEL_ALL);
-  
-  // QUIC Layer
-  // LogComponentEnable("QuicClient", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // //LogComponentEnable("Packet", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicServer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocket", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL4Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSubheader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicHeader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStreamBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-    
-  // Enable additional QUIC classes that might be missing
-  // LogComponentEnable("QuicStreamTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicTransportParameters", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  
-  // Enable UDP and IP layers for complete packet flow
-  // LogComponentEnable("UdpSocket", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_FUNCTION);
-  
-  // UDP Layer
-  // LogComponentEnable("UdpSocket", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("UdpSocketImpl", LOG_LEVEL_FUNCTION);
-  
-  // IP Layer
-  // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("Ipv4Interface", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("Ipv4RoutingProtocol", LOG_LEVEL_FUNCTION);
-  
-  // Traffic Control Layer
-  // LogComponentEnable("TrafficControlLayer", LOG_LEVEL_FUNCTION);
-  
-  // LTE/EPC Layer
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteUeRrc", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LtePdcp", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlc", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlcAm", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlcUm", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlcUmLowLat", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteUeMac", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_FUNCTION);
-  
-  // Physical Layer
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_FUNCTION);
-  // //LogComponentEnable("MmWaveUePhy", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_FUNCTION);
-  // //LogComponentEnable("MmWaveUeMac", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveEnbNetDevice", LOG_LEVEL_FUNCTION);
-  // //LogComponentEnable("MmWaveUeNetDevice", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_FUNCTION);
-  
-  // Network Devices
-  // LogComponentEnable("PointToPointNetDevice", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("PointToPointChannel", LOG_LEVEL_FUNCTION);
 
   CommandLine cmd; 
   unsigned run = 0;
@@ -959,48 +671,22 @@ main (int argc, char *argv[])
   cmd.AddValue("ueSpeed", "UE random-waypoint speed [m/s]", ueSpeed);
   cmd.AddValue("ueRadiusMax", "Radius [m] of the UE mobility boundary around the IAB", ueRadiusMax);
 
-  // Config::SetDefault("ns3::MmWavePhyMacCommon::UlSchedDelay", UintegerValue(1));
   // RLC buffer sizing to prevent buffer overflow on NTN links.
   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-  // Config::SetDefault ("ns3::LteRlcAm::PollRetransmitTimer", TimeValue(MilliSeconds(1.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue(MilliSeconds(2.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::StatusProhibitTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubcarriersPerChunk", UintegerValue (12));
-  
-  Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
+
+  Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6));
 
   // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA).
 
 	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
-// 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
-// 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
-// //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
-// 	Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-//   Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-  
-//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReorderingTimeExpires", TimeValue (MilliSeconds (10.0)));
-//   Config::SetDefault ("ns3::LteRlcUm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
-// 	Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
-  
-//   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
   Config::SetDefault ("ns3::LteRlcUmLowLat::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-//   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
-//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::HarqEnabled", BooleanValue (true));
-//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::CqiTimerThreshold", UintegerValue (100));
 
   Config::SetDefault ("ns3::MmWaveHelper::RlcAmEnabled", BooleanValue(rlcAm));
-  // Config::SetDefault ("ns3::MmWaveFlexTtiMacScheduler::CqiTimerThreshold", UintegerValue(100));
   Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::MmWave3gppPropagationLossModel"));
-  //Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::FriisPropagationLossModel"));  
-  //Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWaveChannelRaytracing"));
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
-  //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
-  
+
   // QUIC-specific configuration.
   // For a persistent video-streaming session the connection must outlive buffer-full idle periods.
   // If the idle timeout were near the DASH target buffer, a client that filled its playback buffer
@@ -1008,12 +694,9 @@ main (int argc, char *argv[])
   // when the buffer later drains, stalling playback and churning sockets. Set the idle timeout well
   // beyond the whole simulation (a real client would send keepalives).
   Config::SetDefault("ns3::QuicSocketBase::IdleTimeout", TimeValue(Seconds(simDuration + 120.0)));
-  
-  // ============================================================================
-  // ACKNOWLEDGMENT / LOSS-DETECTION PARAMETERS
-  // ============================================================================
-  // Tuned to reduce ACK gaps and improve loss-detection responsiveness while
-  // remaining realistic for NTN.
+
+  // ACK / loss-detection parameters, tuned to reduce ACK gaps and improve loss-detection
+  // responsiveness while remaining realistic for NTN.
 
   // Maximum tracked gaps reported in ACK frames. NTN links may have burst losses,
   // so tracking more gaps improves loss detection.
@@ -1035,15 +718,9 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicSocketState::kUsingTimeLossDetection", BooleanValue(false));
 
   // Minimum TLP/RTO timeouts left at defaults (appropriate for NTN scenarios).
-  // Config::SetDefault("ns3::QuicSocketState::kMinTLPTimeout", TimeValue(MilliSeconds(1)));
-  // Config::SetDefault("ns3::QuicSocketState::kMinRTOTimeout", TimeValue(MilliSeconds(10)));
 
-
-  // ============================================================================
-  // LOSS DETECTION PARAMETERS (RFC 9002)
-  // ============================================================================
-  // Tuned to improve recovery of lost packets in NTN scenarios with high latency
-  // and out-of-order delivery.
+  // Loss-detection parameters (RFC 9002), tuned to improve recovery of lost packets in NTN
+  // scenarios with high latency and out-of-order delivery.
 
   // Max TLPs and reordering threshold (RFC 9002 Section 6.1.1). A low reordering threshold triggers
   // loss detection on the first out-of-order ACK, which helps recover tail losses when no further data
@@ -1059,12 +736,7 @@ main (int argc, char *argv[])
   // Default initial RTT (RFC 9002 Section 6.2.2). A low initial RTT lets the pacing-rate calculation
   // allow faster transmission before RTT samples are available (large initial segments).
   Config::SetDefault("ns3::QuicSocketBase::kDefaultInitialRtt", TimeValue(MilliSeconds(50)));
-  
-  // ============================================================================
-  // CONGESTION CONTROL PARAMETERS
-  // ============================================================================
-  
-  // QUIC Congestion Control Configuration
+
   std::string ccAlgorithm = "ns3::QuicBbr";
   cmd.AddValue("ccAlgorithm", "QUIC Congestion Control Algorithm (ns3::QuicBbr or ns3::QuicCongestionControl)", ccAlgorithm);
   cmd.Parse(argc, argv);
@@ -1091,8 +763,6 @@ main (int argc, char *argv[])
       Config::SetDefault("ns3::QuicBbr::RttWindowLength", TimeValue(Seconds(10)));  // Match TcpBbr default
       Config::SetDefault("ns3::QuicBbr::ProbeRttDuration", TimeValue(MilliSeconds(200)));  // Match TcpBbr default
     }
-  // Config::SetDefault("ns3::QuicSocketBase::CcType", IntegerValue(QuicSocketBase::QuicNewReno)); // Use New Reno
-  // Config::SetDefault("ns3::QuicL4Protocol::SocketType", TypeIdValue(QuicBbr::GetTypeId())); // Use BBR
   Config::SetDefault("ns3::QuicSocketBase::LegacyCongestionControl", BooleanValue(true));
   
   // Initial slow-start threshold (ssthresh).
@@ -1101,10 +771,7 @@ main (int argc, char *argv[])
   // Packet size configuration
   Config::SetDefault("ns3::QuicSocketBase::InitialPacketSize", UintegerValue(packetSize));
   Config::SetDefault("ns3::QuicSocketBase::MaxPacketSize", UintegerValue(1500));
-  
-  // ============================================================================
-  // FLOW CONTROL PARAMETERS
-  // ============================================================================
+
   // Connection/stream flow-control window = 64 MB, matched to the 64 MB socket/stream buffers. A smaller
   // window (e.g. 4 MB) makes all flows block on connection flow control near-simultaneously and the sim
   // run dry; NewReno needs the larger window for multi-user operation. The BBR burst-storm is instead
@@ -1113,10 +780,7 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(64 * 1024 * 1024));
   Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(64 * 1024 * 1024));
 
-  // ============================================================================
-  // NOTE: Parameters Set in Constructors (Not Configurable via Config::SetDefault)
-  // ============================================================================
-  // The following parameters are set in constructors and cannot be changed via
+  // NOTE: the following parameters are set in constructors and cannot be changed via
   // Config::SetDefault. To modify these, you would need to edit the source code:
   //
   // 1. m_kLossReductionFactor (default: 0.5)
@@ -1136,8 +800,7 @@ main (int argc, char *argv[])
   //
   // For MP-QUIC: These values are set when MpQuicSubFlow creates QuicSocketState
   // objects (see mp-quic-subflow.cc lines 76-79, 102-103)
- 
-  // Enable multi-beam functionality
+
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
 
   // Constrain the satellite backhaul to a realistic LEO capacity by rate-limiting the S1-U feeder
@@ -1156,9 +819,6 @@ main (int argc, char *argv[])
   
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolsPerSubframe", UintegerValue(240));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubframePeriod", DoubleValue(1000));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolPeriod", DoubleValue(1000/240));
   Ptr<MmWaveHelper> mmwaveHelper = CreateObject<MmWaveHelper> ();
   Ptr<MmWavePointToPointEpcHelper>  epcHelper = CreateObject<MmWavePointToPointEpcHelper> ();
   mmwaveHelper->SetEpcHelper (epcHelper);
@@ -1684,34 +1344,6 @@ main (int argc, char *argv[])
       NS_LOG_UNCOND("  Connected BBR stats trace to " << bbrMatches.GetN() << " QuicBbr instance(s)");
   });
   
-  // Add QUIC socket Tx/Rx callback connections.
-  NS_LOG_UNCOND("\n=== Adding QUIC Socket Callback Connections ===");
-  
-  // Connect QUIC socket callbacks for all nodes
-  for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
-  {
-    Ptr<Node> node = *it;
-    uint32_t nodeId = node->GetId();
-    
-    // Connect QUIC socket Tx/Rx traces
-    std::ostringstream quicTxPath;
-    quicTxPath << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Tx";
-    // Note: QuicSocketBase currently exposes Rx trace; Tx may be disabled. Guard by lookup.
-    if (Config::LookupMatches(quicTxPath.str().c_str()).GetN() > 0)
-      {
-        Config::ConnectWithoutContextFailSafe(quicTxPath.str(), MakeCallback(&QuicSocketTxCallback));
-      }
-    
-    std::ostringstream quicRxPath;
-    quicRxPath << "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/*/QuicSocketBase/Rx";
-    Config::ConnectWithoutContextFailSafe(quicRxPath.str(), MakeCallback(&QuicSocketRxCallback));
-    
-    NS_LOG_UNCOND("  Added QUIC socket traces for Node " << nodeId);
-  }
-  
-  // Add packet buffer monitoring traces
-  NS_LOG_UNCOND("\n=== Adding Packet Buffer Monitoring Traces ===");
-
   std::string tracePrefix = "ntn_iab_quic_dash";  // Keep variable for log statements
   NS_LOG_UNCOND("\n=== Trace Configuration ===");
   NS_LOG_UNCOND("QUIC traces: Using quic-variants-comparison example approach");
@@ -1764,16 +1396,6 @@ main (int argc, char *argv[])
   /*GtkConfigStore config;
   config.ConfigureAttributes();*/
   Simulator::Destroy();
-  
-  // Close all trace files
-  if (quicTxFile.is_open()) quicTxFile.close();
-  if (quicRxFile.is_open()) quicRxFile.close();
-  if (udpL4TxFile.is_open()) udpL4TxFile.close();
-  if (udpL4RxFile.is_open()) udpL4RxFile.close();
-  if (ipv4L3TxFile.is_open()) ipv4L3TxFile.close();
-  if (ipv4L3RxFile.is_open()) ipv4L3RxFile.close();
-  if (p2pTxFile.is_open()) p2pTxFile.close();
-  if (p2pRxFile.is_open()) p2pRxFile.close();
   
   // Close DASH trace files
   for (auto& pair : g_dashClientTxFiles)

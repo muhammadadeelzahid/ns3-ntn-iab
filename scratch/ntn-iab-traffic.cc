@@ -59,9 +59,7 @@
  #include "ns3/v4ping-helper.h"
  #include "ns3/trace-helper.h"
  #include "ns3/output-stream-wrapper.h"
- // C++ standard library
  #include <cmath>
- //#include "ns3/gtk-config-store.h"
  using namespace ns3;
  NS_LOG_COMPONENT_DEFINE ("MmWaveIabTraffic");
  
@@ -105,13 +103,9 @@
  // Global configuration for adaptive feedback
  bool g_enableAdaptiveFeedback = true;
  double g_feedbackInterval = 1;
- uint8_t one_ue = 0; 
  // Global file stream for adaptive feedback logging
  Ptr<OutputStreamWrapper> g_adaptiveFeedbackLog;
- 
- // Generic per-UE byte counters (for non-type-4 throughput logging)
- std::map<uint32_t, uint64_t> g_genericBytesRx; // cumulative bytes received per UE
- 
+
  // Generic throughput logging file stream
  Ptr<OutputStreamWrapper> g_genericThroughputLog;
  // UL generic throughput logging file stream
@@ -638,81 +632,11 @@
      // Close the file
      outFile.close();
  }
- void PacketDropCallback(Ptr<const Packet> packet) {
-   std::cout << "Packet dropped at " << Simulator::Now().GetSeconds() << "s" << std::endl;
- }
  int
  main (int argc, char *argv[])
  {
-   // LogComponentEnableAll (LOG_PREFIX_TIME);
-   // LogComponentEnableAll (LOG_PREFIX_FUNC);
-   // LogComponentEnableAll (LOG_PREFIX_NODE);
-   // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_LOGIC);
-   // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
-   // LogComponentEnable("MmWaveUeMac", LOG_ALL);
-   // LogComponentEnable("MmWaveUePhy", LOG_ALL);
-   // LogComponentEnable("EpcIabApplication", LOG_ALL);
-   // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_FUNCTION);
-   // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_FUNCTION);
-   // LogComponentEnable("MmWaveHelper", LOG_LEVEL_FUNCTION);  
-   // // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_LOGIC);
-   // // LogComponentEnable("EpcMmeApplication", LOG_LEVEL_LOGIC);
-   // // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
-   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
-   // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
    LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
-  //  LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
-   // LogComponentEnable("MmWaveUePhy", ns3::LOG_LEVEL_INFO);
-   // LogComponentEnable("MmWavePointToPointEpcHelper", LOG_LEVEL_LOGIC);
-   // //LogComponentEnable("EpcS1ap", LOG_LEVEL_LOGIC);
-   // // LogComponentEnable("EpcTftClassifier", LOG_LEVEL_LOGIC);
-   // // LogComponentEnable("EpcGtpuHeader", LOG_LEVEL_INFO);
-   // // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
-   // // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
-   // LogComponentEnable("UdpClient", LOG_ALL);
-   // LogComponentEnable("UdpServer", LOG_ALL);
-   // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_DEBUG);
-   // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
-   // LogComponentEnable("mmWaveInterference", LOG_LEVEL_FUNCTION);
-   // LogComponentEnable("MmWaveChunkProcessor", LOG_LEVEL_FUNCTION);
-  //  LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWaveChunkProcessor", LOG_LEVEL_FUNCTION);
-  //  LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_ALL);
-  //  LogComponentEnable("MmWavePhy", LOG_LEVEL_ALL);
-   // LogComponentEnable("SingleModelSpectrumChannel", LOG_LEVEL_INFO);
-   // LogComponentEnable("MultiModelSpectrumChannel", LOG_LEVEL_INFO);
-   // LogComponentEnable("MmWaveMiErrorModel", LOG_LEVEL_LOGIC);
-   // LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_ALL);
-  //  LogComponentEnable("EpcIabApplication", LOG_LEVEL_ALL);
-   // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_ALL);
-   // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
-  //  LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_ALL);
-  //  LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteRlcAm", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteRlcUm", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteRlcUmLowLat", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteRlc", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
-   // LogComponentEnable("LtePdcp", LOG_LEVEL_ALL);
-   // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_ALL);
-   // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
-  //  LogComponentEnable("MmWaveUeMac", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteEnbRrc", LOG_LEVEL_ALL);
-   // LogComponentEnable("LteUeRrc", LOG_LEVEL_ALL);
-   // LogComponentEnable("TrafficGenerator3gppGenericVideo", LOG_LEVEL_ALL);
-   // LogComponentEnable("TrafficGenerator", LOG_LEVEL_ALL);
-   // LogComponentEnable("PacketSink", LOG_LEVEL_ALL);
-   // LogComponentEnable("TcpSocketBase", LOG_LEVEL_DEBUG);
-   CommandLine cmd; 
+   CommandLine cmd;
    unsigned run = 0;
    bool rlcAm = true;
    uint32_t numRelays = 0;
@@ -764,61 +688,16 @@
      useTrafficGenerators = true;
    }
  
-   //   if(rlcAm)
-   // {
-   //LogComponentEnable("LteRlcAm", LOG_LEVEL_LOGIC); 
-   // }
-   // else
-   // {
-   // LogComponentEnable("MmWaveFlexTtiMacScheduler", LOG_LEVEL_DEBUG);
-   // // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
-   // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_DEBUG);
-   // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_DEBUG);
-   // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_DEBUG);
-   // }
-   // Config::SetDefault("ns3::MmWavePhyMacCommon::UlSchedDelay", UintegerValue(1));
-   // Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-   // Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-   // Config::SetDefault ("ns3::LteRlcAm::PollRetransmitTimer", TimeValue(MilliSeconds(1.0)));
-   // Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue(MilliSeconds(2.0)));
-   // Config::SetDefault ("ns3::LteRlcAm::StatusProhibitTimer", TimeValue(MicroSeconds(500)));
-   // Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-   // Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-   // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubcarriersPerChunk", UintegerValue (12));
-   
    Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
  
    // Set center frequency to 6 GHz for RMa scenario compatibility
    Config::SetDefault ("ns3::MmWavePhyMacCommon::CenterFreq", DoubleValue (6.0e9)); 
    // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
  
- // 	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
- // 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
- // 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
- // //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
- // 	Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
- //   Config::SetDefault ("ns3::LteRlcUmLowLat::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
- //   Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-   
- //   Config::SetDefault ("ns3::LteRlcUmLowLat::ReorderingTimeExpires", TimeValue (MilliSeconds (10.0)));
- //   Config::SetDefault ("ns3::LteRlcUm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
- // 	Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
-   
- //   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
- //   Config::SetDefault ("ns3::LteRlcUmLowLat::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
- //   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
- //   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::HarqEnabled", BooleanValue (true));
- //   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::CqiTimerThreshold", UintegerValue (100));
- 
    Config::SetDefault ("ns3::MmWaveHelper::RlcAmEnabled", BooleanValue(rlcAm));
-   // Config::SetDefault ("ns3::MmWaveFlexTtiMacScheduler::CqiTimerThreshold", UintegerValue(100));
    Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::MmWave3gppPropagationLossModel"));
-   //Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::FriisPropagationLossModel"));  
-   //Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWaveChannelRaytracing"));
    Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
    Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
-   //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
-   
    // TrafficGenerator3gppGenericVideo Configuration
    Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::DataRate", DoubleValue(60.0));  // Mbps
    Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::MinDataRate", DoubleValue(1.0));  // Mbps 240p @ 30 fps
@@ -839,18 +718,7 @@
    Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::MinFps", UintegerValue(10));
    Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::MaxFps", UintegerValue(240));
  
-   // NGMN FTP Multi: increase offered load (larger files, larger packets, minimal reading time)
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnFtpMulti::MaxFileSize", UintegerValue(100 * 1024 * 1024)); // 100 MB
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnFtpMulti::PacketSize", UintegerValue(1400));
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnFtpMulti::ReadingTimeMean", DoubleValue(0.01)); // seconds
  
-   // NGMN Video: more packets per frame, shorter frame interval, larger sizes
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnVideo::NumberOfPacketsInFrame", UintegerValue(60));
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnVideo::InterframeIntervalTime", TimeValue(MilliSeconds(10)));
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnVideo::PacketSizeScale", DoubleValue(120));
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnVideo::PacketSizeBound", DoubleValue(1400));
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnVideo::PacketTimeScale", DoubleValue(1.0));
-   // Config::SetDefault("ns3::TrafficGeneratorNgmnVideo::PacketTimeBound", DoubleValue(5.0));
  
    // NGMN Gaming: heavier packet sizes and faster arrivals (DL), small UL interval
    Config::SetDefault("ns3::TrafficGeneratorNgmnGaming::IsDownlink", BooleanValue(true));
@@ -871,9 +739,6 @@
    Config::SetDefault("ns3::TrafficGenerator3gppAudioData::DataRate", DoubleValue(60.0)); // Mbps
    Config::SetDefault("ns3::TrafficGenerator3gppAudioData::Periodicity", UintegerValue(1)); // ms
  
-   // 3GPP Pose Control: larger packets and higher cadence
-   // Config::SetDefault("ns3::TrafficGenerator3gppPoseControl::PacketSize", UintegerValue(1200)); // bytes
-   // Config::SetDefault("ns3::TrafficGenerator3gppPoseControl::Periodicity", UintegerValue(1)); // ms
  
    Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1400));
    Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (20 *1024 * 1024));
@@ -883,14 +748,6 @@
      Config::SetDefault ("ns3::TcpSocket::RcvBufSize", UintegerValue (131072*50));
  
    
-   // Packet size variation (3GPP TR 38.838 parameters)
-   // Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::StdRatioPacketSize", DoubleValue(0.105));  // 10.5%
-   // Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::MinRatioPacketSize", DoubleValue(0.5));    // 50%
-   // Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::MaxRatioPacketSize", DoubleValue(1.5));    // 150%
- 
-   // Algorithm type for adaptation
-   // Config::SetDefault("ns3::TrafficGenerator3gppGenericVideo::AlgType", EnumValue(TrafficGenerator3gppGenericVideo::ADJUST_IPA_TIME));
- 
  
  
  
@@ -910,28 +767,14 @@
      NS_LOG_UNCOND("Buffer sizes increased for traffic generator compatibility");
    }
    
-   // Enable multi-beam functionality
- //  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
    
    RngSeedManager::SetSeed (1);
    RngSeedManager::SetRun (run);
-   // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolsPerSubframe", UintegerValue(240));
-   // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubframePeriod", DoubleValue(1000));
-   // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolPeriod", DoubleValue(1000/240));
    Ptr<MmWaveHelper> mmwaveHelper = CreateObject<MmWaveHelper> ();
    Ptr<MmWavePointToPointEpcHelper>  epcHelper = CreateObject<MmWavePointToPointEpcHelper> ();
    mmwaveHelper->SetEpcHelper (epcHelper);
    mmwaveHelper->Initialize();
  
-   // Add bandwidth verification
-   // Ptr<MmWavePhyMacCommon> phyMacConfig = mmwaveHelper->GetPhyMacConfigurable();
-   // NS_LOG_UNCOND("=== BANDWIDTH VERIFICATION ===");
-   // NS_LOG_UNCOND("ChunkWidth: " << phyMacConfig->GetChunkWidth() / 1e6 << " MHz");
-   // NS_LOG_UNCOND("ChunkPerRB: " << phyMacConfig->GetNumChunkPerRb());
-   // NS_LOG_UNCOND("ResourceBlockNum: " << phyMacConfig->GetNumRb());
-   // NS_LOG_UNCOND("Total Bandwidth: " << (phyMacConfig->GetChunkWidth() * phyMacConfig->GetNumChunkPerRb() * phyMacConfig->GetNumRb()) / 1e6 << " MHz");
-   // NS_LOG_UNCOND("Center Frequency: " << phyMacConfig->GetCenterFrequency() / 1e9 << " GHz");
-   // NS_LOG_UNCOND("================================");
    
    ConfigStore inputConfig;
    inputConfig.ConfigureDefaults();
@@ -995,8 +838,6 @@
    Ipv4AddressHelper ipv4h;
    ipv4h.SetBase ("1.0.0.0", "255.0.0.0");
    Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign (internetDevices);
-   // interface 0 is localhost, 1 is the p2p device
-   // Ipv4Address remoteHostAddr = internetIpIfaces.GetAddress (1);
    Ipv4StaticRoutingHelper ipv4RoutingHelper;
    Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
    remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
@@ -1011,8 +852,6 @@
    // Offsets as fractions of total area (adjust as needed)
    double xOffset = xMax*0.36;  // ~30% from center to left/right
    double yOffset = yMax*0.40;  // ~30% from center to top/bottom
-   //double gnbX = xMax/2.0;
-   //double gnbY = yMax/2.0;
    // Center Donor Node
    Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);
  
@@ -1064,33 +903,6 @@
    MobilityHelper uemobility;
    Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
  
-   // Random user generation code
-   // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-   // radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
-   // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-   // radiusRand->SetStream(1010);
- 
-   // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-   // angleRand->SetAttribute("Min", DoubleValue(0));
-   // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-   // radiusRand->SetStream(1311);
-   
-   // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-   // {
-   //     double radius = radiusRand->GetValue();
-   //     double angle = angleRand->GetValue();
-   
-   //     double x = xMax/2 + radius * std::cos(angle);
-   //     double y = yMax/2 + radius * std::sin(angle);
-   //     double z = 1.7; // typical UE height
-   
-   //     // Ensure within boundaries
-   //     x = std::min(std::max(x, 0.0), xMax);
-   //     y = std::min(std::max(y, 0.0), yMax);
-   
-   //     uePosAlloc->Add(Vector(x, y, z));
-   // }
- 
    // Create one user at fixed position 100 meters away from eNB
    //eNB is at center (xMax/2, yMax/2, gnbHeight)
    //Place UE 100 meters north of eNB
@@ -1100,34 +912,6 @@
    
    uePosAlloc->Add(Vector(ueX, ueY, ueZ));
    
-   // // IAB and donor positions
-   // std::vector<Vector> clusterCenters = {
-   //   posIab1, posIab2, posIab3, posIab4, posIab5, posIab6, posWired // 6 IABs + donor
-   // };
- 
- // Alternative cluster-based user positioning (disabled)
- // uint32_t totalUes = ueNodes.GetN();        // e.g., 20
- // uint32_t clusterCount = clusterCenters.size(); // 7 clusters
- // uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
- // uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
- 
-   // Ptr<UniformRandomVariable> offsetX = CreateObject<UniformRandomVariable>();
-   // Ptr<UniformRandomVariable> offsetY = CreateObject<UniformRandomVariable>();
-   // double max_distance = 100;//sxMax - (xMax/2.0 + xOffset) - 100;
-   // NS_LOG_UNCOND("max distance of UE from base station: "<<max_distance);
- 
-   // double zHeight = 1.7;
-   // double offset = 50; // distance from IAB center to each UE
- 
-   // for (const Vector& center : clusterCenters)
-   // {
-   //     // Diagonal positions around each IAB node
-   //     uePosAlloc->Add(Vector(center.x + offset, center.y + offset, zHeight)); // ↗
-   //     uePosAlloc->Add(Vector(center.x - offset, center.y - offset, zHeight)); // ↙
-   //     uePosAlloc->Add(Vector(center.x - offset, center.y + offset, zHeight)); // ↖
-   //     uePosAlloc->Add(Vector(center.x + offset, center.y - offset, zHeight)); // ↘
-   // }
- 
    uemobility.SetPositionAllocator (uePosAlloc);
    uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
    uemobility.Install (ueNodes);
@@ -1500,9 +1284,7 @@
      NS_LOG_UNCOND("Simulation Duration: 2 seconds");
      NS_LOG_UNCOND("========================");
    }
-   
-   /*GtkConfigStore config;
-   config.ConfigureAttributes();*/
+
    Simulator::Destroy();
    return 0;
  }

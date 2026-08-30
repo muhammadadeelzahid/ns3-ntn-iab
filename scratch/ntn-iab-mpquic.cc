@@ -50,7 +50,6 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <map>
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabQuic");
@@ -68,20 +67,13 @@ RttChange (Ptr<OutputStreamWrapper> stream, Time oldRtt, Time newRtt)
   *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << oldRtt.GetSeconds () << "\t" << newRtt.GetSeconds () << std::endl;
 }
 
-// Global stream counters for monitoring
-static std::map<uint32_t, uint32_t> streamPacketCounts;  // nodeId -> packet count
-static std::map<uint32_t, uint64_t> streamByteCounts;   // nodeId -> byte count
-static std::map<std::string, uint32_t> streamIdPacketCounts;  // "nodeId:streamId" -> packet count
-static std::map<std::string, uint64_t> streamIdByteCounts;   // "nodeId:streamId" -> byte count
-
 static void
 Rx (Ptr<OutputStreamWrapper> stream, Ptr<const Packet> p, const QuicHeader& q, Ptr<const QuicSocketBase> qsb)
 {
   uint32_t nodeId = qsb->GetNode()->GetId();
   uint32_t packetSize = p->GetSize();
-  
-  // Log with node and connection information
-  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize 
+
+  *stream->GetStream () << Simulator::Now ().GetSeconds () << "\t" << packetSize
                        << "\tNode:" << nodeId << std::endl;
   
   NS_LOG_UNCOND("Rx: Node " << nodeId
@@ -107,12 +99,6 @@ Traces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
   std::ostringstream fileRTT;
   fileRTT << pathVersion << "QUIC-rtt"  << nodeId << "" << finalPart;
 
-  // std::ostringstream pathRCWnd;
-  // pathRCWnd<< "/NodeList/" << nodeId << "/$ns3::QuicL4Protocol/SocketList/0/QuicSocketBase/RWND";
-
-  // std::ostringstream fileRCWnd;
-  // fileRCWnd<<pathVersion << "QUIC-rwnd-change"  << nodeId << "" << finalPart;
-
   std::ostringstream fileName;
   fileName << pathVersion << "QUIC-rx-data" << nodeId << "" << finalPart;
   std::ostringstream pathRx;
@@ -127,9 +113,6 @@ Traces(uint32_t nodeId, std::string pathVersion, std::string finalPart)
 
   Ptr<OutputStreamWrapper> stream2 = asciiTraceHelper.CreateFileStream (fileRTT.str ().c_str ());
   Config::ConnectWithoutContext (pathRTT.str ().c_str (), MakeBoundCallback(&RttChange, stream2));
-
-  // Ptr<OutputStreamWrapper> stream4 = asciiTraceHelper.CreateFileStream (fileRCWnd.str ().c_str ());
-  // Config::ConnectWithoutContext (pathRCWnd.str ().c_str (), MakeBoundCallback(&CwndChange, stream4));
 }
 
 void
@@ -151,176 +134,15 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 int
 main (int argc, char *argv[])
 {
-  // LogComponentEnableAll (LOG_PREFIX_TIME);
-  // LogComponentEnableAll (LOG_PREFIX_FUNC);
-  // LogComponentEnableAll (LOG_PREFIX_NODE);
-  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUeMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_ALL);
-  // LogComponentEnable("EpcIabApplication", LOG_ALL);
-  // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveHelper", LOG_LEVEL_FUNCTION);  
-  // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcMmeApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
-  // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
-  // LogComponentEnable("QuicClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));  // LOG_LEVEL_LOGIC to see ConnectionSucceeded/Failed
-  // LogComponentEnable("QuicServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL4Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStreamBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
 
   // QUIC layer logging
   LogComponentEnable("QuicClient",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   LogComponentEnable("QuicServer",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
   LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL4Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL5Protocol",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStreamBase",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
 
-  // // Additional QUIC frame parsing and header logging
-  // LogComponentEnable("QuicSubheader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicHeader",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocket",  (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  
-  // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveSpectrumPhy", ns3::LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveEnbPhy", ns3::LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWaveUePhy", ns3::LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWavePointToPointEpcHelper", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcS1ap", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcTftClassifier", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("EpcGtpuHeader", LOG_LEVEL_INFO);
-  // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
-  // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
-  // LogComponentEnable("UdpClient", LOG_ALL);
-  // LogComponentEnable("UdpServer", LOG_ALL);
-  // LogComponentEnable("QuicClient", LOG_ALL);
-  // LogComponentEnable("QuicServer", LOG_ALL);
-  // LogComponentEnable("QuicSubheader", LOG_ALL);
-  // LogComponentEnable("QuicSocket", LOG_ALL);
-  // LogComponentEnable("QuicL4Protocol", LOG_ALL);
-  // LogComponentEnable("UdpSocket", LOG_ALL);
-  // LogComponentEnable("UdpL4Protocol", LOG_ALL);
-  // LogComponentEnable("Ipv4L3Protocol", LOG_ALL);
-  // LogComponentEnable("Ipv4RoutingProtocol", LOG_ALL);
-  // LogComponentEnable("MmWaveEnbNetDevice", LOG_ALL);
-  // LogComponentEnable("MmWaveUeNetDevice", LOG_ALL);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_ALL);
-  // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUeMac", LOG_ALL);
-  // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
-  // LogComponentEnable("mmWaveInterference", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveChunkProcessor", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveChunkProcessor", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWavePhy", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("SingleModelSpectrumChannel", LOG_LEVEL_INFO);
-  // LogComponentEnable("MultiModelSpectrumChannel", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWaveMiErrorModel", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("MmWaveHelper", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcIabApplication", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWavePaddedHbfMacScheduler", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlcAm", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlcUm", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlcUmLowLat", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteRlc", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteUeMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LtePdcp", LOG_LEVEL_ALL);
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_LEVEL_ALL);
-  // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_ALL);
-  // LogComponentEnable("LteUeRrc", LOG_LEVEL_ALL);
-
-  // LogComponentDisableAll(LOG_LEVEL_ALL);
-  
-  // QUIC Layer
-  // LogComponentEnable("QuicClient", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // //LogComponentEnable("Packet", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicServer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocket", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL4Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicL5Protocol", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSubheader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicHeader", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStreamBase", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-    
-  // Enable additional QUIC classes that might be missing
-  // LogComponentEnable("QuicStream", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStreamTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicStreamRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketTxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicSocketRxBuffer", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  // LogComponentEnable("QuicTransportParameters", (LogLevel)(LOG_PREFIX_TIME | LOG_PREFIX_FUNC | LOG_LEVEL_ALL));
-  
-  // Enable UDP and IP layers for complete packet flow
-  // LogComponentEnable("UdpSocket", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_FUNCTION);
-  
-  // UDP Layer
-  // LogComponentEnable("UdpSocket", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("UdpL4Protocol", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("UdpSocketImpl", LOG_LEVEL_FUNCTION);
-  
-  // IP Layer
-  // LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("Ipv4Interface", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("Ipv4RoutingProtocol", LOG_LEVEL_FUNCTION);
-  
-  // Traffic Control Layer
-  // LogComponentEnable("TrafficControlLayer", LOG_LEVEL_FUNCTION);
-  
-  // LTE/EPC Layer
-  // LogComponentEnable("EpcUeNas", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteUeRrc", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LtePdcp", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlc", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlcAm", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlcUm", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteRlcUmLowLat", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteUeMac", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_FUNCTION);
-  
-  // Physical Layer
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_FUNCTION);
-  // //LogComponentEnable("MmWaveUePhy", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_FUNCTION);
-  // //LogComponentEnable("MmWaveUeMac", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveEnbNetDevice", LOG_LEVEL_FUNCTION);
-  // //LogComponentEnable("MmWaveUeNetDevice", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_FUNCTION);
-  
-  // Network Devices
-  // LogComponentEnable("PointToPointNetDevice", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("PointToPointChannel", LOG_LEVEL_FUNCTION);
-
-  CommandLine cmd; 
+  CommandLine cmd;
   unsigned run = 0;
   bool rlcAm = false;
   uint32_t numRelays = 0;
@@ -334,66 +156,19 @@ main (int argc, char *argv[])
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
   cmd.Parse(argc, argv);
 
-  //   if(rlcAm)
-  // {
-  //LogComponentEnable("LteRlcAm", LOG_LEVEL_LOGIC); 
-  // }
-  // else
-  // {
-  // LogComponentEnable("MmWaveFlexTtiMacScheduler", LOG_LEVEL_DEBUG);
-  // // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_DEBUG);
-  // }
-  // Config::SetDefault("ns3::MmWavePhyMacCommon::UlSchedDelay", UintegerValue(1));
-  // Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-  // Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-  // Config::SetDefault ("ns3::LteRlcAm::PollRetransmitTimer", TimeValue(MilliSeconds(1.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue(MilliSeconds(2.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::StatusProhibitTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubcarriersPerChunk", UintegerValue (12));
-  
-  Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
+  Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6));
 
   // Set center frequency to 6 GHz for RMa scenario compatibility
-  Config::SetDefault ("ns3::MmWavePhyMacCommon::CenterFreq", DoubleValue (6.0e9)); 
+  Config::SetDefault ("ns3::MmWavePhyMacCommon::CenterFreq", DoubleValue (6.0e9));
   // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
 
 	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));
-// 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
-// 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
-// //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
-// 	Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-//   Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-  
-//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReorderingTimeExpires", TimeValue (MilliSeconds (10.0)));
-//   Config::SetDefault ("ns3::LteRlcUm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
-// 	Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
-  
-//   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
-//   Config::SetDefault ("ns3::LteRlcUmLowLat::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
-//   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
-//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::HarqEnabled", BooleanValue (true));
-//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::CqiTimerThreshold", UintegerValue (100));
 
   Config::SetDefault ("ns3::MmWaveHelper::RlcAmEnabled", BooleanValue(rlcAm));
-  // Config::SetDefault ("ns3::MmWaveFlexTtiMacScheduler::CqiTimerThreshold", UintegerValue(100));
   Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::MmWave3gppPropagationLossModel"));
-  //Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::FriisPropagationLossModel"));  
-  //Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWaveChannelRaytracing"));
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
-  //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
-  
-  // QUIC-specific configuration (commented out since using MpquicBulkSendHelper)
-  // Config::SetDefault("ns3::QuicClient::PacketSize", UintegerValue(packetSize));
-  // Config::SetDefault("ns3::QuicClient::MaxPackets", UintegerValue(1000));
-  // Config::SetDefault("ns3::QuicClient::Interval", TimeValue(MicroSeconds(interPacketInterval)));
-  
+
   Config::SetDefault("ns3::QuicSocketBase::MaxData", UintegerValue(1048576));             // 1MB connection limit (RFC 9000)
   Config::SetDefault("ns3::QuicSocketBase::MaxStreamData", UintegerValue(1048576));       // 1MB per stream (RFC 9000)
   Config::SetDefault("ns3::QuicSocketBase::MaxStreamIdBidi", UintegerValue(100));         // 100 bidirectional streams (RFC 9000)
@@ -427,21 +202,15 @@ main (int argc, char *argv[])
   Config::SetDefault("ns3::MpQuicScheduler::Select", UintegerValue(3));
   
   
-  // Enable multi-beam functionality
-//  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
-  
+
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolsPerSubframe", UintegerValue(240));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubframePeriod", DoubleValue(1000));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolPeriod", DoubleValue(1000/240));
   Ptr<MmWaveHelper> mmwaveHelper = CreateObject<MmWaveHelper> ();
   Ptr<MmWavePointToPointEpcHelper>  epcHelper = CreateObject<MmWavePointToPointEpcHelper> ();
   mmwaveHelper->SetEpcHelper (epcHelper);
   mmwaveHelper->Initialize();
-  
-  // Add bandwidth verification
+
   Ptr<MmWavePhyMacCommon> phyMacConfig = mmwaveHelper->GetPhyMacConfigurable();
   NS_LOG_UNCOND("=== BANDWIDTH VERIFICATION ===");
   NS_LOG_UNCOND("ChunkWidth: " << phyMacConfig->GetChunkWidth() / 1e6 << " MHz");
@@ -489,8 +258,6 @@ main (int argc, char *argv[])
   Ipv4AddressHelper ipv4h;
   ipv4h.SetBase ("1.0.0.0", "255.0.0.0");
   Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign (internetDevices);
-  // interface 0 is localhost, 1 is the p2p device
-  // Ipv4Address remoteHostAddr = internetIpIfaces.GetAddress (1);
   Ipv4StaticRoutingHelper ipv4RoutingHelper;
   Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
   remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
@@ -505,8 +272,6 @@ main (int argc, char *argv[])
   // Offsets as fractions of total area (adjust as needed)
   double xOffset = xMax*0.36;  // ~30% from center to left/right
   double yOffset = yMax*0.40;  // ~30% from center to top/bottom
-  //double gnbX = xMax/2.0;
-  //double gnbY = yMax/2.0;
   // Center Donor Node
   Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);
 
@@ -559,71 +324,12 @@ main (int argc, char *argv[])
   MobilityHelper uemobility;
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
-  // // Random user generation code
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(20));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
-  
-  //     double x = xMax/2 + radius * std::cos(angle);
-  //     double y = yMax/2 + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
-  
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
-  
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
+  // Single user at a fixed position 100 m north of the eNB
+  double ueX = xMax/2.0+1000;
+  double ueY = yMax/2.0 + 100.0;
+  double ueZ = 1.7;
 
-  // Create one user at fixed position 100 meters away from eNB
-  // eNB is at center (xMax/2, yMax/2, gnbHeight)
-  // Place UE 100 meters north of eNB
-  double ueX = xMax/2.0+1000;  // Same X coordinate as eNB
-  double ueY = yMax/2.0 + 100.0;  // 100 meters north of eNB
-  double ueZ = 1.7;  // Typical UE height
-  
   uePosAlloc->Add(Vector(ueX, ueY, ueZ));
-  
-
-// Alternative clustered UE positioning
-// uint32_t totalUes = ueNodes.GetN();        // e.g., 20
-// uint32_t clusterCount = clusterCenters.size(); // 7 clusters
-// uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
-// uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
-
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(100));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
-  
-  //     double x = xMax/2 + radius * std::cos(angle);
-  //     double y = yMax/2 + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
-  
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
-    
-  //     NS_LOG_UNCOND("UE " << i << " position: " << x << ", " << y << ", " << z);
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
 
   uemobility.SetPositionAllocator (uePosAlloc);
   uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -667,11 +373,6 @@ main (int argc, char *argv[])
   // Install and start multipath QUIC applications on UEs and remote host
   // Using PacketSinkHelper for server (like wns3-mpquic-one-path.cc) and MpquicBulkSendHelper for client
   uint16_t dlPort = 1234;
-  // LogComponentEnable("TcpL4Protocol", LOG_LEVEL_INFO);
-  // LogComponentEnable("OnOffApplication", LOG_LEVEL_INFO);
-  // LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
-  // uint16_t ulPort = 2000;
-  // uint16_t otherPort = 3000;
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
@@ -724,13 +425,9 @@ main (int argc, char *argv[])
         break;
       }
     }
-    if (!printed)
-    {
-      // Optionally print other nodes
-    }
   }
   NS_LOG_UNCOND("=======================\n");
-    
+
   mmwaveHelper->EnableTraces ();
   serverApps.Start (Seconds (0.0));  // Start server immediately
   clientApps.Start (Seconds (0.3));   // Start client after connection setup
@@ -751,9 +448,7 @@ main (int argc, char *argv[])
   Simulator::Stop (Seconds (4.2));
   
   Simulator::Run();
-  /*GtkConfigStore config;
-  config.ConfigureAttributes();*/
   Simulator::Destroy();
-    
+
   return 0;
 }

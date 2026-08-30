@@ -75,31 +75,8 @@ main (int argc, char *argv[])
   LogComponentEnableAll (LOG_PREFIX_TIME);
   LogComponentEnableAll (LOG_PREFIX_FUNC);
   LogComponentEnableAll (LOG_PREFIX_NODE);
-  // LogComponentEnable("EpcEnbApplication", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_ALL);
-  // LogComponentEnable("MmWaveEnbMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUeMac", LOG_ALL);
-  // LogComponentEnable("MmWaveUePhy", LOG_ALL);
-  // LogComponentEnable("EpcIabApplication", LOG_ALL);
-  // LogComponentEnable("MmWave3gppChannel", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWave3gppPropagationLossModel", LOG_LEVEL_FUNCTION);
-  // LogComponentEnable("MmWaveHelper", LOG_LEVEL_FUNCTION);  
-  // // LogComponentEnable("EpcSgwPgwApplication", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcMmeApplication", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcUeNas", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("LteEnbRrc", LOG_LEVEL_INFO);
-  // LogComponentEnable("LteUeRrc", LOG_LEVEL_INFO);
   LogComponentEnable("MmWaveHelper", LOG_LEVEL_LOGIC);
-  // LogComponentEnable("MmWavePointToPointEpcHelper", LOG_LEVEL_LOGIC);
-  // //LogComponentEnable("EpcS1ap", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcTftClassifier", LOG_LEVEL_LOGIC);
-  // // LogComponentEnable("EpcGtpuHeader", LOG_LEVEL_INFO);
-  // // LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
-  // // LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
-  // LogComponentEnable("UdpClient", LOG_ALL);
-  // LogComponentEnable("UdpServer", LOG_ALL);
-  // LogComponentEnable("MmWaveIabNetDevice", LOG_LEVEL_DEBUG);
-  
+
   CommandLine cmd;
   unsigned run = 0;
   bool rlcAm = true;
@@ -112,41 +89,14 @@ main (int argc, char *argv[])
   cmd.AddValue("rlcBufSize", "RLC buffer size [MB]", rlcBufSize);
   cmd.AddValue("intPck", "interPacketInterval [us]", interPacketInterval);
   cmd.Parse(argc, argv);
-  //   if(rlcAm)
-  // {
-  //LogComponentEnable("LteRlcAm", LOG_LEVEL_LOGIC); 
-  // }
-  // else
-  // {
-  // LogComponentEnable("MmWaveFlexTtiMacScheduler", LOG_LEVEL_DEBUG);
-  // // LogComponentEnable("MmWaveSpectrumPhy", LOG_LEVEL_INFO);
-  // LogComponentEnable("MmWaveEnbPhy", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveUeMac", LOG_LEVEL_DEBUG);
-  // LogComponentEnable("MmWaveEnbMac", LOG_LEVEL_DEBUG);
-  // }
-  // Config::SetDefault("ns3::MmWavePhyMacCommon::UlSchedDelay", UintegerValue(1));
-  // Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-  // Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-  // Config::SetDefault ("ns3::LteRlcAm::PollRetransmitTimer", TimeValue(MilliSeconds(1.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue(MilliSeconds(2.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::StatusProhibitTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
   Config::SetDefault ("ns3::MmWaveHelper::RlcAmEnabled", BooleanValue(rlcAm));
-  // Config::SetDefault ("ns3::MmWaveFlexTtiMacScheduler::CqiTimerThreshold", UintegerValue(100));
   Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::MmWave3gppPropagationLossModel"));
-  //Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::FriisPropagationLossModel"));  
-  //Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWaveChannelRaytracing"));
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
-  //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("UMa"));
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
 
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolsPerSubframe", UintegerValue(240));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubframePeriod", DoubleValue(1000));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolPeriod", DoubleValue(1000/240));
   Ptr<MmWaveHelper> mmwaveHelper = CreateObject<MmWaveHelper> ();
   Ptr<MmWavePointToPointEpcHelper>  epcHelper = CreateObject<MmWavePointToPointEpcHelper> ();
   mmwaveHelper->SetEpcHelper (epcHelper);
@@ -171,8 +121,6 @@ main (int argc, char *argv[])
   Ipv4AddressHelper ipv4h;
   ipv4h.SetBase ("1.0.0.0", "255.0.0.0");
   Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign (internetDevices);
-  // interface 0 is localhost, 1 is the p2p device
-  // Ipv4Address remoteHostAddr = internetIpIfaces.GetAddress (1);
   Ipv4StaticRoutingHelper ipv4RoutingHelper;
   Ptr<Ipv4StaticRouting> remoteHostStaticRouting = ipv4RoutingHelper.GetStaticRouting (remoteHost->GetObject<Ipv4> ());
   remoteHostStaticRouting->AddNetworkRouteTo (Ipv4Address ("7.0.0.0"), Ipv4Mask ("255.0.0.0"), 1);
@@ -187,8 +135,6 @@ main (int argc, char *argv[])
   // Offsets as fractions of total area
   double xOffset = xMax*0.36;
   double yOffset = yMax*0.40;
-  //double gnbX = xMax/2.0;
-  //double gnbY = yMax/2.0;
   // Center Donor Node
   Vector posWired = Vector(xMax / 2.0, yMax / 2.0, gnbHeight);
 
@@ -240,46 +186,10 @@ main (int argc, char *argv[])
   MobilityHelper uemobility;
   Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
 
-  // code is for constant UE position
-  // MobilityHelper uemobility;
-  // Ptr<ListPositionAllocator> uePosAlloc = CreateObject<ListPositionAllocator>();
-  // uePosAlloc->Add(Vector(x_val, y_val, 1.7));  // Set exact position of UE
-  // uemobility.SetPositionAllocator (uePosAlloc);
-  // uemobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  // uemobility.Install (ueNodes);
-  // Ptr<UniformRandomVariable> radiusRand = CreateObject<UniformRandomVariable>();
-  // radiusRand->SetAttribute("Min", DoubleValue(500));               // minimum radius from center
-  // radiusRand->SetAttribute("Max", DoubleValue(std::min(xMax, yMax) / 2.0)); // max radius: half of area
-  
-  // Ptr<UniformRandomVariable> angleRand = CreateObject<UniformRandomVariable>();
-  // angleRand->SetAttribute("Min", DoubleValue(0));
-  // angleRand->SetAttribute("Max", DoubleValue(2 * M_PI));
-  
-  // for (uint32_t i = 0; i < ueNodes.GetN(); ++i)
-  // {
-  //     double radius = radiusRand->GetValue();
-  //     double angle = angleRand->GetValue();
-  
-  //     double x = gnbX + radius * std::cos(angle);
-  //     double y = gnbY + radius * std::sin(angle);
-  //     double z = 1.7; // typical UE height
-  
-  //     // Ensure within boundaries
-  //     x = std::min(std::max(x, 0.0), xMax);
-  //     y = std::min(std::max(y, 0.0), yMax);
-  
-  //     uePosAlloc->Add(Vector(x, y, z));
-  // }
-
 // IAB and donor positions
 std::vector<Vector> clusterCenters = {
   posIab1, posIab2, posIab3, posIab4, posIab5, posIab6, posWired // 6 IABs + donor
 };
-
-// uint32_t totalUes = ueNodes.GetN();        // e.g., 20
-// uint32_t clusterCount = clusterCenters.size(); // 7 clusters
-// uint32_t baseUesPerCluster = totalUes / clusterCount;     // 2 UEs per cluster
-// uint32_t extraUes = totalUes % clusterCount;              // Remaining UEs to distribute
 
 Ptr<UniformRandomVariable> offsetX = CreateObject<UniformRandomVariable>();
 Ptr<UniformRandomVariable> offsetY = CreateObject<UniformRandomVariable>();
@@ -333,8 +243,6 @@ for (const Vector& center : clusterCenters)
   mmwaveHelper->AttachToClosestSatelliteEnbWithDelay (uemmWaveDevs, possibleBaseStations, Seconds(0.1));
   // Install and start applications on UEs and remote host
   uint16_t dlPort = 1234;
-  // uint16_t ulPort = 2000;
-  // uint16_t otherPort = 3000;
   ApplicationContainer clientApps;
   ApplicationContainer serverApps;
   for (uint32_t u = 0; u < ueNodes.GetN (); ++u)
@@ -369,8 +277,6 @@ for (const Vector& center : clusterCenters)
   mmwaveHelper->EnableTraces ();
   Simulator::Stop(Seconds(1.2));
   Simulator::Run();
-  /*GtkConfigStore config;
-  config.ConfigureAttributes();*/
   Simulator::Destroy();
   return 0;
 }

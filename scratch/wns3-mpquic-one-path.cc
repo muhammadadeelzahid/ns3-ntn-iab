@@ -227,7 +227,6 @@ main (int argc, char *argv[])
         NS_LOG_INFO("Using QUIC congestion control algorithm: QuicNewReno");
     }
     else {
-        // Default fallback
         ccTypeId = QuicCongestionOps::GetTypeId ();
         NS_LOG_WARN("Unknown ccType, defaulting to QuicNewReno");
     }
@@ -247,14 +246,8 @@ main (int argc, char *argv[])
 
     Config::SetDefault ("ns3::QuicSocketBase::EnableMultipath",BooleanValue(false));
     Config::SetDefault ("ns3::QuicSocketBase::CcType",IntegerValue(ccType));
-    // Config::SetDefault ("ns3::QuicL4Protocol::SocketType",TypeIdValue (ccTypeId));
-    // Config::SetDefault ("ns3::MpQuicScheduler::SchedulerType", IntegerValue(schedulerType));   
-    // Config::SetDefault ("ns3::MpQuicScheduler::BlestVar", UintegerValue(bVar));   
-    // Config::SetDefault ("ns3::MpQuicScheduler::BlestLambda", UintegerValue(bLambda));     
-    // Config::SetDefault ("ns3::MpQuicScheduler::MabRate", UintegerValue(mrate)); 
-    // Config::SetDefault ("ns3::MpQuicScheduler::Select", UintegerValue(mselect)); 
 
-    
+
     Ptr<RateErrorModel> em = CreateObjectWithAttributes<RateErrorModel> (
     "RanVar", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=1.0]"),
     "ErrorRate", DoubleValue (stod(lossrate)));

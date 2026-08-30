@@ -53,7 +53,6 @@
 #include "ns3/tcp-congestion-ops.h"
 #include "ns3/tcp-bbr.h"
 #include "ns3/dash-module.h"
-#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <mutex>
@@ -63,25 +62,14 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("MmWaveNtnIabTcpDash");
 
-// Set to false to disable expensive packet-level tracing/logging and speed up simulations.
-static bool g_enableVerbosePacketTracing = false;
-
-// Global file streams for each layer
-std::ofstream tcpTxFile, tcpRxFile;
-std::ofstream udpL4TxFile, udpL4RxFile;
-std::ofstream ipv4L3TxFile, ipv4L3RxFile;
-std::ofstream p2pTxFile, p2pRxFile;
-
 // BBR CSV log file (shared across connections)
 std::ofstream g_bbrStatsCsvFile;
 std::mutex g_bbrStatsCsvMutex;
 
-// DASH trace files
 std::map<uint32_t, std::ofstream*> g_dashClientTxFiles;  // DASH client requests (Tx)
 std::map<uint32_t, std::ofstream*> g_dashClientRxFiles;  // DASH client video received via socket
 std::ofstream g_dashServerRxFile;  // DASH server requests received
 
-// Counters for DASH
 std::map<uint32_t, uint32_t> g_dashClientTxPackets;
 std::map<uint32_t, uint64_t> g_dashClientTxBytes;
 std::map<uint32_t, uint32_t> g_dashClientRxPackets;
@@ -109,51 +97,6 @@ double g_hoExecDelay = 0.0;
 // (src,tgt,oldRnti) tuple above is carried through these globals, so a second handover must not be
 // triggered while one is still pending; guarded in TriggerIabBackhaulHandover.
 bool g_hoPending = false;
-
-// Dump a full packet as a hex/ASCII table.
-void DumpPacketHex(std::ofstream& file, Ptr<const Packet> packet, const std::string& prefix)
-{
-  file << prefix << " Size=" << packet->GetSize() << " bytes" << std::endl;
-  
-  // Copy to avoid modifying the original packet.
-  Ptr<Packet> copy = packet->Copy();
-  
-  file << "Full packet hex dump:" << std::endl;
-  
-  uint8_t buffer[16];
-  uint32_t offset = 0;
-  
-  while (copy->GetSize() > 0)
-  {
-    uint32_t bytesToRead = std::min(16u, (uint32_t)copy->GetSize());
-    copy->CopyData(buffer, bytesToRead);
-    
-    // Print offset
-    file << std::hex << std::setw(8) << std::setfill('0') << offset << ": ";
-    
-    // Print hex bytes
-    for (uint32_t i = 0; i < 16; i++)
-    {
-      if (i < bytesToRead)
-        file << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i] << " ";
-      else
-        file << "   ";
-    }
-    
-    // Print ASCII representation
-    file << " |";
-    for (uint32_t i = 0; i < bytesToRead; i++)
-    {
-      char c = buffer[i];
-      file << (isprint(c) ? c : '.');
-    }
-    file << "|" << std::endl;
-    
-    copy->RemoveAtStart(bytesToRead);
-    offset += bytesToRead;
-  }
-  file << std::endl;
-}
 
 // DASH client Tx trace: client sends a segment request.
 void DashClientTxTrace(uint32_t nodeId, Ptr<const Packet> packet)
@@ -219,50 +162,6 @@ void DashServerRxTrace(Ptr<const Packet> packet, const Address& from)
                      << g_dashServerRxBytes << "\t"
                      << addr.GetIpv4() << "\t"
                      << addr.GetPort() << std::endl;
-}
-
-// TcpSocketBase Tx callback.
-void TcpSocketTxCallback(Ptr<const Packet> packet, const TcpHeader& header, Ptr<const TcpSocketBase> socket)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  NS_LOG_UNCOND("TcpSocketTxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, sequence_number: " << header.GetSequenceNumber());
-  
-  NS_LOG_UNCOND("TcpSocketTxCallback Packet details - Size: " << packet->GetSize() 
-            << ", Header size: " << header.GetSerializedSize()
-            << ", Payload size: " << (packet->GetSize() - header.GetSerializedSize()));
-  
-  if (!tcpTxFile.is_open())
-  {
-    tcpTxFile.open("tcp_socket_tx.txt", std::ios::out);
-    NS_LOG_UNCOND("TCP SOCKET TX file opened");
-  }
-  DumpPacketHex(tcpTxFile, packet, "TCP_SOCKET_TX SequenceNumber=" + std::to_string(header.GetSequenceNumber().GetValue()));
-  tcpTxFile.flush();
-}
-
-// TcpSocketBase Rx callback.
-void TcpSocketRxCallback(Ptr<const Packet> packet, const TcpHeader& header, Ptr<const TcpSocketBase> socket)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  NS_LOG_UNCOND("TcpSocketRxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, sequence_number: " << header.GetSequenceNumber());
-  
-  NS_LOG_UNCOND("TcpSocketRxCallback Packet details - Size: " << packet->GetSize() 
-            << ", Header size: " << header.GetSerializedSize()
-            << ", Payload size: " << (packet->GetSize() - header.GetSerializedSize()));
-  
-  if (!tcpRxFile.is_open())
-  {
-    tcpRxFile.open("tcp_socket_rx.txt", std::ios::out);
-    NS_LOG_UNCOND("TCP SOCKET RX file opened");
-  }
-  DumpPacketHex(tcpRxFile, packet, "TCP_SOCKET_RX SequenceNumber=" + std::to_string(header.GetSequenceNumber().GetValue()));
-  tcpRxFile.flush();
 }
 
 static void
@@ -433,96 +332,6 @@ static void ConnectTcpLayerTracesWithRetry(uint32_t retryCount)
     NS_LOG_UNCOND("TCP layer traces: hooked " << g_hookedTcpPaths.size() << " trace sources across all sockets");
 }
 
-void UdpL4TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  NS_LOG_UNCOND("UdpL4TxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, Interface: " << interface);
-  
-  NS_LOG_UNCOND("UdpL4TxCallback Packet buffer state - Size: " << packet->GetSize() 
-            << ", Available: " << packet->GetSize());
-  
-  if (!udpL4TxFile.is_open())
-  {
-    udpL4TxFile.open("udp_l4_tx_TCP.txt", std::ios::out);
-    NS_LOG_UNCOND("UDP L4 TX file opened");
-  }
-  DumpPacketHex(udpL4TxFile, packet, "UDP_L4_TX Interface=" + std::to_string(interface));
-  udpL4TxFile.flush();
-}
-
-void UdpL4RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  NS_LOG_UNCOND("UdpL4RxCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() 
-            << " bytes, Interface: " << interface);
-  
-  NS_LOG_UNCOND("UdpL4RxCallback Packet buffer state - Size: " << packet->GetSize() 
-            << ", Available: " << packet->GetSize());
-  
-  if (!udpL4RxFile.is_open())
-  {
-    udpL4RxFile.open("udp_l4_rx_TCP.txt", std::ios::out);
-    NS_LOG_UNCOND("UDP L4 RX file opened");
-  }
-  DumpPacketHex(udpL4RxFile, packet, "UDP_L4_RX Interface=" + std::to_string(interface));
-  udpL4RxFile.flush();
-}
-
-// IPv4 L3 layer callbacks
-void Ipv4L3TxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  if (!ipv4L3TxFile.is_open())
-  {
-    ipv4L3TxFile.open("ipv4_l3_tx_TCP.txt", std::ios::out);
-  }
-  DumpPacketHex(ipv4L3TxFile, packet, "IPV4_L3_TX Interface=" + std::to_string(interface));
-  ipv4L3TxFile.flush();
-}
-
-void Ipv4L3RxCallback(Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  if (!ipv4L3RxFile.is_open())
-  {
-    ipv4L3RxFile.open("ipv4_l3_rx_TCP.txt", std::ios::out);
-  }
-  DumpPacketHex(ipv4L3RxFile, packet, "IPV4_L3_RX Interface=" + std::to_string(interface));
-  ipv4L3RxFile.flush();
-}
-
-// Point-to-Point NetDevice callbacks
-void P2PTxCallback(Ptr<const Packet> packet)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  if (!p2pTxFile.is_open())
-  {
-    p2pTxFile.open("p2p_tx_TCP.txt", std::ios::out);
-  }
-  DumpPacketHex(p2pTxFile, packet, "P2P_TX");
-  p2pTxFile.flush();
-}
-
-void P2PRxCallback(Ptr<const Packet> packet)
-{
-  if (!g_enableVerbosePacketTracing) return;
-  
-  if (!p2pRxFile.is_open())
-  {
-    p2pRxFile.open("p2p_rx_TCP.txt", std::ios::out);
-  }
-  DumpPacketHex(p2pRxFile, packet, "P2P_RX");
-  p2pRxFile.flush();
-}
-
 void
 ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
 {
@@ -540,32 +349,13 @@ ConnectionEstablishedTraceSink(uint64_t imsi, uint16_t cellId, uint16_t rnti)
     outFile.close();
 }
 
-void PacketDropCallback(Ptr<const Packet> packet) {
-  NS_LOG_UNCOND("PacketDropCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() << " bytes");
-}
-
-// Custom packet trace callback to track buffer operations
-void PacketBufferTraceCallback(Ptr<const Packet> packet) {
-  if (!g_enableVerbosePacketTracing) return;
-  
-  NS_LOG_UNCOND("PacketBufferTraceCallback Time: " << Simulator::Now().GetSeconds() 
-            << "s, Packet size: " << packet->GetSize() << " bytes");
-  
-  NS_LOG_UNCOND("PacketBufferTraceCallback Buffer details - Size: " << packet->GetSize()
-            << ", Available: " << packet->GetSize());
-}
-
-// ============================================================================
-// IAB backhaul handover (3GPP inter-donor IAB-MT migration, NTN elevation-CHO)
-// ----------------------------------------------------------------------------
+// IAB backhaul handover (3GPP inter-donor IAB-MT migration, NTN elevation-CHO).
 // Triggers re-parenting of the IAB node's backhaul (its MT, an LteUeRrc) from the
 // serving donor satellite to a target donor satellite via the standard X2 handover
 // path (LteEnbRrc::SendHandoverRequest). No A3 measurement algorithm is used: per
 // 3GPP TR 38.821, LEO NTN uses elevation/time-based Conditional Handover, so the
 // trigger time is pre-scheduled from the elevation-crossing geometry. Wiring matches
 // the QUIC scenario so the TCP and QUIC results are directly comparable.
-// ============================================================================
 void
 IabHandoverStart (uint64_t imsi, uint16_t cellId, uint16_t rnti, uint16_t targetCellId)
 {
@@ -802,55 +592,23 @@ main (int argc, char *argv[])
   // RLC buffer configuration to prevent buffer overflow on NTN links.
   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-  // Config::SetDefault ("ns3::LteRlcAm::PollRetransmitTimer", TimeValue(MilliSeconds(1.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue(MilliSeconds(2.0)));
-  // Config::SetDefault ("ns3::LteRlcAm::StatusProhibitTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue(MicroSeconds(500)));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubcarriersPerChunk", UintegerValue (12));
-  
-  Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6)); 
+
+  Config::SetDefault ("ns3::MmWavePhyMacCommon::ChunkWidth", DoubleValue (1.389e6));
 
   // Keep default ChunkPerRB = 72 and ResourceBlockNum = 1 (required for TDMA)
 
 	Config::SetDefault ("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue (2));  // matched to the QUIC scenario for a fair comparison
-// 	//Config::SetDefault ("ns3::MmWaveBeamforming::LongTermUpdatePeriod", TimeValue (MilliSeconds (100.0)));
-// 	Config::SetDefault ("ns3::LteEnbRrc::SystemInformationPeriodicity", TimeValue (MilliSeconds (5.0)));
-// //	Config::SetDefault ("ns3::MmWavePropagationLossModel::ChannelStates", StringValue ("n"));
-// 	Config::SetDefault ("ns3::LteRlcAm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-//   Config::SetDefault ("ns3::LteRlcUm::ReportBufferStatusTimer", TimeValue (MicroSeconds (100.0)));
-  
-//   Config::SetDefault ("ns3::LteRlcUmLowLat::ReorderingTimeExpires", TimeValue (MilliSeconds (10.0)));
-//   Config::SetDefault ("ns3::LteRlcUm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
-// 	Config::SetDefault ("ns3::LteRlcAm::ReorderingTimer", TimeValue (MilliSeconds (10.0)));
-  
-//   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
   Config::SetDefault ("ns3::LteRlcUmLowLat::MaxTxBufferSize", UintegerValue (rlcBufSize * 1024 * 1024));
-//   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (10 * 1024 * 1024));
-//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::HarqEnabled", BooleanValue (true));
-//   Config::SetDefault ("ns3::MmWavePaddedHbfMacScheduler::CqiTimerThreshold", UintegerValue (100));
 
   Config::SetDefault ("ns3::MmWaveHelper::RlcAmEnabled", BooleanValue(rlcAm));
-  // Config::SetDefault ("ns3::MmWaveFlexTtiMacScheduler::CqiTimerThreshold", UintegerValue(100));
   Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::MmWave3gppPropagationLossModel"));
-  //Config::SetDefault("ns3::MmWaveHelper::PathlossModel", StringValue("ns3::FriisPropagationLossModel"));  
-  //Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWaveChannelRaytracing"));
   Config::SetDefault("ns3::MmWaveHelper::ChannelModel", StringValue("ns3::MmWave3gppChannel"));
   Config::SetDefault("ns3::MmWave3gppPropagationLossModel::NTNScenario", StringValue("Rural"));
-  //Config::SetDefault("ns3::MmWave3gppPropagationLossModel::Scenario", StringValue("RMa"));
-  
-  // ============================================================================
-  // TCP-SPECIFIC CONFIGURATION (Aligned with QUIC for Fair Comparison)
-  // ============================================================================
+
   // TCP parameters tuned for NTN scenarios (high RTT, potential packet loss) and matched to the
   // QUIC configuration for a fair comparison. Some QUIC parameters (MaxTrackedGaps, AckDelayExponent)
   // have no direct TCP equivalent, and some TCP parameters (TcpNoDelay) are protocol-specific.
 
-  // ============================================================================
-  // ACKNOWLEDGMENT PARAMETERS
-  // ============================================================================
-  
   // Delayed-ACK timeout set to 25 ms (RFC 9000 default; matches the QUIC kDelayedAckTimeout).
   Config::SetDefault("ns3::TcpSocket::DelAckTimeout", TimeValue(MilliSeconds(25)));
 
@@ -860,20 +618,9 @@ main (int argc, char *argv[])
   // Disable Nagle's algorithm for low latency. QUIC has no Nagle equivalent, so disabling it makes
   // TCP more comparable and avoids delaying small packets.
   Config::SetDefault("ns3::TcpSocket::TcpNoDelay", BooleanValue(true));
-  
-  // ============================================================================
-  // CONGESTION CONTROL PARAMETERS
-  // ============================================================================
-  
-  // TCP Congestion Control Configuration - Dynamic Selection
-  // QUIC: CcType = QuicNewReno (default)
-  // Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TcpNewReno::GetTypeId()));
+
   Config::SetDefault("ns3::TcpL4Protocol::SocketType", TypeIdValue(TypeId::LookupByName(ccAlgorithm)));
-  
-  // Optional: cap the initial slow-start threshold at 32 KB (~21 packets) to enter congestion
-  // avoidance sooner. Left disabled to match QUIC RFC compliance (default threshold is infinite).
-  // Config::SetDefault("ns3::TcpSocket::InitialSlowStartThreshold", UintegerValue(32*1024));
-  
+
   // Initial congestion window: 10 segments (matches QUIC's default 10*segmentSize).
   Config::SetDefault("ns3::TcpSocket::InitialCwnd", UintegerValue(10));
   
@@ -888,10 +635,7 @@ main (int argc, char *argv[])
   
   // Segment size (matches the QUIC InitialPacketSize).
   Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(packetSize));
-  
-  // ============================================================================
-  // BUFFER PARAMETERS (MATCHES QUIC)
-  // ============================================================================
+
   // TCP socket buffers: 64 MB, matched to the QUIC socket/stream buffers and flow-control windows
   // (ns3::QuicSocketBase::Socket*BufSize / MaxData / MaxStreamData, all 64 MB) so the comparison is
   // fair. 64 MB is ~120 s of buffering; TCP alone would be fine with far less.
@@ -901,21 +645,7 @@ main (int argc, char *argv[])
   // Enable pacing for TCP (to match QUIC).
   Config::SetDefault("ns3::TcpSocketState::EnablePacing", BooleanValue(true));
   Config::SetDefault("ns3::TcpSocketState::PaceInitialWindow", BooleanValue(true));
-  
-  // ============================================================================
-  // NOTE: QUIC-Specific Parameters (No TCP Equivalent)
-  // ============================================================================
-  // The following QUIC parameters don't have direct TCP equivalents:
-  // - MaxTrackedGaps (100): QUIC-specific ACK gap tracking
-  // - kMaxPacketsReceivedBeforeAckSend (10): QUIC-specific ACK frequency control
-  // - AckDelayExponent (2): QUIC-specific ACK delay encoding
-  // - kTimeReorderingFraction (9.0/8.0): QUIC-specific loss detection
-  // - kDefaultInitialRtt (333ms): QUIC initial RTT estimate (TCP measures from first packet)
-  //
-  // These are protocol-specific features; TCP handles the equivalent behavior via its own mechanisms.
- 
-  // Enable multi-beam functionality
-//  Config::SetDefault("ns3::MmWavePhyMacCommon::NumEnbLayers", UintegerValue(2));
+
   Config::SetDefault("ns3::MmWaveHelper::Scheduler", StringValue("ns3::MmWavePaddedHbfMacScheduler"));
 
   // Constrain the satellite backhaul to a realistic LEO capacity by rate-limiting the S1-U feeder
@@ -931,9 +661,6 @@ main (int argc, char *argv[])
   
   RngSeedManager::SetSeed (1);
   RngSeedManager::SetRun (run);
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolsPerSubframe", UintegerValue(240));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SubframePeriod", DoubleValue(1000));
-  // Config::SetDefault ("ns3::MmWavePhyMacCommon::SymbolPeriod", DoubleValue(1000/240));
   Ptr<MmWaveHelper> mmwaveHelper = CreateObject<MmWaveHelper> ();
   Ptr<MmWavePointToPointEpcHelper>  epcHelper = CreateObject<MmWavePointToPointEpcHelper> ();
   mmwaveHelper->SetEpcHelper (epcHelper);
@@ -1409,52 +1136,6 @@ main (int argc, char *argv[])
       });
     }
   
-  // Add TCP socket callback connections for debugging
-  NS_LOG_UNCOND("\n=== Adding TCP Socket Callback Connections ===");
-  
-  // Connect TCP socket callbacks for all nodes
-  for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
-  {
-    Ptr<Node> node = *it;
-    uint32_t nodeId = node->GetId();
-    
-    // Connect TCP socket Tx/Rx traces
-    std::ostringstream tcpTxPath;
-    tcpTxPath << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/*/Tx";
-    // Note: TcpSocketBase exposes Tx trace; guard by lookup.
-    if (Config::LookupMatches(tcpTxPath.str().c_str()).GetN() > 0)
-      {
-        Config::ConnectWithoutContextFailSafe(tcpTxPath.str(), MakeCallback(&TcpSocketTxCallback));
-      }
-    
-    std::ostringstream tcpRxPath;
-    tcpRxPath << "/NodeList/" << nodeId << "/$ns3::TcpL4Protocol/SocketList/*/Rx";
-    Config::ConnectWithoutContextFailSafe(tcpRxPath.str(), MakeCallback(&TcpSocketRxCallback));
-    
-    NS_LOG_UNCOND("  Added TCP socket traces for Node " << nodeId);
-  }
-  
-  // Add packet buffer monitoring traces
-  NS_LOG_UNCOND("\n=== Adding Packet Buffer Monitoring Traces ===");
-  
-  // Monitor packet operations on all nodes
-  for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it)
-  {
-    Ptr<Node> node = *it;
-    uint32_t nodeId = node->GetId();
-    
-    // Connect packet traces for debugging
-    std::ostringstream packetTxPath;
-    packetTxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Tx";
-    Config::ConnectWithoutContextFailSafe(packetTxPath.str(), MakeCallback(&PacketBufferTraceCallback));
-    
-    std::ostringstream packetRxPath;
-    packetRxPath << "/NodeList/" << nodeId << "/DeviceList/*/$ns3::PointToPointNetDevice/Rx";
-    Config::ConnectWithoutContextFailSafe(packetRxPath.str(), MakeCallback(&PacketBufferTraceCallback));
-    
-    NS_LOG_UNCOND("  Added packet buffer traces for Node " << nodeId);
-  }
-    
   std::string tracePrefix = "ntn_iab_tcp_dash";  // Keep variable for log statements
   NS_LOG_UNCOND("\n=== Trace Configuration ===");
   NS_LOG_UNCOND("TCP traces: Using TCP trace approach");
@@ -1506,16 +1187,6 @@ main (int argc, char *argv[])
   /*GtkConfigStore config;
   config.ConfigureAttributes();*/
   Simulator::Destroy();
-  
-  // Close all trace files
-  if (tcpTxFile.is_open()) tcpTxFile.close();
-  if (tcpRxFile.is_open()) tcpRxFile.close();
-  if (udpL4TxFile.is_open()) udpL4TxFile.close();
-  if (udpL4RxFile.is_open()) udpL4RxFile.close();
-  if (ipv4L3TxFile.is_open()) ipv4L3TxFile.close();
-  if (ipv4L3RxFile.is_open()) ipv4L3RxFile.close();
-  if (p2pTxFile.is_open()) p2pTxFile.close();
-  if (p2pRxFile.is_open()) p2pRxFile.close();
   
   // Close DASH trace files
   for (auto& pair : g_dashClientTxFiles)

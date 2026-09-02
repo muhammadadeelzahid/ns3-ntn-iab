@@ -103,11 +103,13 @@ Log any *new* deviation forced during the remaining transcription into this sect
 - Keep this file's checklist + the memory updated (these are notes/results, not git commits).
 - Re-provision walltime / resubmit if a job is killed by time limit (traces flush only on clean exit).
 
-**DO NOT COMMIT AUTOMATICALLY (user-approved).** The autonomous run implements, tests, and
-regenerates the paper results, leaving ALL changes **uncommitted** in the working tree on
-`bbr3-port`. No `git commit`, no push, no PR. After the results are regenerated, **STOP and present
-them for the user to approve**; commit only after explicit approval. (Milestone "commits" in this
-plan mean progress-log/notes updates, never `git commit`.)
+**COMMIT/BACKUP POLICY — UPDATED 2026-09-01 (user override for Grex downtime):** Grex goes down
+~06:00 CDT Wed Sep 2 (kills the array). User will NOT clone locally and delegated full autonomy:
+"make new decisions autonomously... conclude before 6 AM." So: **commit + push `bbr3-port` to GitHub
+as the durable off-cluster backup** (traces are gitignored; only code+results). Done once already
+(commit b2427e0, code). At the pre-6AM conclusion: strip BBR3_DEBUG (done), regenerate Table II from
+whatever seeds finished, force-add the small results files, commit + push again. No wait-for-approval
+(user unavailable during downtime); report the conclusion for review after the fact.
 
 **Surface a checkpoint (report, then keep going):**
 - First clean build. The 1-seed verdict. 22-seed integration + the new Table II numbers.

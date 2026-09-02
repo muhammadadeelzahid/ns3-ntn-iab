@@ -1,0 +1,8 @@
+Config         nseed  QoE_mean   QoE_med   Mbps   stall_s
+TCP NewReno       22     846.2     886.5   3.72
+TCP BBR (v1)      20    -719.3    -724.5   2.59
+TCP BBRv3         22     556.0     568.9   3.59
+QUIC NewReno      21     218.4     264.8   2.61
+QUIC BBR          22     248.0     244.1   2.15
+
+Ranking by mean QoE: TCP NewReno > TCP BBRv3 > QUIC BBR > QUIC NewReno > TCP BBR (v1)

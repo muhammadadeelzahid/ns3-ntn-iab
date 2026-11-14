@@ -2,7 +2,7 @@
 
 This repository is an **ns-3 codebase** that combines **Non-Terrestrial Networks (NTN)** and **Integrated Access and Backhaul (IAB)** on top of the ns-3 **mmWave** module, and includes end-to-end application experiments with **MPEG-DASH video streaming** over **TCP** and **QUIC**.
 
-The IAB node is backhauled by a **LEO-satellite feeder link** and can perform an **inter-satellite backhaul handover** as the serving satellite changes. On top of this, the DASH client supports a suite of **adaptive-bitrate (ABR) algorithms** (including BOLA), so video Quality of Experience can be evaluated against transport, congestion control, buffering, and handover conditions.
+The IAB node is backhauled by a **LEO-satellite feeder link** and can perform an **inter-satellite backhaul handover** as the serving satellite changes. On top of this, the DASH client supports a suite of **adaptive-bitrate (ABR) algorithms**, so video Quality of Experience can be evaluated against transport, congestion control, buffering, and handover conditions.
 
 For detailed methodology, analysis, and results related to this project, please refer to our article on [arXiv](https://arxiv.org/abs/2604.16634).
 

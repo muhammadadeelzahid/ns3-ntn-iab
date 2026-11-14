@@ -1,13 +1,19 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * ns-3 transcription of Linux kernel TCP BBRv3 (net/ipv4/tcp_bbr.c, BBR_VERSION 3).
- * Ground truth: bbr3_port/reference/linux_tcp_bbr_v3.c. See tcp-bbr3.h for the two documented
- * deviations (ECN stubbed inert; tx_in_flight approximated by rs.m_priorInFlight).
+ * tcp-bbr3.cc
  *
- * Unit convention: the kernel works in *packets*; ns-3's TcpSocketState works in *bytes*. This port
- * works in bytes throughout — kernel packet quantities are multiplied by MSS. Bandwidth is carried
- * as ns-3 DataRate (bits/s) instead of the kernel's pkt/us<<BW_SCALE fixed point. Gains are plain
- * doubles instead of <<BBR_SCALE fixed point.
+ * ns-3 implementation of TCP BBRv3, based on the Linux kernel BBR (BBR_VERSION 3,
+ * net/ipv4/tcp_bbr.c). The kernel source used as the reference while porting is kept in
+ * bbr3_port/reference/linux_tcp_bbr_v3.c; tcp-bbr3.h documents the two deviations from it
+ * (ECN stubbed inert, and tx_in_flight approximated by rs.m_priorInFlight).
+ *
+ * Unit convention: the kernel works in packets and fixed point, whereas ns-3's TcpSocketState
+ * works in bytes. This code works in bytes throughout (kernel packet quantities are multiplied
+ * by MSS). Bandwidth is carried as an ns-3 DataRate (bits/s) instead of the kernel's
+ * pkt/us<<BW_SCALE, and gains are plain doubles instead of <<BBR_SCALE fixed point.
+ *
+ * Created by: Muhammad Adeel Zahid <adeel.m.zahid@gmail.com>
+ * Created on: 2026-09-01
  *
  * This program is free software; you can redistribute it and/or modify it under the terms of the
  * GNU General Public License version 2 as published by the Free Software Foundation.
@@ -175,8 +181,8 @@ TcpBbr3::SetBbrState (BbrMode_t mode)
 
 // ---- bandwidth model -------------------------------------------------------------------------
 
-// kernel bbr_max_bw(): max(bw_hi[0], bw_hi[1]). Faithful 2-slot filter (NOT a windowed filter — a
-// windowed filter ages out the good sample and reintroduces BBRv1-style BtlBw decay/collapse).
+// kernel bbr_max_bw(): max(bw_hi[0], bw_hi[1]). This is a 2-slot filter, not a windowed one. A
+// windowed filter ages out the good sample and brings back the BBRv1-style BtlBw decay/collapse.
 DataRate
 TcpBbr3::bbr_max_bw () const
 {
@@ -1170,9 +1176,9 @@ TcpBbr3::bbr_update_cycle_phase (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpR
 
 // ---- cwnd ------------------------------------------------------------------------------------
 
-// kernel bbr_set_cwnd(): grow toward target (bdp+aggregation, quantized). NOTE: BBRv3 has NO
-// per-packet loss decrement here (unlike ns-3 BBRv1) — loss response is via inflight_lo/hi bounds
-// applied in bbr_bound_cwnd_for_inflight_model(). This is the key graceful-degradation property.
+// kernel bbr_set_cwnd(): grow toward target (bdp+aggregation, quantized). Note that BBRv3 has no
+// per-packet loss decrement here (unlike ns-3 BBRv1); the loss response is via the inflight_lo/hi
+// bounds applied in bbr_bound_cwnd_for_inflight_model(). This is the key graceful-degradation property.
 void
 TcpBbr3::bbr_set_cwnd (Ptr<TcpSocketState> tcb, const TcpRateOps::TcpRateSample &rs)
 {
@@ -1389,7 +1395,7 @@ TcpBbr3::CwndEvent (Ptr<TcpSocketState> tcb, const TcpSocketState::TcpCAEvent_t 
     }
 }
 
-// kernel bbr_ssthresh(): entering recovery — save cwnd + undo state.
+// kernel bbr_ssthresh(): on entering recovery, save cwnd and undo state.
 uint32_t
 TcpBbr3::GetSsThresh (Ptr<const TcpSocketState> tcb, uint32_t bytesInFlight)
 {

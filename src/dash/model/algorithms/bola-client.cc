@@ -1,14 +1,13 @@
 /*
  * bola-client.cc
  *
- * BOLA (Buffer Occupancy based Lyapunov Algorithm) ABR controller, ported faithfully from the
- * dash.js reference player's BolaRule (Dash-Industry-Forum/dash.js,
- * src/streaming/rules/abr/BolaRule.js), itself based on Spiteri et al., INFOCOM 2016.
+ * BOLA (Buffer Occupancy based Lyapunov Algorithm) ABR controller, based on
+ * Spiteri et al., INFOCOM 2016.
  *
- * Decision: pick the representation maximizing  s_i = (Vp*(utility_i - 1 + gp) - bufferLevel)/bitrate_i,
+ * Pick the representation maximizing  s_i = (Vp*(utility_i - 1 + gp) - bufferLevel)/bitrate_i,
  * with  utility_i = ln(bitrate_i/bitrate_0) + 1,  gp = (utility_max - 1)/(bufferTime/MIN_BUFFER - 1),
  * Vp = MIN_BUFFER/gp,  bufferTime = max(targetBuffer, MIN_BUFFER + MIN_BUFFER_PER_LEVEL*N).
- * It is buffer-based and needs no bandwidth estimate.
+ * Buffer-based: no bandwidth estimate needed.
  */
 
 #include "bola-client.h"
@@ -23,7 +22,7 @@
 #include <cmath>
 #include <vector>
 
-// dash.js BolaRule constants (seconds)
+// BOLA buffer thresholds (seconds)
 #define BOLA_MINIMUM_BUFFER_S 10.0
 #define BOLA_MINIMUM_BUFFER_PER_BITRATE_LEVEL_S 2.0
 
@@ -71,8 +70,7 @@ BolaClient::CalcNextSegment(uint32_t currRate, uint32_t& nextRate, Time& delay)
         utilities[i] = std::log((double)rates[i]) - std::log((double)rates[0]) + 1.0;
     }
 
-    // BOLA parameters, chosen so the lowest rate is preferred at minimum buffer and the highest at
-    // bufferTime (dash.js BolaRule).
+    // BOLA parameters: the lowest rate is preferred at minimum buffer, the highest at bufferTime.
     const double bufferTarget = m_target_dt.GetSeconds();
     const double bufferTime =
         std::max(bufferTarget, BOLA_MINIMUM_BUFFER_S + BOLA_MINIMUM_BUFFER_PER_BITRATE_LEVEL_S * N);

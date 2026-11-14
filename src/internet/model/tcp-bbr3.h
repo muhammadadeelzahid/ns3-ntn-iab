@@ -1,18 +1,25 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * ns-3 transcription of Linux kernel TCP BBRv3 (net/ipv4/tcp_bbr.c, BBR_VERSION 3,
- * google/bbr v3 branch). Ground-truth source: bbr3_port/reference/linux_tcp_bbr_v3.c.
+ * tcp-bbr3.h
  *
- * This is a faithful port of the kernel algorithm into ns-3's TcpCongestionOps /
- * TcpRateOps framework. Two documented deviations forced by ns-3.27's rate sampler:
- *   (1) ECN path is stubbed inert (no delivered_ce accounting in TcpRateSample) -> loss-only BBRv3.
+ * ns-3 implementation of TCP BBRv3 (based on the Linux kernel BBR_VERSION 3 in
+ * net/ipv4/tcp_bbr.c, google/bbr v3 branch). The kernel source used as the reference
+ * while porting is kept in bbr3_port/reference/linux_tcp_bbr_v3.c.
+ *
+ * The algorithm is ported into ns-3's TcpCongestionOps / TcpRateOps framework. Two
+ * deviations are forced by ns-3.27's rate sampler:
+ *   (1) the ECN path is stubbed inert (no delivered_ce accounting in TcpRateSample),
+ *       so this is loss-only BBRv3;
  *   (2) inflight-hi-from-lost-packet uses rs.m_priorInFlight as a proxy for the kernel's
- *       per-packet rs->tx_in_flight (not tracked per-skb in ns-3).
+ *       per-packet rs->tx_in_flight, which is not tracked per-skb in ns-3.
  *
  * Kernel fixed-point note: the kernel scales gains by BBR_UNIT=256 (BBR_SCALE=8) and bandwidth
- * by 2^24 (BW_SCALE). Here gains/fractions are plain doubles and bandwidth is DataRate (bits/s);
- * each constant is annotated with the kernel expression it reproduces (including kernel integer
- * truncation, so behaviour matches).
+ * by 2^24 (BW_SCALE). Here gains and fractions are plain doubles and bandwidth is a DataRate
+ * (bits/s); each constant is annotated with the kernel expression it reproduces, including the
+ * kernel integer truncation, so the behaviour matches.
+ *
+ * Created by: Muhammad Adeel Zahid <adeel.m.zahid@gmail.com>
+ * Created on: 2026-09-01
  *
  * This program is free software; you can redistribute it and/or modify it under the terms of the
  * GNU General Public License version 2 as published by the Free Software Foundation.
@@ -33,7 +40,7 @@ namespace ns3 {
 
 /**
  * \ingroup congestionOps
- * \brief BBRv3 congestion control (faithful port of Linux net/ipv4/tcp_bbr.c, BBR_VERSION 3).
+ * \brief BBRv3 congestion control, ported from Linux net/ipv4/tcp_bbr.c (BBR_VERSION 3).
  */
 class TcpBbr3 : public TcpCongestionOps
 {
